@@ -1,0 +1,74 @@
+[
+ {
+  "description": "meta/classes-recipe/autotools.bbclass:59:warning:oelint.tabs.notabs:Don't use tabs use spaces [branch:true]",
+  "check_name": "oelint.tabs.notabs",
+  "fingerprint": "f4be5be044cc4a07f72c5d7ab315729354815ef687864a639a45fbdd67afc275",
+  "location": {
+   "path": "meta/classes-recipe/autotools.bbclass",
+   "lines": {
+    "begin": 59
+   }
+  },
+  "severity": "minor"
+ },
+ {
+  "description": "meta/classes-recipe/autotools.bbclass:59:info:oelint.vars.multilineident:On a multiline assignment, line indent is desirable. 1 set, 0 desirable [branch:true]",
+  "check_name": "oelint.vars.multilineident",
+  "fingerprint": "6d3b0aa31c1b5c320bf1f2417949ab70850c8a75067820a0e701c2b9ef7d0aca",
+  "location": {
+   "path": "meta/classes-recipe/autotools.bbclass",
+   "lines": {
+    "begin": 59
+   }
+  },
+  "severity": "info"
+ },
+ {
+  "description": "meta/classes-recipe/ptest.bbclass:94:error:oelint.vars.inconspaces:Assignment should be 'VAR:append = \" foo\"' not 'VAR:append = \"foo\"' [branch:true]",
+  "check_name": "oelint.vars.inconspaces",
+  "fingerprint": "1a936cd6ab0f438f93e71336b81fc0ed8cf8b8f2565c30e88b5316316bd17f37",
+  "location": {
+   "path": "meta/classes-recipe/ptest.bbclass",
+   "lines": {
+    "begin": 94
+   }
+  },
+  "severity": "critical"
+ },
+ {
+  "description": "meta/recipes-support/curl/curl_8.22.0.bb:3:info:oelint.vars.multilineident:On a multiline assignment, line indent is desirable. 0 set, 15 desirable [branch:true]",
+  "check_name": "oelint.vars.multilineident",
+  "fingerprint": "e22ed4c948416d702547db6c28452a701e06d58bac49ea4592ef99dae90a357b",
+  "location": {
+   "path": "meta/recipes-support/curl/curl_8.22.0.bb",
+   "lines": {
+    "begin": 3
+   }
+  },
+  "severity": "info"
+ },
+ {
+  "description": "meta/recipes-support/curl/curl_8.22.0.bb:84:warning:oelint.vars.pathhardcode.sysconfdir:'${sysconfdir}' should be used instead of '/etc' [branch:true]",
+  "check_name": "oelint.vars.pathhardcode.sysconfdir",
+  "fingerprint": "6bc09385af05d938aa760baf3ac541610646a22b53c984232f4801f07db4016d",
+  "location": {
+   "path": "meta/recipes-support/curl/curl_8.22.0.bb",
+   "lines": {
+    "begin": 84
+   }
+  },
+  "severity": "minor"
+ },
+ {
+  "description": "meta/recipes-support/curl/curl_8.22.0.bb:113:error:oelint.task.nomkdir:'mkdir' shall not be used in do_install. Use 'install' [branch:true]",
+  "check_name": "oelint.task.nomkdir",
+  "fingerprint": "537fbfdac8c6e538620c3447f07deb6827f6658569bfd83e767cde1ec68e33e1",
+  "location": {
+   "path": "meta/recipes-support/curl/curl_8.22.0.bb",
+   "lines": {
+    "begin": 113
+   }
+  },
+  "severity": "critical"
+ }
+]

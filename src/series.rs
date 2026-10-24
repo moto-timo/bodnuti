@@ -29,6 +29,26 @@ impl Patch {
     pub fn is_cover_letter(&self) -> bool {
         self.index == 0 && self.total > 0
     }
+
+    /// Repository paths the patch changes, after the change.
+    pub fn files(&self) -> Vec<String> {
+        self.changes().into_iter().map(|(_, new)| new).collect()
+    }
+
+    /// `(old, new)` path pairs from the `diff --git` lines; they differ for a
+    /// rename, which every recipe version upgrade is.
+    // ponytail: paths containing " b/" or quoted paths are misread; OE
+    // metadata paths do not use them.
+    pub fn changes(&self) -> Vec<(String, String)> {
+        String::from_utf8_lossy(&self.raw)
+            .lines()
+            .filter_map(|l| l.strip_prefix("diff --git a/"))
+            .filter_map(|l| {
+                l.split_once(" b/")
+                    .map(|(a, b)| (a.to_string(), b.to_string()))
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -257,6 +277,22 @@ mod tests {
         assert_eq!(patch.subject, "[PATCH] a very long subject line");
         assert_eq!(patch.message_id.as_deref(), Some("abc@host"));
         assert_eq!((patch.index, patch.total), (1, 1));
+    }
+
+    #[test]
+    fn lists_changed_files() {
+        let raw = "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] foo\n\n---\n\
+                   diff --git a/meta/recipes-x/foo/foo_1.0.bb b/meta/recipes-x/foo/foo_1.1.bb\n\
+                   similarity index 90%\n\
+                   diff --git a/meta/recipes-x/foo/files/fix.patch b/meta/recipes-x/foo/files/fix.patch\n";
+        let patch = parse_message(raw.as_bytes().to_vec()).unwrap();
+        assert_eq!(
+            patch.files(),
+            vec![
+                "meta/recipes-x/foo/foo_1.1.bb",
+                "meta/recipes-x/foo/files/fix.patch"
+            ]
+        );
     }
 
     #[test]
