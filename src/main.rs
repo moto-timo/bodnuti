@@ -171,9 +171,12 @@ fn check(args: CheckArgs) -> Result<Report> {
     let workspace = Workspace::create(&args.repo, &base)?;
     let mut tool_errors = Vec::new();
 
+    let oecore = args.oecore.unwrap_or_else(|| args.repo.clone());
+    let same = |a: &PathBuf, b: &PathBuf| a.canonicalize().ok() == b.canonicalize().ok();
     let patchtest = Patchtest {
         python: args.python.clone(),
-        oecore: args.oecore.unwrap_or_else(|| args.repo.clone()),
+        oecore_target: same(&oecore, &args.repo),
+        oecore,
     };
     let (mut findings, patchtest_counts) = match patchtest.run(&args.repo, &workspace.base, &series)
     {

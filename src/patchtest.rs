@@ -23,7 +23,15 @@ pub struct Patchtest {
     /// An openembedded-core checkout providing `scripts/patchtest` and its
     /// test suites. Patches to other layers are still checked with them.
     pub oecore: PathBuf,
+    /// Whether the series targets openembedded-core itself. patchtest's
+    /// target-mailing-list test assumes it does: it fails any patch to
+    /// `documentation/` or with a `[meta-*]` subject tag, which is every
+    /// patch on the docs and meta-openembedded lists.
+    pub oecore_target: bool,
 }
+
+/// Tests that only make sense when the target is openembedded-core.
+const OECORE_ONLY: &[&str] = &["test_mbox.test_target_mailing_list"];
 
 #[derive(Debug, Default, Serialize, PartialEq)]
 pub struct Counts {
@@ -93,7 +101,14 @@ impl Patchtest {
             let log = input.join(format!("{:04}.patch.testresult", patch.index));
             let text = std::fs::read_to_string(&log).unwrap_or_default();
             let before = (counts.pass, counts.fail, counts.skip);
-            findings.extend(parse(&text, patch.index, &mut counts));
+            for finding in parse(&text, patch.index, &mut counts) {
+                if !self.oecore_target && OECORE_ONLY.contains(&finding.check.as_str()) {
+                    counts.fail -= 1;
+                    counts.skip += 1;
+                } else {
+                    findings.push(finding);
+                }
+            }
             if before == (counts.pass, counts.fail, counts.skip) {
                 bail!(
                     "patchtest produced no results for patch {}: {}",
