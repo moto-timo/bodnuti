@@ -8,7 +8,11 @@ checks OpenEmbedded already has, and reports only what a patch series adds:
 - **oelint-adv**: recipe, class, include and configuration style and
   correctness rules;
 - **shellcheck**: shell in task functions and shipped scripts, run as
-  `/bin/sh`, which is dash on many hosts.
+  `/bin/sh`, which is dash on many hosts;
+- **leftover files**: patch files a series drops from `SRC_URI` but leaves in
+  the layer;
+- **documentation** (yocto-docs, BitBake manual): the Sphinx build,
+  sphinx-lint, and yocto-docs' check-glossaries and check-confusables.
 
 Each checker runs on the tree before and after the series, so existing
 problems are not blamed on the author. See [`designs/DESIGN.md`](designs/DESIGN.md)
@@ -32,10 +36,13 @@ Exit status: 0 clean, 1 findings, 2 a checker could not run or bad input.
 
 ### In a container
 
-The image carries oelint-adv, b4, shellcheck and patchtest's Python
-requirements. Mount a clone of the layer that bodnuti may write worktrees
-into, not your working checkout, and an openembedded-core checkout for
-patchtest:
+The image carries oelint-adv, b4, shellcheck, patchtest's Python
+requirements, and Sphinx with the extensions yocto-docs uses. Mount a clone
+of the layer that bodnuti may write worktrees into, not your working
+checkout. It must not be a `git clone --shared` of a host repository: its
+object alternates point at host paths the container cannot see. For layers
+other than openembedded-core, also mount an openembedded-core checkout for
+patchtest and set `BODNUTI_OECORE` to it:
 
 ```
 docker build -t bodnuti -f Containerfile .
@@ -46,8 +53,9 @@ docker run --rm \
 
 ### On the host
 
-Install oelint-adv, b4 and patchtest's requirements
-(`meta/lib/patchtest/requirements.txt`) in a venv and point bodnuti at it with
-`--python`, `--oelint` and `--b4` (or `BODNUTI_PYTHON`, `BODNUTI_OELINT`,
-`BODNUTI_B4`). shellcheck runs from its container image by default; set
+Install oelint-adv, b4, patchtest's requirements
+(`meta/lib/patchtest/requirements.txt`) and, for documentation, the packages
+in yocto-docs' `documentation/Pipfile` plus sphinx-lint, in one venv. Point
+bodnuti at it with `--python`, `--oelint` and `--b4` (or `BODNUTI_PYTHON`,
+`BODNUTI_OELINT`, `BODNUTI_B4`). shellcheck runs from its container image by default; set
 `--shellcheck shellcheck` to use a local binary.
