@@ -113,7 +113,7 @@ mod tests {
     use crate::series::Series;
 
     fn report(findings: Vec<Finding>, tool_errors: Vec<ToolError>) -> Report {
-        let raw = "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] foo: bar\n\nbody\n";
+        let raw = "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] foo: bar\n\nbody\ndiff --git a/x b/x\n";
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), raw).unwrap();
         Report {

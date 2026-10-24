@@ -5,6 +5,7 @@
 //! and the messages are ordered by their `n/m` subject counter.
 
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -69,11 +70,35 @@ impl Series {
         Series::from_messages(messages)
     }
 
+    /// Fetches a series from lore by Message-ID or lore URL.
+    ///
+    /// `b4 mbox` is used rather than `b4 am`, because `b4 am` rewrites
+    /// subjects to `[PATCH n/m]` and drops tags such as `[scarthgap]` that
+    /// select the target branch. The thread it returns includes replies,
+    /// which `from_messages` drops.
+    pub fn fetch(b4: &str, id: &str) -> Result<Series> {
+        let output = Command::new(b4)
+            .args(["--quiet", "mbox", "-o", "-"])
+            .arg(id.trim_matches(|c| c == '<' || c == '>'))
+            .output()
+            .with_context(|| format!("running {b4}"))?;
+        if !output.status.success() || output.stdout.is_empty() {
+            bail!(
+                "{b4} could not fetch {id}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Series::from_messages(split_mbox(&output.stdout))
+    }
+
     fn from_messages(messages: Vec<Vec<u8>>) -> Result<Series> {
         let mut cover = None;
         let mut patches = Vec::new();
         for raw in messages {
             let patch = parse_message(raw)?;
+            if !patch.is_cover_letter() && !is_patch(&patch) {
+                continue;
+            }
             if patch.is_cover_letter() {
                 cover = Some(patch);
             } else {
@@ -101,6 +126,22 @@ impl Series {
         }
         out
     }
+}
+
+/// A reply, or any message without a diff, is part of the thread but not of
+/// the series.
+fn is_patch(patch: &Patch) -> bool {
+    let subject = patch.subject.to_ascii_lowercase();
+    let reply = ["re:", "aw:", "fwd:", "fw:"]
+        .iter()
+        .any(|p| subject.starts_with(p));
+    !reply && patch.raw.windows(12).any(|w| w == b"\ndiff --git ")
+}
+
+/// Whether a command-line input names a series on lore rather than a file:
+/// a Message-ID, with or without angle brackets, or an https URL.
+pub fn is_remote(input: &str) -> bool {
+    !Path::new(input).exists() && (input.starts_with("https://") || input.contains('@'))
 }
 
 /// Splits an mbox on separator lines that start a message.
@@ -227,11 +268,14 @@ mod tests {
     #[test]
     fn splits_a_b4_mbox_and_orders_by_counter() {
         let mbox = [
-            message("[PATCH v2 2/2] curl: fix ptest", "second\n"),
+            message(
+                "[PATCH v2 2/2] curl: fix ptest",
+                "second\ndiff --git a/a b/a\n",
+            ),
             message("[PATCH v2 0/2] curl fixes", "cover\n"),
             message(
                 "[PATCH v2 1/2] curl: upgrade 8.9.1 -> 8.10.0",
-                "From a quoted line stays in the body\n",
+                "From a quoted line stays in the body\ndiff --git a/a b/a\n",
             ),
         ]
         .concat();
@@ -293,6 +337,36 @@ mod tests {
                 "meta/recipes-x/foo/files/fix.patch"
             ]
         );
+    }
+
+    #[test]
+    fn drops_replies_from_a_thread() {
+        let mbox = [
+            message(
+                "[scarthgap][PATCH 1/1] dropbear: fix",
+                "x\ndiff --git a/a b/a\n",
+            ),
+            message(
+                "Re: [scarthgap][PATCH 1/1] dropbear: fix",
+                "> diff --git a/a b/a\nLooks good\n",
+            ),
+        ]
+        .concat();
+        let series = Series::from_messages(split_mbox(mbox.as_bytes())).unwrap();
+        assert_eq!(series.patches.len(), 1);
+        assert_eq!(series.branch_candidates(), vec!["scarthgap"]);
+    }
+
+    #[test]
+    fn tells_message_ids_from_files() {
+        assert!(is_remote("20261023192932.159420-1-a@example.com"));
+        assert!(is_remote("<abc@host>"));
+        assert!(is_remote(
+            "https://lore.kernel.org/openembedded-core/abc@host/"
+        ));
+        assert!(!is_remote("series.mbx"));
+        let file = tempfile::NamedTempFile::new().unwrap();
+        assert!(!is_remote(file.path().to_str().unwrap()));
     }
 
     #[test]

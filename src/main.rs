@@ -66,9 +66,13 @@ struct CheckArgs {
     /// Print the report as JSON instead of text.
     #[arg(long)]
     json: bool,
-    /// mbox files: one b4 mbox, or one `git format-patch` file per patch.
+    /// The b4 program, used to fetch a series by Message-ID.
+    #[arg(long, default_value = "b4")]
+    b4: String,
+    /// A lore Message-ID or URL of any patch in the series, or mbox files:
+    /// one b4 mbox, or one `git format-patch` file per patch.
     #[arg(required = true)]
-    mbox: Vec<PathBuf>,
+    input: Vec<String>,
 }
 
 /// The oelint-adv release for a base like `refs/remotes/origin/scarthgap`.
@@ -152,7 +156,10 @@ fn lint(
 }
 
 fn check(args: CheckArgs) -> Result<Report> {
-    let series = Series::load(&args.mbox)?;
+    let series = match args.input.as_slice() {
+        [one] if series::is_remote(one) => Series::fetch(&args.b4, one)?,
+        inputs => Series::load(inputs)?,
+    };
     let base = resolve_base(&args.repo, &series, args.base.as_deref());
     let workspace = Workspace::create(&args.repo, &base)?;
     let mut tool_errors = Vec::new();
