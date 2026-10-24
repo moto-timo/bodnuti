@@ -13,12 +13,6 @@ use tempfile::TempDir;
 use crate::git;
 use crate::series::Series;
 
-/// Git identity for the commits `git am` creates; they never leave the worktree.
-const COMMITTER: [(&str, &str); 2] = [
-    ("GIT_COMMITTER_NAME", "bodnuti"),
-    ("GIT_COMMITTER_EMAIL", "bodnuti@localhost"),
-];
-
 pub struct Workspace {
     repo: PathBuf,
     dir: TempDir,
@@ -73,7 +67,7 @@ impl Workspace {
             let file = self.dir.path().join(format!("{:04}.patch", patch.index));
             std::fs::write(&file, &patch.raw)?;
             let output = git::command(&tree)
-                .envs(COMMITTER)
+                .envs(git::COMMITTER)
                 // Repository hooks are not part of the patch under review.
                 .args(["-c", "core.hooksPath=/dev/null", "am", "--3way", "--quiet"])
                 .arg(&file)

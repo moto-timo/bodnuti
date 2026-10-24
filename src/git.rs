@@ -21,6 +21,14 @@ const REPOSITORY_ENV: &[&str] = &[
     "GIT_PREFIX",
 ];
 
+/// Git identity for the commits `git am` creates in throwaway trees, here
+/// and inside patchtest. Containers and CI hosts often have no git identity
+/// configured, and git refuses to commit without one.
+pub const COMMITTER: [(&str, &str); 2] = [
+    ("GIT_COMMITTER_NAME", "bodnuti"),
+    ("GIT_COMMITTER_EMAIL", "bodnuti@localhost"),
+];
+
 /// A git command that runs in `dir`, with repository overrides removed.
 pub fn command(dir: &Path) -> Command {
     let mut cmd = Command::new("git");

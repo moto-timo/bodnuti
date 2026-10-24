@@ -67,6 +67,7 @@ impl Patchtest {
 
         let mut cmd = Command::new(&self.python);
         git::strip_repository_env(&mut cmd);
+        cmd.envs(git::COMMITTER);
         let output = cmd
             .arg(&script)
             .arg("--directory")
@@ -105,7 +106,13 @@ impl Patchtest {
     }
 }
 
+/// The most telling part of patchtest's stderr: git's own `fatal:` line when
+/// there is one, since patchtest's final traceback only reports that an
+/// earlier step failed, else the last lines.
 fn tail(text: &str) -> String {
+    if let Some(fatal) = text.lines().find(|l| l.contains("fatal: ")) {
+        return fatal.trim().trim_end_matches('\'').to_string();
+    }
     let lines: Vec<&str> = text.trim().lines().collect();
     lines[lines.len().saturating_sub(5)..].join("\n")
 }
