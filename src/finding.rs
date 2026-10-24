@@ -1,6 +1,7 @@
 //! What a check reports, independent of the tool that found it.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde::Serialize;
 
@@ -9,6 +10,7 @@ use serde::Serialize;
 pub enum Tool {
     Patchtest,
     Oelint,
+    Shellcheck,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -31,6 +33,13 @@ pub struct Finding {
     pub file: Option<String>,
     pub line: Option<u32>,
     pub message: String,
+}
+
+/// A tool run on the touched files of a tree, once before the series and
+/// once after it, so that only what the series adds is reported.
+pub trait Checker {
+    fn tool(&self) -> Tool;
+    fn lint(&self, tree: &Path, files: &[String]) -> anyhow::Result<Vec<Finding>>;
 }
 
 /// A checker that could not produce a result. Never the author's fault, and

@@ -11,7 +11,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use crate::finding::{Finding, Severity, Tool};
+use crate::finding::{Checker, Finding, Severity, Tool};
 
 pub struct Oelint {
     pub program: String,
@@ -33,6 +33,16 @@ fn needs_stub(path: &str) -> bool {
     path.ends_with(".inc") || path.ends_with(".conf")
 }
 
+impl Checker for Oelint {
+    fn tool(&self) -> Tool {
+        Tool::Oelint
+    }
+
+    fn lint(&self, tree: &Path, files: &[String]) -> Result<Vec<Finding>> {
+        self.lint_files(tree, files)
+    }
+}
+
 impl Oelint {
     /// Lints the given repository-relative files that exist in `tree`.
     ///
@@ -40,7 +50,7 @@ impl Oelint {
     /// `require`s it. The stub lives outside the tree, so its own findings
     /// (missing LICENSE and the like) are reported under its path and are
     /// dropped by the caller's touched-files filter.
-    pub fn lint(&self, tree: &Path, files: &[String]) -> Result<Vec<Finding>> {
+    fn lint_files(&self, tree: &Path, files: &[String]) -> Result<Vec<Finding>> {
         // The stub's require path and oelint-adv's --relpaths must agree on
         // one spelling of the tree. On macOS /var is a symlink to
         // /private/var, and a mismatch turns repository paths into

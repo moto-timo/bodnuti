@@ -5,6 +5,7 @@ mod git;
 mod oelint;
 mod patchtest;
 mod series;
+mod shell;
 mod workspace;
 
 use std::collections::HashMap;
@@ -15,10 +16,11 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
-use crate::finding::{Finding, Tool, ToolError, new_findings};
+use crate::finding::{Checker, Finding, Tool, ToolError, new_findings};
 use crate::oelint::Oelint;
 use crate::patchtest::{Counts, Patchtest};
 use crate::series::Series;
+use crate::shell::ShellCheck;
 use crate::workspace::{Applied, Workspace, resolve_base};
 
 #[derive(Parser)]
@@ -54,6 +56,9 @@ struct CheckArgs {
     /// target repository, when it is openembedded-core.
     #[arg(long)]
     oecore: Option<PathBuf>,
+    /// The shellcheck command, split on whitespace.
+    #[arg(long, default_value = "docker run --rm -i koalaman/shellcheck:v0.10.0")]
+    shellcheck: String,
     /// The Python interpreter with patchtest's requirements installed.
     #[arg(long, default_value = "python3")]
     python: String,
@@ -100,9 +105,9 @@ fn head_paths(series: &Series) -> HashMap<String, String> {
     head_of
 }
 
-/// Runs oelint-adv before and after the series and keeps what is new.
+/// Runs every checker before and after the series and keeps what is new.
 fn lint(
-    oelint: &Oelint,
+    checkers: &[&dyn Checker],
     workspace: &Workspace,
     series: &Series,
     tool_errors: &mut Vec<ToolError>,
@@ -111,29 +116,36 @@ fn lint(
     let head_of = head_paths(series);
     let base_files: Vec<String> = head_of.keys().cloned().collect();
 
-    let base_findings = oelint.lint(&workspace.path(), &base_files);
+    let tree = workspace.path();
+    let before: Vec<_> = checkers
+        .iter()
+        .map(|c| c.lint(&tree, &base_files))
+        .collect();
     let applied = workspace.apply(series)?;
-    let head_findings = oelint.lint(&workspace.path(), &files);
+    let after: Vec<_> = checkers.iter().map(|c| c.lint(&tree, &files)).collect();
 
     let mut findings = Vec::new();
-    match (base_findings, head_findings) {
-        (Ok(mut before), Ok(after)) => {
-            // Compare a renamed file's findings under its new name, or every
-            // existing problem in an upgraded recipe would count as new.
-            for f in &mut before {
-                if let Some(head) = f.file.as_ref().and_then(|p| head_of.get(p)) {
-                    f.file = Some(head.clone());
+    for ((checker, before), after) in checkers.iter().zip(before).zip(after) {
+        match (before, after) {
+            (Ok(mut before), Ok(after)) => {
+                // Compare a renamed file's findings under its new name, or
+                // every existing problem in an upgraded recipe would count as
+                // new.
+                for f in &mut before {
+                    if let Some(head) = f.file.as_ref().and_then(|p| head_of.get(p)) {
+                        f.file = Some(head.clone());
+                    }
                 }
+                let after = after
+                    .into_iter()
+                    .filter(|f| f.file.as_ref().is_some_and(|p| files.contains(p)));
+                findings.extend(new_findings(&before, after.collect()));
             }
-            let after = after
-                .into_iter()
-                .filter(|f| f.file.as_ref().is_some_and(|p| files.contains(p)));
-            findings = new_findings(&before, after.collect());
+            (Err(err), _) | (_, Err(err)) => tool_errors.push(ToolError {
+                tool: checker.tool(),
+                message: format!("{err:#}"),
+            }),
         }
-        (Err(err), _) | (_, Err(err)) => tool_errors.push(ToolError {
-            tool: Tool::Oelint,
-            message: format!("{err:#}"),
-        }),
     }
     for finding in &mut findings {
         finding.patch = series
@@ -172,7 +184,19 @@ fn check(args: CheckArgs) -> Result<Report> {
         program: args.oelint,
         release: args.release.unwrap_or_else(|| release_for(&base)),
     };
-    let (applied, lint_findings) = lint(&oelint, &workspace, &series, &mut tool_errors)?;
+    let shellcheck = ShellCheck {
+        command: args
+            .shellcheck
+            .split_whitespace()
+            .map(String::from)
+            .collect(),
+    };
+    let (applied, lint_findings) = lint(
+        &[&oelint, &shellcheck],
+        &workspace,
+        &series,
+        &mut tool_errors,
+    )?;
     findings.extend(lint_findings);
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
