@@ -11,6 +11,8 @@ pub enum Tool {
     Patchtest,
     Oelint,
     Shellcheck,
+    /// Checks bodnuti implements itself.
+    Bodnuti,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]

@@ -7,6 +7,7 @@ mod patchtest;
 mod report;
 mod series;
 mod shell;
+mod srcuri;
 mod workspace;
 
 use std::collections::HashMap;
@@ -195,12 +196,13 @@ fn check(args: CheckArgs) -> Result<Report> {
             .map(String::from)
             .collect(),
     };
-    let (applied, lint_findings) = lint(
+    let (applied, mut lint_findings) = lint(
         &[&oelint, &shellcheck],
         &workspace,
         &series,
         &mut tool_errors,
     )?;
+    lint_findings.extend(srcuri::leftover_files(&workspace.path(), &series));
     findings.extend(lint_findings);
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
