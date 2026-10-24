@@ -34,6 +34,25 @@ bodnuti check --repo <layer checkout> <Message-ID | lore URL | mbox files...>
 
 Exit status: 0 clean, 1 findings, 2 a checker could not run or bad input.
 
+### With pip
+
+`pyproject.toml` packages the binary as a Python wheel with
+[maturin](https://www.maturin.rs/). The wheel pulls in oelint-adv, b4 and
+patchtest's requirements; the `docs` extra adds Sphinx and sphinx-lint.
+
+```
+pip install maturin
+maturin build --release
+python3 -m venv ~/.venvs/bodnuti
+~/.venvs/bodnuti/bin/pip install 'target/wheels/bodnuti-<version>-<platform>.whl[docs]'
+~/.venvs/bodnuti/bin/bodnuti check --repo <layer> <Message-ID>
+```
+
+The venv does not need to be activated: bodnuti uses the `python3`,
+`oelint-adv` and `b4` installed beside it. b4 depends on pygit2, which may
+have no prebuilt wheel for the newest Python release; use the release before
+it if pip tries to compile pygit2.
+
 ### In a container
 
 The image carries oelint-adv, b4, shellcheck, patchtest's Python

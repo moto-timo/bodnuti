@@ -1,0 +1,39 @@
+# Ships the bodnuti binary as a Python wheel (maturin bindings = "bin"), so
+# `pip install bodnuti` installs it into the same venv as the Python tools it
+# drives. The binary is not a Python extension; nothing is imported.
+
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "bodnuti"
+description = "Automated patch review for the Yocto Project and OpenEmbedded"
+readme = "README.md"
+requires-python = ">=3.9"
+dynamic = ["version"]
+# oelint-adv and b4 are run by bodnuti; the rest is what patchtest's mbox and
+# patch suites import. patchtest itself comes from an openembedded-core
+# checkout (--oecore).
+dependencies = [
+    "oelint-adv>=9.11.2",
+    "b4>=0.16.0",
+    "pyparsing>=3.0.9",
+    "unidiff",
+    "GitPython",
+    "Jinja2",
+]
+
+[project.optional-dependencies]
+# What yocto-docs' documentation/Pipfile lists, plus sphinx-lint.
+docs = [
+    "Sphinx",
+    "sphinx-rtd-theme",
+    "sphinx-copybutton",
+    "sphinxcontrib-svg2pdfconverter>=2.0.0",
+    "PyYAML",
+    "sphinx-lint",
+]
+
+[tool.maturin]
+bindings = "bin"
