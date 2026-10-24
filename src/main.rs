@@ -4,6 +4,7 @@ mod finding;
 mod git;
 mod oelint;
 mod patchtest;
+mod report;
 mod series;
 mod shell;
 mod workspace;
@@ -14,11 +15,11 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use serde::Serialize;
 
 use crate::finding::{Checker, Finding, Tool, ToolError, new_findings};
 use crate::oelint::Oelint;
-use crate::patchtest::{Counts, Patchtest};
+use crate::patchtest::Patchtest;
+use crate::report::Report;
 use crate::series::Series;
 use crate::shell::ShellCheck;
 use crate::workspace::{Applied, Workspace, resolve_base};
@@ -62,20 +63,12 @@ struct CheckArgs {
     /// The Python interpreter with patchtest's requirements installed.
     #[arg(long, default_value = "python3")]
     python: String,
+    /// Print the report as JSON instead of text.
+    #[arg(long)]
+    json: bool,
     /// mbox files: one b4 mbox, or one `git format-patch` file per patch.
     #[arg(required = true)]
     mbox: Vec<PathBuf>,
-}
-
-#[derive(Serialize)]
-struct Report {
-    series: Series,
-    base: String,
-    applied: Vec<Applied>,
-    findings: Vec<Finding>,
-    tool_errors: Vec<ToolError>,
-    /// patchtest results that are not findings: passes and skips.
-    patchtest: Option<Counts>,
 }
 
 /// The oelint-adv release for a base like `refs/remotes/origin/scarthgap`.
@@ -213,31 +206,27 @@ fn check(args: CheckArgs) -> Result<Report> {
 }
 
 fn main() -> ExitCode {
-    let result = match Cli::parse().command {
-        Command::Check(args) => check(args),
-    };
-    match result {
-        Ok(report) => {
-            match serde_json::to_string_pretty(&report) {
-                Ok(json) => println!("{json}"),
-                Err(err) => {
-                    eprintln!("bodnuti: {err}");
-                    return ExitCode::from(2);
-                }
-            }
-            if !report.tool_errors.is_empty() {
-                ExitCode::from(2)
-            } else if !report.findings.is_empty() {
-                ExitCode::from(1)
-            } else {
-                ExitCode::SUCCESS
-            }
-        }
+    let Command::Check(args) = Cli::parse().command;
+    let json = args.json;
+    let report = match check(args) {
+        Ok(report) => report,
         Err(err) => {
             eprintln!("bodnuti: {err:#}");
-            ExitCode::from(2)
+            return ExitCode::from(2);
         }
+    };
+    if json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(text) => println!("{text}"),
+            Err(err) => {
+                eprintln!("bodnuti: {err}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        print!("{}", report.text());
     }
+    ExitCode::from(report.exit_code())
 }
 
 #[cfg(test)]
