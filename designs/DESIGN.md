@@ -158,11 +158,31 @@ bitbake and docs (`test_target_mailing_list` knows those). For other layers
 (`--pattern`). Those are layer-agnostic. `test_metadata` needs the layer in
 `bblayers.conf` and is turned on per target later.
 
-Cost: tinfoil parsing takes minutes on a cold cache. One persistent build
-directory per (target, branch), reused across runs so bitbake's parse
-cache stays warm, keeps a warm run in the tens of seconds. Runs that share a build
-directory must not overlap; phase 1 is single-run, so this is noted, not
-built.
+**The metadata suite is deferred.** It was prototyped in a container
+(October 2026). The prototype ran OE-Core plus meta-selftest, a bitbake
+checkout matching the base date, the Yocto host packages, and no network:
+
+- It works: a full parse and the suite took about 18 s on a warm cache.
+- It needs `BB_NO_NETWORK = "1"` and an empty `CONNECTIVITY_CHECK_URIS`, or
+  the sanity checker fails without network access.
+- It needs a case-sensitive TMPDIR, so a container volume, not a macOS bind
+  mount.
+- patchtest must come from `--oecore`, not from the tree at the base: older
+  patchtest crashes on a detached HEAD.
+- It only sees recipes the default MACHINE parses. On the barebox benchmark
+  commit it reported "No modified recipes", because target barebox is skipped
+  for qemux86-64.
+
+Its unique checks are therefore partly blind, and bodnuti already covers the
+rest at no cost:
+
+- LICENSE and SUMMARY presence: oelint-adv's mandatory-variable rules.
+- Leftover patch files: bodnuti's own check (§3.4a), which works for every
+  recipe.
+
+The remaining unique checks, LIC_FILES_CHKSUM changes not mentioned in the
+commit message and CVE_CHECK_IGNORE use, are worth adding later as cheap
+diff-based checks of the same kind, rather than through tinfoil.
 
 ### 3.4 oelint-adv
 
@@ -188,11 +208,26 @@ statically. It does not need bitbake.
 4. Map the file of each new finding to the patch in the series that last
    touched it, for attribution.
 
-oelint-adv is stricter than oe-core's actual review norms; for example, it
-flags variable ordering that oe-core does not enforce. Phase 1 ships a
-`--rules` profile per target (a list of suppressed IDs) and starts out
-conservative. The aim is that maintainers trust the output, not maximum
-coverage.
+oelint-adv is stricter than oe-core's actual review norms. A built-in
+suppression list (implemented) removes the rules that fired on 25
+consecutive merged OE-Core commits:
+
+- variable ordering, FILES and SECTION overrides, indentation, and
+  out-of-context variables;
+- `homepageping`, which needs the network and gives results that vary
+  between runs;
+- `bbclass.underscores`, an artifact of the stub recipe.
+
+On the next 25 commits, held out from that choice, 23 are clean. The aim is
+that maintainers trust the output, not maximum coverage.
+
+### 3.4a Leftover patch files (implemented)
+
+When a series removes `file://NAME` from a recipe, include or append, no
+metadata file in that recipe directory still uses it, and the file is still
+in the directory, bodnuti reports a leftover. It reads the diff and the
+tree, needs no bitbake, and works for every recipe whatever MACHINE parses
+it.
 
 ### 3.5 Shell
 
