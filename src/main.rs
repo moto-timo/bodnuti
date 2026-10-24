@@ -51,23 +51,27 @@ struct CheckArgs {
     #[arg(long)]
     release: Option<String>,
     /// The oelint-adv program to run.
-    #[arg(long, default_value = "oelint-adv")]
+    #[arg(long, env = "BODNUTI_OELINT", default_value = "oelint-adv")]
     oelint: String,
     /// An openembedded-core checkout providing patchtest. Default: the
     /// target repository, when it is openembedded-core.
-    #[arg(long)]
+    #[arg(long, env = "BODNUTI_OECORE")]
     oecore: Option<PathBuf>,
     /// The shellcheck command, split on whitespace.
-    #[arg(long, default_value = "docker run --rm -i koalaman/shellcheck:v0.10.0")]
+    #[arg(
+        long,
+        env = "BODNUTI_SHELLCHECK",
+        default_value = "docker run --rm -i koalaman/shellcheck:v0.10.0"
+    )]
     shellcheck: String,
     /// The Python interpreter with patchtest's requirements installed.
-    #[arg(long, default_value = "python3")]
+    #[arg(long, env = "BODNUTI_PYTHON", default_value = "python3")]
     python: String,
     /// Print the report as JSON instead of text.
     #[arg(long)]
     json: bool,
     /// The b4 program, used to fetch a series by Message-ID.
-    #[arg(long, default_value = "b4")]
+    #[arg(long, env = "BODNUTI_B4", default_value = "b4")]
     b4: String,
     /// A lore Message-ID or URL of any patch in the series, or mbox files:
     /// one b4 mbox, or one `git format-patch` file per patch.
