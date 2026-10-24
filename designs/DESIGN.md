@@ -15,8 +15,9 @@ structured report. LLM review comes later and builds on that report.
 ### 1.1 Goals (phase 1)
 
 1. `bodnuti check <input>` takes a lore Message-ID, a URL, or local mbox files.
-   It runs **patchtest**, **oelint-adv** and a shell linter on the series and
-   emits findings as JSON plus a human-readable text report.
+   It runs **patchtest**, **oelint-adv** and a shell linter on recipe
+   patches, and the upstream Sphinx checks on documentation patches. It emits
+   findings as JSON plus a human-readable text report.
 2. Report only what the series introduces. A recipe that already had oelint
    warnings must not blame the patch author for them.
 3. Reproducible execution in a Linux container. bitbake/tinfoil, which
@@ -85,6 +86,7 @@ src/
   patchtest.rs   run patchtest, parse PASS/FAIL/SKIP lines
   oelint.rs      run oelint-adv, parse, delta
   shell.rs       extract shell from tasks and scripts, run shellcheck, parse, delta
+  docs.rs        Sphinx build, sphinx-lint, check-glossaries, Vale; parse, delta
   report.rs      text rendering
 ```
 
@@ -95,7 +97,7 @@ runtime: the work is sequential subprocess calls, so tokio adds nothing yet.
 ### 3.2 Finding model
 
 ```rust
-pub enum Tool { Patchtest, Oelint, Shellcheck, Llm }  // Llm: phase 3 only
+pub enum Tool { Patchtest, Oelint, Shellcheck, Sphinx, SphinxLint, Glossary, Vale, Llm }  // Llm: phase 3 only
 pub enum Severity { Error, Warning, Info }
 
 pub struct Finding {
@@ -202,16 +204,51 @@ OE defect.
 The scanner is heuristic and does not parse BitBake fully. A task it cannot
 extract is skipped and logged, never reported as a finding.
 
-### 3.6 Execution environment
+### 3.6 Documentation (yocto-docs, BitBake manual)
+
+yocto-docs (`documentation/`) and the BitBake user manual (`doc/` in the
+bitbake tree) are Sphinx projects in reStructuredText. Recipe checkers do
+not apply to them. These checks do, all taken from the upstream
+`documentation/Makefile` rather than invented:
+
+| Check | Command | Catches |
+|---|---|---|
+| Build | `sphinx-build -W --keep-going -j auto -w <log>` (the Makefile's `SPHINXOPTS`), html builder | every Sphinx warning: broken `:ref:` and `:doc:` targets, `:term:` references to variables missing from `ref-manual/variables.rst`, unknown roles and directives, toctree errors, duplicate labels |
+| Lint | `sphinx-lint` | rST syntax: malformed roles, stray or unbalanced backticks, bad indentation of directives |
+| Glossary | `tools/check-glossaries --docs-dir .` | glossary entries out of order or missing from the index |
+| Style | `vale --no-wrap` with the repository's `.vale.ini`, excluding `migration-guides/release-notes-*.rst` as the Makefile does | prose style (RedHat, proselint, write-good, alex, Readability, Joblint) |
+
+The BitBake manual's `doc/Makefile` defines only the `-W` build. For
+bitbake, bodnuti runs the build and `sphinx-lint`, and skips the glossary
+check and Vale. Those are yocto-docs tooling, and holding the BitBake
+manual to them would invent rules its maintainers never adopted.
+
+Every check runs on base and head, and only new results are reported, using the
+delta rule of §3.4. Sphinx warnings are keyed by file, warning text and
+target, ignoring line numbers. Vale is far noisier than the others, so by
+default only `error`-level alerts are reported. `suggestion` and `warning`
+alerts are counted in the summary but are not findings.
+
+The base build runs once per base commit, and its warning log and doctrees
+are cached. A patch that touches no `.rst`, `conf.py`, template or static
+file skips the docs checks.
+
+Patchtest still applies to documentation patches: its mbox and patch tests
+(Signed-off-by, shortlog, target list) are repository-agnostic, and
+`test_target_mailing_list` already knows the docs list. Its `test_metadata`
+tests do not apply.
+
+### 3.7 Execution environment
 
 A `Containerfile` (Debian/Ubuntu base) bundles:
-the bodnuti binary, git, b4, shellcheck, Python with oelint-adv, the patchtest
+the bodnuti binary, git, b4, shellcheck, Vale, Python with oelint-adv,
+Sphinx and sphinx-lint (pinned from yocto-docs' `Pipfile.lock`), the patchtest
 requirements (`meta/lib/patchtest/requirements.txt`), and the bitbake host
 dependencies. Repos and build directories live on a mounted cache volume. On
 macOS, the documented path is `podman run … bodnuti check <msgid>`. Native
 Linux can run the binary directly.
 
-### 3.7 Untrusted input
+### 3.8 Untrusted input
 
 Patches come from arbitrary senders. Phase 1 never executes patched code:
 
@@ -223,6 +260,14 @@ Patches come from arbitrary senders. Phase 1 never executes patched code:
   container, with no network (`--network none` after the fetch step), a
   read-only root, and an unprivileged user. Running it unconfined on a host is
   not supported.
+- Building documentation executes Python from the tree under test:
+  `conf.py`, any Sphinx extension it loads, `set_versions.py` and
+  `tools/check-glossaries`. A patch that changes them changes what runs.
+  The docs checks therefore run in the same confined container as
+  `test_metadata`. The helper scripts (`set_versions.py`,
+  `check-glossaries`) are always taken from the base commit, never from the
+  patch. A patch that modifies `conf.py` or an extension is reported as
+  such, and its head build runs only inside that container.
 - Subject text, file names, and Message-IDs go to subprocesses as argv
   elements, never through a shell.
 
@@ -286,14 +331,19 @@ Each layer runs only when the layers before it leave something to judge.
 | Layer | What it does | Tokens per patch |
 |---|---|---|
 | 0. Skip duplicates (phase 2) | Skip patches whose `patch-id` was already checked; treat AUH upgrade patches as a known pattern | 0 |
-| 1. Deterministic checks (phase 1) | patchtest, oelint-adv, shellcheck; new findings only | 0 |
+| 1. Deterministic checks (phase 1) | patchtest, oelint-adv, shellcheck; for documentation, Sphinx `-W`, sphinx-lint, check-glossaries and Vale; new findings only | 0 |
 | 2. Context gathering | Collect what an agent would fetch with tools: the touched recipe whole, its `.inc` and `.bbappend` files, the classes it inherits, and `git grep` hits in the layer for each changed function and variable name, under a fixed size cap | 0 |
 | 3. One review call | One request per patch, no tools, structured JSON output. The system prompt and the OE guides come first and are cached. Then come the diff, the layer 2 context, and the layer 1 findings stated as facts the model must not repeat | ~15k in, ~1.5k out |
 | 4. Escalation | Only for patches touching classes, `lib/oe`, `bitbake.conf` or a CVE fix, or when layer 3 reports low confidence: one Opus call with at most 5 tool turns | ~60k in, ~5k out, on ~10-20% of patches |
 
 Layer 3 has no pre-screen, no planning call and no per-stage fan-out. The
 guides it needs are chosen deterministically from the file types the patch
-touches (recipe, class, Python, shell, patch file, docs).
+touches (recipe, class, Python, shell, patch file, docs). For
+documentation, the guide covers what the build cannot check: technical
+accuracy against the current code (a variable's default, a class's
+behaviour, a command's options), and whether the change reaches every
+release-specific page it should, such as the migration guide for a
+behaviour change.
 
 ### 6.3 Cost
 
@@ -364,7 +414,7 @@ sashiko's engine.
    Proposal: start from a run over the last ~200 merged oe-core commits and
    suppress any ID whose findings maintainers merged anyway.
 3. **meta-patchtest guest mode:** upstream's "guest" mode runs patchtest in a
-   QEMU image. Is the container (§3.6) isolation enough for the tinfoil
+   QEMU image. Is the container (§3.7) isolation enough for the tinfoil
    step, or should phase 2 adopt the guest image?
 4. **Branch detection:** subject tags cover `[scarthgap]`-style stable patches.
    Is a fallback to `git am --3way` on master plus a "did not apply" finding
