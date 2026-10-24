@@ -25,10 +25,16 @@ const REPOSITORY_ENV: &[&str] = &[
 pub fn command(dir: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(dir);
+    strip_repository_env(&mut cmd);
+    cmd
+}
+
+/// Removes the repository overrides from a command that runs git itself,
+/// such as patchtest.
+pub fn strip_repository_env(cmd: &mut Command) {
     for var in REPOSITORY_ENV {
         cmd.env_remove(var);
     }
-    cmd
 }
 
 /// Runs git in `dir` and returns trimmed stdout, or an error carrying stderr.

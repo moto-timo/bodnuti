@@ -3,6 +3,7 @@
 mod finding;
 mod git;
 mod oelint;
+mod patchtest;
 mod series;
 mod workspace;
 
@@ -11,11 +12,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
 use crate::finding::{Finding, Tool, ToolError, new_findings};
 use crate::oelint::Oelint;
+use crate::patchtest::{Counts, Patchtest};
 use crate::series::Series;
 use crate::workspace::{Applied, Workspace, resolve_base};
 
@@ -29,25 +31,35 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Check a patch series given as mbox files.
-    Check {
-        /// The layer repository the series targets.
-        #[arg(long)]
-        repo: PathBuf,
-        /// Commit to apply the series to. Default: a branch named by a subject
-        /// tag such as [scarthgap], else origin/HEAD, else HEAD.
-        #[arg(long)]
-        base: Option<String>,
-        /// oelint-adv release. Default: the base branch name when the base is
-        /// a release branch, else latest.
-        #[arg(long)]
-        release: Option<String>,
-        /// The oelint-adv program to run.
-        #[arg(long, default_value = "oelint-adv")]
-        oelint: String,
-        /// mbox files: one b4 mbox, or one `git format-patch` file per patch.
-        #[arg(required = true)]
-        mbox: Vec<PathBuf>,
-    },
+    Check(CheckArgs),
+}
+
+#[derive(Args)]
+struct CheckArgs {
+    /// The layer repository the series targets.
+    #[arg(long)]
+    repo: PathBuf,
+    /// Commit to apply the series to. Default: a branch named by a subject
+    /// tag such as [scarthgap], else origin/HEAD, else HEAD.
+    #[arg(long)]
+    base: Option<String>,
+    /// oelint-adv release. Default: the base branch name when the base is a
+    /// release branch, else latest.
+    #[arg(long)]
+    release: Option<String>,
+    /// The oelint-adv program to run.
+    #[arg(long, default_value = "oelint-adv")]
+    oelint: String,
+    /// An openembedded-core checkout providing patchtest. Default: the
+    /// target repository, when it is openembedded-core.
+    #[arg(long)]
+    oecore: Option<PathBuf>,
+    /// The Python interpreter with patchtest's requirements installed.
+    #[arg(long, default_value = "python3")]
+    python: String,
+    /// mbox files: one b4 mbox, or one `git format-patch` file per patch.
+    #[arg(required = true)]
+    mbox: Vec<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -57,6 +69,8 @@ struct Report {
     applied: Vec<Applied>,
     findings: Vec<Finding>,
     tool_errors: Vec<ToolError>,
+    /// patchtest results that are not findings: passes and skips.
+    patchtest: Option<Counts>,
 }
 
 /// The oelint-adv release for a base like `refs/remotes/origin/scarthgap`.
@@ -86,27 +100,19 @@ fn head_paths(series: &Series) -> HashMap<String, String> {
     head_of
 }
 
-fn check(
-    repo: PathBuf,
-    base: Option<String>,
-    release: Option<String>,
-    oelint: String,
-    mbox: Vec<PathBuf>,
-) -> Result<Report> {
-    let series = Series::load(&mbox)?;
-    let base = resolve_base(&repo, &series, base.as_deref());
-    let oelint = Oelint {
-        program: oelint,
-        release: release.unwrap_or_else(|| release_for(&base)),
-    };
+/// Runs oelint-adv before and after the series and keeps what is new.
+fn lint(
+    oelint: &Oelint,
+    workspace: &Workspace,
+    series: &Series,
+    tool_errors: &mut Vec<ToolError>,
+) -> Result<(Vec<Applied>, Vec<Finding>)> {
     let files: Vec<String> = series.patches.iter().flat_map(|p| p.files()).collect();
-    let head_of = head_paths(&series);
+    let head_of = head_paths(series);
     let base_files: Vec<String> = head_of.keys().cloned().collect();
 
-    let workspace = Workspace::create(&repo, &base)?;
-    let mut tool_errors = Vec::new();
     let base_findings = oelint.lint(&workspace.path(), &base_files);
-    let applied = workspace.apply(&series)?;
+    let applied = workspace.apply(series)?;
     let head_findings = oelint.lint(&workspace.path(), &files);
 
     let mut findings = Vec::new();
@@ -122,7 +128,7 @@ fn check(
             let after = after
                 .into_iter()
                 .filter(|f| f.file.as_ref().is_some_and(|p| files.contains(p)));
-            findings.extend(new_findings(&before, after.collect()));
+            findings = new_findings(&before, after.collect());
         }
         (Err(err), _) | (_, Err(err)) => tool_errors.push(ToolError {
             tool: Tool::Oelint,
@@ -137,7 +143,40 @@ fn check(
             .find(|p| finding.file.as_ref().is_some_and(|f| p.files().contains(f)))
             .map(|p| p.index);
     }
-    findings.sort_by(|a, b| (a.severity, &a.file, a.line).cmp(&(b.severity, &b.file, b.line)));
+    Ok((applied, findings))
+}
+
+fn check(args: CheckArgs) -> Result<Report> {
+    let series = Series::load(&args.mbox)?;
+    let base = resolve_base(&args.repo, &series, args.base.as_deref());
+    let workspace = Workspace::create(&args.repo, &base)?;
+    let mut tool_errors = Vec::new();
+
+    let patchtest = Patchtest {
+        python: args.python,
+        oecore: args.oecore.unwrap_or_else(|| args.repo.clone()),
+    };
+    let (mut findings, patchtest_counts) = match patchtest.run(&args.repo, &workspace.base, &series)
+    {
+        Ok((findings, counts)) => (findings, Some(counts)),
+        Err(err) => {
+            tool_errors.push(ToolError {
+                tool: Tool::Patchtest,
+                message: format!("{err:#}"),
+            });
+            (Vec::new(), None)
+        }
+    };
+
+    let oelint = Oelint {
+        program: args.oelint,
+        release: args.release.unwrap_or_else(|| release_for(&base)),
+    };
+    let (applied, lint_findings) = lint(&oelint, &workspace, &series, &mut tool_errors)?;
+    findings.extend(lint_findings);
+    findings.sort_by(|a, b| {
+        (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
+    });
 
     Ok(Report {
         series,
@@ -145,18 +184,13 @@ fn check(
         applied,
         findings,
         tool_errors,
+        patchtest: patchtest_counts,
     })
 }
 
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
-        Command::Check {
-            repo,
-            base,
-            release,
-            oelint,
-            mbox,
-        } => check(repo, base, release, oelint, mbox),
+        Command::Check(args) => check(args),
     };
     match result {
         Ok(report) => {
