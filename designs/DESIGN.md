@@ -134,19 +134,23 @@ live in `meta/lib/patchtest/tests/`:
   initialized build directory.
 - `test_python_pylint.py`: pylint delta on changed `.py` files.
 
-Invocation, once per patch file, from inside an `oe-init-build-env` shell:
+Invocation (implemented), once for the whole series:
 
 ```
-patchtest --patch <n.patch> --repodir <worktree> \
-          --testdir <oe-core>/meta/lib/patchtest/tests --base-commit <base>
+python3 <oe-core>/scripts/patchtest --directory <patches> --repodir <shared clone> \
+        --testdir <oe-core>/meta/lib/patchtest/tests --base-commit <base> \
+        --pattern 'test_[mp][ab]*.py' --log-results
 ```
 
-Output lines have the form `{PASS|FAIL|SKIP}: <description>[: <issue>] (<test.id>)`.
-`FAIL` becomes a `Finding`. `PASS` and `SKIP` are counted in the report and
-are not findings. A test **error** (`addError`) only prints a traceback and
-writes no result line. bodnuti therefore treats "non-zero exit and no result
-lines" or "fewer result lines than expected" as a `ToolError`, never as a
-clean pass.
+- The pattern selects exactly `test_mbox.py` and `test_patch.py`.
+- patchtest creates and deletes branches in `--repodir`, so it gets a
+  `git clone --shared` rather than the user's checkout.
+- Results are read from the per-patch `<n>.patch.testresult` files, whose
+  lines have the form `{PASS|FAIL|SKIP}: <description>[: <issue>] (<test.id>)`.
+  `FAIL` becomes a `Finding`; `PASS` and `SKIP` are counted.
+- The exit status is useless: it is 2 whenever the pre-merge phase finds no
+  tests, whether the tests pass or fail. A traceback on stderr, or a patch
+  with no result lines, is a `ToolError`, never a clean pass.
 
 Which suite applies to which target: patchtest's suite is written for oe-core,
 bitbake and docs (`test_target_mailing_list` knows those). For other layers
@@ -165,11 +169,18 @@ built.
 oelint-adv lints `.bb`, `.bbappend`, `.bbclass`, `.inc` and `.conf` files
 statically. It does not need bitbake.
 
-1. Collect the recipe files the series touches (`git diff --name-only base..head`).
-   Expand each touched `.inc` or `.bbappend` to its recipe group, because
-   oelint-adv resolves includes and appends across the files passed together.
-2. Run on **base** (files that existed) and on **head**:
-   `oelint-adv --quiet --relpaths --release <branch> --messageformat '{path}:{line}:{severity}:{id}:{msg}' <files>`
+1. Collect the metadata files the series touches, from the patches' own
+   `diff --git` lines, so the base can be linted before anything is applied.
+   Renames are followed across patches: a recipe upgrade renames the recipe,
+   and its base findings must be compared under the new name.
+2. Run on **base** and on **head** (implemented):
+   `oelint-adv --quiet --relpaths --release <branch|latest> --outputformat gitlab-codequality --output <file> <files>`
+   - oelint-adv reports nothing for a `.inc` or `.conf` file on its own. Each
+     is linted through a stub recipe, outside the tree, that `require`s it.
+   - oelint-adv also reports problems in classes and includes a recipe pulls
+     in. Only findings in touched files are kept.
+   - Paths are canonicalized first: on macOS `/var` is a symlink, and a
+     mismatch turns repository paths into `../../var/...`.
 3. Delta: a head finding is new when its `(path, id, msg)` key does not occur
    in the base set. Line numbers are left out of the key because patches move
    lines. The key is a multiset: three base copies against four head copies
@@ -196,10 +207,17 @@ OE defect.
      scanner;
    - changed files under `files/` or a recipe directory that have a shell
      shebang.
-2. Replace `${VAR}` BitBake expansions with a placeholder so shellcheck does
-   not report them as unset shell variables.
-3. Run `shellcheck --shell=sh --format=json`, on base and head, using the
-   same delta rule as oelint (§3.4).
+2. Prepare metadata shell (implemented): blank every line outside shell
+   functions so line numbers stay the file's own, rename BitBake function
+   names (`do_install:append`) to valid shell names, track here-documents
+   (their bodies may start a line with `}`), replace inline Python `${@...}`
+   with a variable expansion, and exclude SC2154 (unassigned variable),
+   because BitBake expands its variables before the shell runs.
+3. Run `shellcheck --format=json1 --severity=warning --shell <sh|dash|bash> -`
+   on stdin, on base and head, using the same delta rule as oelint (§3.4). It
+   runs from the pinned `koalaman/shellcheck:v0.10.0` image. A shellcheck
+   parse error means nothing in that input was checked, so it is a
+   `ToolError`.
 
 The scanner is heuristic and does not parse BitBake fully. A task it cannot
 extract is skipped and logged, never reported as a finding.
@@ -278,6 +296,20 @@ Patches come from arbitrary senders. Phase 1 never executes patched code:
   such, and its head build runs only inside that container.
 - Subject text, file names, and Message-IDs go to subprocesses as argv
   elements, never through a shell.
+
+### 3.9 Rust and Python
+
+The OE tooling bodnuti drives is Python: patchtest, oelint-adv, bitbake and
+tinfoil, Sphinx. bodnuti stays a Rust program that runs them as
+subprocesses. The places where PyO3 or maturin could join the two were
+weighed as follows.
+
+| Option | Gives | Decision |
+|---|---|---|
+| maturin `bindings = "bin"`: ship the bodnuti binary in a Python wheel | `pip install bodnuti` into the same venv as oelint-adv and patchtest's requirements; no Rust toolchain needed to install | **Adopt** at the end of phase 1: a `pyproject.toml` and wheel builds in CI |
+| PyO3 extension module exposing `check()` and the series parser | Python callers (the patchtest service, Patchwork hooks, autobuilder scripts) use bodnuti as a library | **Defer** until such a caller exists |
+| Embedding oelint-adv through PyO3 | Saves about 1-2 s of Python start-up per run; no JSON parsing | **Reject.** It ties the build to Python headers and versions, and an oelint-adv crash or hang would take bodnuti down. Untrusted patch input is safer behind a process boundary |
+| Embedding patchtest, bitbake or tinfoil | Same, plus structured unittest results | **Reject.** They are GPL-2.0-only, and tinfoil executes code from the patch, which must stay in the confined container (§3.8) |
 
 ## 4. Output
 
