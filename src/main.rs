@@ -53,8 +53,9 @@ struct CheckArgs {
     #[arg(long)]
     release: Option<String>,
     /// The oelint-adv program to run.
-    #[arg(long, env = "BODNUTI_OELINT", default_value = "oelint-adv")]
-    oelint: String,
+    /// Default: oelint-adv beside the bodnuti executable, else on PATH.
+    #[arg(long, env = "BODNUTI_OELINT")]
+    oelint: Option<String>,
     /// An openembedded-core checkout providing patchtest. Default: the
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
@@ -67,14 +68,16 @@ struct CheckArgs {
     )]
     shellcheck: String,
     /// The Python interpreter with patchtest's requirements installed.
-    #[arg(long, env = "BODNUTI_PYTHON", default_value = "python3")]
-    python: String,
+    /// Default: python3 beside the bodnuti executable, else on PATH.
+    #[arg(long, env = "BODNUTI_PYTHON")]
+    python: Option<String>,
     /// Print the report as JSON instead of text.
     #[arg(long)]
     json: bool,
     /// The b4 program, used to fetch a series by Message-ID.
-    #[arg(long, env = "BODNUTI_B4", default_value = "b4")]
-    b4: String,
+    /// Default: b4 beside the bodnuti executable, else on PATH.
+    #[arg(long, env = "BODNUTI_B4")]
+    b4: Option<String>,
     /// A lore Message-ID or URL of any patch in the series, or mbox files:
     /// one b4 mbox, or one `git format-patch` file per patch.
     #[arg(required = true)]
@@ -162,9 +165,26 @@ fn lint(
     Ok((applied, findings))
 }
 
+/// A program installed beside the bodnuti executable, else its bare name
+/// for a PATH lookup.
+///
+/// `pip install bodnuti` puts the binary in a venv's bin directory together
+/// with that venv's python3, oelint-adv and b4, so the venv works without
+/// being activated.
+fn sibling(program: &str) -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(program)))
+        .filter(|path| path.is_file())
+        .and_then(|path| path.to_str().map(String::from))
+        .unwrap_or_else(|| program.to_string())
+}
+
 fn check(args: CheckArgs) -> Result<Report> {
+    let python = args.python.unwrap_or_else(|| sibling("python3"));
+    let b4 = args.b4.unwrap_or_else(|| sibling("b4"));
     let series = match args.input.as_slice() {
-        [one] if series::is_remote(one) => Series::fetch(&args.b4, one)?,
+        [one] if series::is_remote(one) => Series::fetch(&b4, one)?,
         inputs => Series::load(inputs)?,
     };
     let base = resolve_base(&args.repo, &series, args.base.as_deref());
@@ -174,7 +194,7 @@ fn check(args: CheckArgs) -> Result<Report> {
     let oecore = args.oecore.unwrap_or_else(|| args.repo.clone());
     let same = |a: &PathBuf, b: &PathBuf| a.canonicalize().ok() == b.canonicalize().ok();
     let patchtest = Patchtest {
-        python: args.python.clone(),
+        python: python.clone(),
         oecore_target: same(&oecore, &args.repo),
         oecore,
     };
@@ -191,7 +211,7 @@ fn check(args: CheckArgs) -> Result<Report> {
     };
 
     let oelint = Oelint {
-        program: args.oelint,
+        program: args.oelint.unwrap_or_else(|| sibling("oelint-adv")),
         release: args.release.unwrap_or_else(|| release_for(&base)),
     };
     let shellcheck = ShellCheck {
@@ -202,7 +222,7 @@ fn check(args: CheckArgs) -> Result<Report> {
             .collect(),
     };
     let docs = docs::Docs {
-        python: args.python.clone(),
+        python: python.clone(),
     };
     let (applied, mut lint_findings) = lint(
         &[&oelint, &shellcheck, &docs],
