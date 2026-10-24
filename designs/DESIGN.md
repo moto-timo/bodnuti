@@ -209,18 +209,23 @@ extract is skipped and logged, never reported as a finding.
 yocto-docs (`documentation/`) and the BitBake user manual (`doc/` in the
 bitbake tree) are Sphinx projects in reStructuredText. Recipe checkers do
 not apply to them. These checks do, all taken from the upstream
-`documentation/Makefile` rather than invented:
+`documentation/Makefile` (yocto-docs master `7b54854d1`, 2026-10-23) rather
+than invented. `make checks` runs the glossary and confusables checks,
+`make sphinx-lint` and `make stylecheck` run the other two. bodnuti reads
+the target list from the Makefile at the base commit, so a check upstream
+adds later is not silently missed:
 
 | Check | Command | Catches |
 |---|---|---|
 | Build | `sphinx-build -W --keep-going -j auto -w <log>` (the Makefile's `SPHINXOPTS`), html builder | every Sphinx warning: broken `:ref:` and `:doc:` targets, `:term:` references to variables missing from `ref-manual/variables.rst`, unknown roles and directives, toctree errors, duplicate labels |
 | Lint | `sphinx-lint` | rST syntax: malformed roles, stray or unbalanced backticks, bad indentation of directives |
 | Glossary | `tools/check-glossaries --docs-dir .` | glossary entries out of order or missing from the index |
+| Confusables | `tools/check-confusables --docs-dir .` (added upstream 2026-08) | non-ASCII typographic characters pasted from editors: curly quotes, non-breaking spaces and similar characters that break tooling |
 | Style | `vale --no-wrap` with the repository's `.vale.ini`, excluding `migration-guides/release-notes-*.rst` as the Makefile does | prose style (RedHat, proselint, write-good, alex, Readability, Joblint) |
 
 The BitBake manual's `doc/Makefile` defines only the `-W` build. For
-bitbake, bodnuti runs the build and `sphinx-lint`, and skips the glossary
-check and Vale. Those are yocto-docs tooling, and holding the BitBake
+bitbake, bodnuti runs the build and `sphinx-lint`, and skips the glossary,
+confusables and Vale checks. Those are yocto-docs tooling, and holding the BitBake
 manual to them would invent rules its maintainers never adopted.
 
 Every check runs on base and head, and only new results are reported, using the
@@ -242,7 +247,8 @@ tests do not apply.
 
 A `Containerfile` (Debian/Ubuntu base) bundles:
 the bodnuti binary, git, b4, shellcheck, Vale, Python with oelint-adv,
-Sphinx and sphinx-lint (pinned from yocto-docs' `Pipfile.lock`), the patchtest
+Sphinx, sphinx-lint and Vale (all listed in yocto-docs' `Pipfile`; bodnuti
+pins exact versions itself), the patchtest
 requirements (`meta/lib/patchtest/requirements.txt`), and the bitbake host
 dependencies. Repos and build directories live on a mounted cache volume. On
 macOS, the documented path is `podman run … bodnuti check <msgid>`. Native
@@ -262,10 +268,12 @@ Patches come from arbitrary senders. Phase 1 never executes patched code:
   not supported.
 - Building documentation executes Python from the tree under test:
   `conf.py`, any Sphinx extension it loads, `set_versions.py` and
-  `tools/check-glossaries`. A patch that changes them changes what runs.
+  `tools/check-glossaries` and `tools/check-confusables`. A patch that
+  changes them changes what runs.
   The docs checks therefore run in the same confined container as
   `test_metadata`. The helper scripts (`set_versions.py`,
-  `check-glossaries`) are always taken from the base commit, never from the
+  `check-glossaries`, `check-confusables`) are always taken from the base
+  commit, never from the
   patch. A patch that modifies `conf.py` or an extension is reported as
   such, and its head build runs only inside that container.
 - Subject text, file names, and Message-IDs go to subprocesses as argv
