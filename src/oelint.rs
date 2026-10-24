@@ -20,6 +20,38 @@ pub struct Oelint {
     pub release: String,
 }
 
+/// oelint-adv checks that OpenEmbedded-Core does not hold patches to, or
+/// that do not work here. Each matches a check id or a prefix of one.
+///
+/// Chosen by running bodnuti on 25 consecutive merged OE-Core master
+/// commits (October 2026). Every finding there was something maintainers
+/// accepted, so a rule that fired was noise:
+/// - variable ordering, FILES and SECTION overrides, multi-line indentation
+///   and out-of-context variables are oelint-adv style that OE-Core does not
+///   follow;
+/// - `homepageping` fetches HOMEPAGE over the network, so its result varies
+///   between runs and always fails without network access;
+/// - `bbclass.underscores` fires on the stub recipe that lints a `.inc`
+///   file, not on anything in the patch.
+const SUPPRESSED: &[&str] = &[
+    "oelint.var.order",
+    "oelint.var.filesoverride",
+    "oelint.var.override",
+    "oelint.vars.multilineident",
+    "oelint.vars.outofcontext",
+    "oelint.vars.homepageping",
+    "oelint.bbclass.underscores",
+];
+
+fn suppressed(check: &str) -> bool {
+    SUPPRESSED.iter().any(|s| {
+        check == *s
+            || check
+                .strip_prefix(s)
+                .is_some_and(|rest| rest.starts_with('.'))
+    })
+}
+
 /// Whether oelint-adv understands the file.
 pub fn lintable(path: &str) -> bool {
     [".bb", ".bbappend", ".inc", ".bbclass", ".conf"]
@@ -91,7 +123,10 @@ impl Oelint {
         if json.trim().is_empty() {
             return Ok(Vec::new());
         }
-        parse(&json)
+        Ok(parse(&json)?
+            .into_iter()
+            .filter(|f| !suppressed(&f.check))
+            .collect())
     }
 }
 
@@ -177,6 +212,14 @@ mod tests {
         assert!(!append.message.contains("[branch:"));
         assert!(findings.iter().any(|f| f.severity == Severity::Info));
         assert!(findings.iter().any(|f| f.severity == Severity::Warning));
+    }
+
+    #[test]
+    fn suppression_matches_whole_id_segments() {
+        assert!(suppressed("oelint.var.order.LICENSE"));
+        assert!(suppressed("oelint.vars.homepageping"));
+        assert!(!suppressed("oelint.var.orderly"));
+        assert!(!suppressed("oelint.vars.inconspaces"));
     }
 
     #[test]
