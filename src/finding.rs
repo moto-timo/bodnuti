@@ -13,6 +13,7 @@ pub enum Tool {
     Shellcheck,
     /// Checks bodnuti implements itself.
     Bodnuti,
+    Docs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -42,6 +43,12 @@ pub struct Finding {
 pub trait Checker {
     fn tool(&self) -> Tool;
     fn lint(&self, tree: &Path, files: &[String]) -> anyhow::Result<Vec<Finding>>;
+    /// Whether only findings in files the series touches are kept. A checker
+    /// whose findings can be caused in other files turns this off and relies
+    /// on the before/after comparison alone.
+    fn touched_files_only(&self) -> bool {
+        true
+    }
 }
 
 /// A checker that could not produce a result. Never the author's fault, and

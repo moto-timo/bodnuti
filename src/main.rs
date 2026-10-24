@@ -1,5 +1,6 @@
 //! bodnuti: automated patch review for the Yocto Project and OpenEmbedded.
 
+mod docs;
 mod finding;
 mod git;
 mod oelint;
@@ -138,9 +139,10 @@ fn lint(
                         f.file = Some(head.clone());
                     }
                 }
-                let after = after
-                    .into_iter()
-                    .filter(|f| f.file.as_ref().is_some_and(|p| files.contains(p)));
+                let after = after.into_iter().filter(|f| {
+                    !checker.touched_files_only()
+                        || f.file.as_ref().is_some_and(|p| files.contains(p))
+                });
                 findings.extend(new_findings(&before, after.collect()));
             }
             (Err(err), _) | (_, Err(err)) => tool_errors.push(ToolError {
@@ -170,7 +172,7 @@ fn check(args: CheckArgs) -> Result<Report> {
     let mut tool_errors = Vec::new();
 
     let patchtest = Patchtest {
-        python: args.python,
+        python: args.python.clone(),
         oecore: args.oecore.unwrap_or_else(|| args.repo.clone()),
     };
     let (mut findings, patchtest_counts) = match patchtest.run(&args.repo, &workspace.base, &series)
@@ -196,8 +198,11 @@ fn check(args: CheckArgs) -> Result<Report> {
             .map(String::from)
             .collect(),
     };
+    let docs = docs::Docs {
+        python: args.python.clone(),
+    };
     let (applied, mut lint_findings) = lint(
-        &[&oelint, &shellcheck],
+        &[&oelint, &shellcheck, &docs],
         &workspace,
         &series,
         &mut tool_errors,
