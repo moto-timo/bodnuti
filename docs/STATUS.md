@@ -2,7 +2,8 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 24 October 2026.
+as bodnuti, a standalone low-cost tool. Status as of 24 October 2026; the
+bodnuti phase 1 section was updated the same day.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -12,7 +13,7 @@ Haiku 5.5.
 | Approach | State | Where |
 |---|---|---|
 | **Sashiko project**: `--project yoctoproject` (and `bitbake`), with an OpenEmbedded review workflow and prompt guides. Full multi-stage LLM review, results in sashiko's web UI. | Working prototype | [moto-timo/sashiko, branch `yoctoproject`](https://github.com/moto-timo/sashiko/tree/yoctoproject) (public fork, no pull request) |
-| **bodnuti standalone**: a Rust tool that runs the checks OE already has (patchtest, oelint-adv, shellcheck, the yocto-docs Sphinx checks) and adds at most one cheap LLM call per patch. | Design only | this repository, [`designs/DESIGN.md`](../designs/DESIGN.md) |
+| **bodnuti standalone**: a Rust tool that runs the checks OE already has (patchtest, oelint-adv, shellcheck, the yocto-docs Sphinx checks) and will add at most one cheap LLM call per patch. | Phase 1 (deterministic checks) working | this repository; see [`README.md`](../README.md) and [`designs/DESIGN.md`](../designs/DESIGN.md) |
 
 The landing page for the eventual service is in
 [moto-timo/bodnuti.dev](https://github.com/moto-timo/bodnuti.dev).
@@ -46,6 +47,41 @@ How to read this:
 - The result is optimistic. The review stages were chosen with this corpus in
   view, so a held-out set is needed before trusting the number.
 
+## bodnuti phase 1: deterministic checks
+
+`bodnuti check --repo <layer> <Message-ID>` fetches a series from lore,
+applies it to a throwaway worktree, and runs each checker before and after the
+series, reporting only what the series adds:
+
+- patchtest's mbox and patch suites;
+- oelint-adv, with OE-Core's unenforced style rules suppressed;
+- shellcheck on shell tasks and shipped scripts;
+- a check for patch files left behind after SRC_URI drops them;
+- for yocto-docs and the BitBake manual, the Sphinx build, sphinx-lint,
+  check-glossaries and check-confusables.
+
+It runs on the host, from a container image, or from a Python wheel
+(`pip install`), and uses no model tokens.
+
+On the same ten OE-Core defects:
+
+| Defect | Caught by |
+|---|---|
+| `:append` value with no leading space (ptest-packagelists) | oelint-adv |
+| `echo -e` under dash (uboot-sign) | shellcheck |
+| Typo `{$weston_modules}` in weston-start | shellcheck |
+| Dropped patch left on disk (barebox) | bodnuti's leftover-file check |
+| The other six | not deterministic: the job of the later LLM layer |
+
+Noise:
+
+- On 25 merged OE-Core commits held out from tuning, 23 come out clean.
+- On the eight most recent yocto-docs commits, there are no documentation
+  findings.
+
+A run takes 4-12 s for a recipe patch and about 40 s for a documentation
+patch, which builds the docs twice.
+
 ## What it costs
 
 The OE and Yocto lists carry about 5,100 patches a month (sampled from
@@ -70,8 +106,8 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Build bodnuti phase 1 (deterministic checks), then score its single-call LLM
-  layer against the same ten defects.
+- Push bodnuti phase 1 for review, then build and score its single-call LLM
+  layer against the six defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
   Yocto maintainers before any upstream pull request. Nothing would be emailed
   to the lists without their agreement.
