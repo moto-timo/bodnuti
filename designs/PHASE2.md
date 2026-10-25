@@ -151,20 +151,56 @@ the layer checks find little in them:
   sign-off on the shortlog) applies; the patch suite expects a layer.
 
 Handling them needs a repository kind that selects the checkers, for
-example `kind = "python-app"` beside the URL in `[repos]`, so routing stays
-as in §3.1 and only the checks differ. For such a repository:
+example `kind = "django-app"` beside the URL in `[repos]`, so routing stays
+as in §3.1 and only the checks differ. The checks come in three tiers,
+each run before and after the series like every other checker, so only
+what the series adds is reported.
+
+**Tier 1: static checks.** Nothing from the application is installed or
+run:
 
 - patchtest's mbox suite only;
-- a Python linter on the touched `.py` files, before and after the series
-  like every other checker (ruff or pyflakes; to be chosen, and added to the
-  image);
-- shellcheck on touched shell scripts, as now;
-- Django checks that need the application's dependencies installed
-  (`manage.py check`, `makemigrations --check`) are out of scope: checks run
-  without network, and each application pins its own dependencies.
+- ruff on the touched `.py` files, with its pyflakes and pycodestyle rules,
+  the Django rules (`DJ`, from flake8-django: `null=True` on string fields,
+  a model without `__str__`, misordered model members) and the security
+  rules (`S`, from bandit);
+- djLint on touched Django templates;
+- shellcheck on touched shell scripts, as now.
 
-This is not designed in detail yet; it gets its own design section before
-implementation.
+ruff and djLint are added to the image's `requirements.txt`. Which ruff
+rules are enforced follows each project's own configuration where it has
+one, and a small default set where it does not, so a first run does not
+bury every series in style findings.
+
+**Tier 2: dependency pins.** When a series changes `requirements*.txt`,
+the pins before and after it are scanned for known vulnerabilities (trivy
+or pip-audit), and a pin the series adds or keeps that has a published
+fix is reported. Series that bump pins for security fixes are common (for
+example "requirements.txt: fix djangorestframework and GitPython
+vulnerabilities"), so this also confirms such a series fixes what it says.
+The checks run without network, so the vulnerability database is
+downloaded in the fetch step, which has network, and mounted read-only.
+
+**Tier 3: Django's own checks.** `manage.py check` and `makemigrations
+--check --dry-run`, the second catching a model change without its
+migration. They need the application's dependencies, so each application
+gets a venv built into the image from upstream's `requirements.txt` on its
+default branch. Known limits:
+
+- the venv lags upstream, and other branches may pin other versions;
+- a series that changes `requirements.txt` is still checked against the
+  old dependencies;
+- these commands run the series' own code (settings, models, apps). That
+  is the trust level the yocto-docs Sphinx build already has, which runs
+  the series' `conf.py`, and it runs in the same offline, read-only
+  container.
+
+Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
+decision by the layerindex-web and error-report-web maintainer (who is
+also bodnuti's), after tiers 1 and 2 have run for a while.
+
+This gets its own design section, settling the ruff defaults and the
+vulnerability database handling, before implementation.
 
 ## 4. State
 
