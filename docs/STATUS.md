@@ -4,7 +4,7 @@ Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
 first day of the bodnuti phase 2 deployment, the first security scans, the
-addition of CI and the Django application checks.
+addition of CI, the Django application checks and release notes.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -263,6 +263,18 @@ fixes. The two action updates were merged. The toml 1.1, quick-xml 0.42
 and ureq 3 updates needed code or feature changes and were done by hand,
 and a proposed bump of the rust-version toolchain was declined.
 
+## bodnuti release notes
+
+Release notes are kept with towncrier: each change a user or operator would
+notice adds a fragment in `changes/` (`changes/README.md`), and a release
+collects them into `NEWS.md`. Nothing is released yet; the history so far
+is in 39 fragments for 0.1.0 (29 features, 4 security, 3 documentation, 3
+other), fixes to unreleased features folded into the feature they fix.
+`uvx towncrier build --draft --version 0.1.0` shows them.
+
+A CI check, the News workflow, fails a pull request that adds no fragment,
+unless it carries the `no news` label; Dependabot's are exempt.
+
 ## What it costs
 
 The OE and Yocto lists carry about 5,100 patches a month (sampled from
@@ -284,6 +296,8 @@ window held about eight sashiko reviews.
 
 ## Next steps
 
+- Release 0.1.0: build `NEWS.md` from the fragments, tag the release, and
+  publish the wheel and image built from the tag.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
