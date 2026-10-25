@@ -158,6 +158,7 @@ emulation, and the Rust stage is slow under it.
 
 ```
 podman build --platform linux/arm64 -t bodnuti -f Containerfile .
+make audit-image          # HIGH or CRITICAL findings that have a fix
 podman save bodnuti | gzip > bodnuti.tar.gz
 scp -P 2222 bodnuti.tar.gz <your-admin-user>@<host>:/tmp/
 ```
