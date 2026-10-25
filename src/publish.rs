@@ -666,6 +666,7 @@ mod tests {
             tool_errors: vec![],
             patchtest: None,
             fixed: vec![],
+            excerpts: Default::default(),
         }
     }
 

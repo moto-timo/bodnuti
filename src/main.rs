@@ -637,6 +637,7 @@ fn check(args: CheckArgs) -> Result<Report> {
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
     });
+    let excerpts = report::excerpts(&workspace.path(), &findings);
 
     Ok(Report {
         series,
@@ -646,6 +647,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         tool_errors,
         patchtest: patchtest_counts,
         fixed: linted.fixed,
+        excerpts,
     })
 }
 

@@ -1,7 +1,9 @@
 //! The result of `bodnuti check`, as JSON or as text for a terminal or a
 //! mailing-list reply.
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +26,66 @@ pub struct Report {
     /// that only fixes is clean. Reports written before it have none.
     #[serde(default)]
     pub fixed: Vec<Finding>,
+    /// The lines of the patched file around each finding that has a file
+    /// and line, keyed by `excerpt_key`. Only the check has the patched
+    /// tree, so the pages read them from here (designs/PHASE2.md §6.1).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub excerpts: BTreeMap<String, Excerpt>,
+}
+
+/// A few numbered lines of a file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Excerpt {
+    /// The number of the first line.
+    pub first: u32,
+    pub lines: Vec<String>,
+}
+
+/// Lines shown before and after a finding's line.
+const EXCERPT_CONTEXT: u32 = 3;
+
+/// Excerpt lines are cut to this many characters.
+const EXCERPT_WIDTH: usize = 200;
+
+pub fn excerpt_key(file: &str, line: u32) -> String {
+    format!("{file}:{line}")
+}
+
+/// The excerpts for `findings` from `tree`, the tree as the series leaves
+/// it. A file that cannot be read, or a path that leaves the tree, has
+/// none.
+pub fn excerpts(tree: &Path, findings: &[Finding]) -> BTreeMap<String, Excerpt> {
+    let mut files: BTreeMap<&str, Option<Vec<String>>> = BTreeMap::new();
+    let mut out = BTreeMap::new();
+    for f in findings {
+        let (Some(file), Some(line)) = (f.file.as_deref(), f.line) else {
+            continue;
+        };
+        if line == 0 || file.starts_with('/') || file.split('/').any(|p| p == "..") {
+            continue;
+        }
+        let text = files.entry(file).or_insert_with(|| {
+            let bytes = std::fs::read(tree.join(file)).ok()?;
+            Some(
+                String::from_utf8_lossy(&bytes)
+                    .lines()
+                    .map(String::from)
+                    .collect(),
+            )
+        });
+        let Some(text) = text else { continue };
+        let last = (line + EXCERPT_CONTEXT).min(u32::try_from(text.len()).unwrap_or(u32::MAX));
+        if line > last {
+            continue;
+        }
+        let first = line.saturating_sub(EXCERPT_CONTEXT).max(1);
+        let lines = text[first as usize - 1..last as usize]
+            .iter()
+            .map(|l| l.chars().take(EXCERPT_WIDTH).collect())
+            .collect();
+        out.insert(excerpt_key(file, line), Excerpt { first, lines });
+    }
+    out
 }
 
 impl Report {
@@ -152,6 +214,7 @@ mod tests {
                 skip: 2,
             }),
             fixed: Vec::new(),
+            excerpts: BTreeMap::new(),
         }
     }
 
@@ -165,6 +228,29 @@ mod tests {
             line: Some(426),
             message: "In POSIX sh, echo flags are undefined.".into(),
         }
+    }
+
+    #[test]
+    fn records_the_lines_around_a_finding() {
+        let dir = tempfile::tempdir().unwrap();
+        let text: String = (1..=10).map(|n| format!("line {n}\n")).collect();
+        std::fs::write(dir.path().join("a.bb"), text).unwrap();
+        let mut near_start = finding(Severity::Error);
+        near_start.file = Some("a.bb".into());
+        near_start.line = Some(2);
+        let mut last = near_start.clone();
+        last.line = Some(10);
+        let mut outside = near_start.clone();
+        outside.file = Some("../a.bb".into());
+        let mut gone = near_start.clone();
+        gone.line = Some(11);
+        let excerpts = excerpts(dir.path(), &[near_start, last, outside, gone]);
+        assert_eq!(excerpts.len(), 2);
+        let e = &excerpts["a.bb:2"];
+        assert_eq!((e.first, e.lines.len()), (1, 5));
+        assert_eq!(e.lines[1], "line 2");
+        let e = &excerpts["a.bb:10"];
+        assert_eq!((e.first, e.lines.len()), (7, 4));
     }
 
     #[test]
