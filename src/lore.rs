@@ -32,14 +32,30 @@ pub struct Entry {
 // ponytail: one page only; poll more often than 200 patches arrive per list.
 pub fn fetch(list: &str, since: &str) -> Result<Vec<Entry>> {
     let url = format!("{LORE}/{list}/?q=s:PATCH+dt:{since}..&x=A");
-    let body = ureq::get(&url)
+    let response = ureq::get(&url)
         .set("User-Agent", USER_AGENT)
         .timeout(std::time::Duration::from_secs(60))
-        .call()
-        .with_context(|| format!("fetching {url}"))?
-        .into_string()
-        .context("reading the lore feed")?;
+        .call();
+    let body = match response {
+        Ok(r) => r.into_string().context("reading the lore feed")?,
+        // lore answers a search with no matches with 404 and an HTML page
+        // saying so, not with an empty feed. An unknown inbox is also 404,
+        // with a plain "Not Found", and stays an error.
+        Err(ureq::Error::Status(404, r)) => {
+            let page = r.into_string().unwrap_or_default();
+            if no_results(&page) {
+                return Ok(Vec::new());
+            }
+            let first = page.lines().next().unwrap_or("").trim();
+            anyhow::bail!("fetching {url}: status code 404: {first}");
+        }
+        Err(e) => return Err(e).with_context(|| format!("fetching {url}")),
+    };
     parse(&body)
+}
+
+fn no_results(page: &str) -> bool {
+    page.contains("[No results found]")
 }
 
 /// Parses an Atom feed. Entries without a usable Message-ID are skipped.
@@ -216,6 +232,15 @@ mod tests {
             .unwrap();
         assert!(member.in_reply_to.is_some());
         assert!(entries.iter().all(|e| e.updated.starts_with("2026-")));
+    }
+
+    #[test]
+    fn an_empty_search_is_not_an_unknown_inbox() {
+        assert!(no_results(
+            "<html><head><title>s:PATCH dt:20261024122706.. - search results</title>\
+             ...<pre>[No results found]</pre>"
+        ));
+        assert!(!no_results("Not Found\n"));
     }
 
     #[test]
