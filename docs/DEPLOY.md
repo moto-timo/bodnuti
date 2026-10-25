@@ -415,6 +415,39 @@ retain_months = 6
 with `rsync -a --delete`. Render once with `bodnuti publish --local` and look
 at `~/state/site/index.html` before the first copy.
 
+### The front page
+
+bodnuti.dev's front page (`index.html` and `Caddyfile` in the bodnuti.dev
+repository) inserts `reports/summary.html`, which `bodnuti publish` writes,
+through Caddy's `templates` directive and its `readFile` function
+(designs/PHASE2.md §6.2). `readFile` is newer than the Caddy that Debian
+packages (2.6.2 in trixie): with it, the page fails with HTTP 500 and the log says
+`function "readFile" not defined`. Install Caddy from its own Debian
+repository instead (tested with 2.11.7), as
+<https://caddyserver.com/docs/install#debian-ubuntu-raspbian> describes:
+
+```
+sudo apt install debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install caddy
+caddy version
+```
+
+Then put the two files in place and reload:
+
+```
+sudo cp index.html /var/www/bodnuti.dev/index.html
+sudo cp Caddyfile /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+curl -s https://bodnuti.dev/ | grep -c bodnuti-summary   # 1 once a summary is published
+```
+
+Do not replace `readFile` with `include` for an older Caddy: `include`
+runs the file as a template, and the summary holds mail subjects.
+
 ## 9. The watcher
 
 `bodnuti poll` finds new series on lore, fetches and checks each one in the
