@@ -184,6 +184,8 @@ git clone https://git.openembedded.org/openembedded-core ~/cache/openembedded-co
 git clone https://git.openembedded.org/meta-openembedded ~/cache/meta-openembedded
 git clone https://git.yoctoproject.org/yocto-docs ~/cache/yocto-docs
 git clone https://git.openembedded.org/bitbake ~/cache/bitbake
+git clone https://git.yoctoproject.org/meta-virtualization ~/cache/meta-virtualization
+git clone https://git.yoctoproject.org/meta-yocto ~/cache/meta-yocto
 ```
 
 bodnuti writes temporary worktrees into these clones' `.git` and removes
@@ -424,8 +426,9 @@ podman rm bx
 
 The image and the VM are both Debian trixie, so the binary runs on the host.
 
-`~/.config/bodnuti/watch.toml` (designs/PHASE2.md §2). Start with one list
-and add others once its reports look right:
+`~/.config/bodnuti/watch.toml` (designs/PHASE2.md §2). Start with
+openembedded-core alone and add the other lists once its reports look
+right:
 
 ```toml
 image = "localhost/bodnuti"
@@ -440,12 +443,40 @@ publish_to = "bodnuti-web:./"
 name = "openembedded-core"
 repo = "openembedded-core"
 
+[[list]]
+name = "openembedded-devel"
+repo = "meta-openembedded"
+
+[[list]]
+name = "bitbake-devel"
+repo = "bitbake"
+
+[[list]]
+name = "yocto-docs"
+repo = "yocto-docs"
+
+[[list]]
+name = "yocto-meta-virtualization"
+repo = "meta-virtualization"
+
+[[list]]
+name = "yocto-patches"
+route = "subject-tag"
+
 [repos]
 openembedded-core = "https://git.openembedded.org/openembedded-core"
 meta-openembedded = "https://git.openembedded.org/meta-openembedded"
 bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
+meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
+meta-yocto = "https://git.yoctoproject.org/meta-yocto"
 ```
+
+Every `repo` needs a `[repos]` entry, or the configuration is rejected, and
+a clone under `~/cache/` (§5), or its series fail to check. lore has no meta-yocto inbox: its patches
+come to yocto-patches tagged `[meta-yocto]`, which routes them to the
+`meta-yocto` repository by subject tag. A yocto-patches series whose tags
+name no repository here is recorded as unrouted, which is not an error.
 
 Run it once by hand:
 
