@@ -355,10 +355,11 @@ window held about eight sashiko reviews.
 - Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
   when the repository goes public), and let the worker pull it instead of
   loading a copied image.
-- Deploy the current binary on the worker, then remove
+- Deploy the current image and binary on the worker (the image now
+  carries the Django applications' venvs for tier 3), then remove
   `~/state/upstream/*.json` once so the next scan matches the backfilled
-  series' landed patches, and re-check series with findings for excerpts
-  and style findings.
+  series' landed patches, and re-check series with findings for excerpts,
+  style findings and Django's checks.
 - Release 0.2.0, the first with the license.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
