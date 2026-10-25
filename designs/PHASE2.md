@@ -135,6 +135,37 @@ seven of about 160 with no repository tag.
    the reason. The index lists unrouted series, so a missing clone is visible
    rather than silent.
 
+### 3.2 Repositories that are not layers (planned)
+
+Two projects on yocto-patches are Django web applications, not layers:
+`[layerindex-web]` (git.yoctoproject.org/layerindex-web, behind
+layers.openembedded.org) and `[error-report-web]`
+(git.yoctoproject.org/error-report-web, behind errors.yoctoproject.org).
+Both send several series a month. They are left unrouted for now, because
+the layer checks find little in them:
+
+- oelint-adv and the documentation checks have nothing to read: no
+  recipes, no Sphinx tree;
+- shellcheck only sees recipe shell tasks and shipped `.sh` scripts;
+- of patchtest, only the mbox suite (Signed-off-by, subject format,
+  sign-off on the shortlog) applies; the patch suite expects a layer.
+
+Handling them needs a repository kind that selects the checkers, for
+example `kind = "python-app"` beside the URL in `[repos]`, so routing stays
+as in §3.1 and only the checks differ. For such a repository:
+
+- patchtest's mbox suite only;
+- a Python linter on the touched `.py` files, before and after the series
+  like every other checker (ruff or pyflakes; to be chosen, and added to the
+  image);
+- shellcheck on touched shell scripts, as now;
+- Django checks that need the application's dependencies installed
+  (`manage.py check`, `makemigrations --check`) are out of scope: checks run
+  without network, and each application pins its own dependencies.
+
+This is not designed in detail yet; it gets its own design section before
+implementation.
+
 ## 4. State
 
 Files, not SQLite. The volume is about 170 patches a day, every record is
