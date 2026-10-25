@@ -22,6 +22,12 @@ use crate::workspace::resolve_base;
 /// The clone patchtest always comes from.
 const OECORE: &str = "openembedded-core";
 
+/// trivy's vulnerability database, under the cache directory.
+const TRIVY_DB: &str = "trivy";
+
+/// How old the trivy database may get before it is downloaded again.
+const TRIVY_DB_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+
 pub struct Runner<'a> {
     pub config: &'a Config,
 }
@@ -36,6 +42,48 @@ impl Runner<'_> {
         let mut cmd = Command::new(program);
         cmd.args(args);
         Ok(cmd)
+    }
+
+    /// Downloads trivy's vulnerability database into `cache/trivy/` when it
+    /// is older than a day, in the image with network. Checks of Django
+    /// applications mount it read-only (designs/PHASE2.md §5.3). Returns
+    /// whether it downloaded.
+    pub fn refresh_trivy_db(&self) -> Result<bool> {
+        let dir = self.config.cache.join(TRIVY_DB);
+        // A stamp of bodnuti's own: trivy leaves its files untouched when it
+        // finds its database still current.
+        let stamp = dir.join(".refreshed");
+        let fresh = std::fs::metadata(&stamp)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age < TRIVY_DB_MAX_AGE);
+        if fresh {
+            return Ok(false);
+        }
+        std::fs::create_dir_all(&dir)?;
+        let output = self
+            .container()?
+            .arg("-v")
+            .arg(format!("{}:/trivy", dir.display()))
+            .args(["--entrypoint", "trivy", &self.config.image])
+            .args([
+                "fs",
+                "--quiet",
+                "--cache-dir",
+                "/trivy",
+                "--download-db-only",
+            ])
+            .output()
+            .context("starting the container to download the trivy database")?;
+        if !output.status.success() {
+            bail!(
+                "trivy fs --download-db-only failed: {}",
+                last_line(&output.stderr)
+            );
+        }
+        std::fs::write(&stamp, b"")?;
+        Ok(true)
     }
 
     fn series_dir(&self, list: &str, root: &str) -> PathBuf {
@@ -126,6 +174,10 @@ impl Runner<'_> {
                 .args(["-e", "BODNUTI_OECORE=/oecore"]);
         }
         let kind = self.config.repos.get(repo).map_or(Kind::Layer, |r| r.kind);
+        let trivy = self.config.cache.join(TRIVY_DB);
+        if kind == Kind::DjangoApp && trivy.join("db/trivy.db").is_file() {
+            cmd.arg("-v").arg(format!("{}:/trivy:ro", trivy.display()));
+        }
         let output = cmd
             .args([&self.config.image, "check", "--json", "--repo", "/repo"])
             .args(["--kind", kind.as_str()])
@@ -297,16 +349,19 @@ mod tests {
     /// Stands in for `podman run`: answers `b4 mbox` by writing the test
     /// mbox, and `check` by printing a report with one finding.
     const STUB: &str = r#"#!/bin/sh
-out=""; root=""; check=0; kind=""; prev=""
+out=""; root=""; check=0; kind=""; prev=""; trivy=""; db=0
 for a in "$@"; do
   case "$a" in
     *:/out) out="${a%:/out}" ;;
+    *:/trivy) trivy="${a%:/trivy}" ;;
+    --download-db-only) db=1 ;;
     check) check=1 ;;
   esac
   [ "$prev" = --kind ] && kind="$a"
   prev="$a"
   root="$a"
 done
+if [ "$db" = 1 ]; then mkdir -p "$trivy/db" && : > "$trivy/db/trivy.db"; exit 0; fi
 if [ "$check" = 1 ]; then
   echo "$kind" > "$BODNUTI_TEST_REPORT.kind"
   cat "$BODNUTI_TEST_REPORT"; exit 1
@@ -370,6 +425,16 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
             "docker: Error response from daemon: pull access denied for x"
         );
         assert_eq!(last_line(b"one\ntwo\n"), "two");
+    }
+
+    #[test]
+    fn downloads_the_trivy_database_once_a_day() {
+        let (dir, config) = setup();
+        let runner = Runner { config: &config };
+        assert!(runner.refresh_trivy_db().unwrap());
+        assert!(dir.path().join("cache/trivy/db/trivy.db").is_file());
+        // Fresh: not downloaded again.
+        assert!(!runner.refresh_trivy_db().unwrap());
     }
 
     #[test]

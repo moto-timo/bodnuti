@@ -377,7 +377,7 @@ ignored by trivy, so only exact pins are checked.
 downloads in seconds. The check container has no network, so:
 
 1. Once a day, the watcher refreshes `cache/trivy/` with
-   `trivy --download-db-only --cache-dir /trivy` in a container with network
+   `trivy fs --download-db-only --cache-dir /trivy` in a container with network
    (like the b4 fetch), when `cache/trivy/db/metadata.json` is older than 24
    hours. A failed refresh keeps the old database and is logged; checks go
    on with it.

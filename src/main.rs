@@ -87,6 +87,7 @@ fn poll(args: PollArgs) -> Result<()> {
     }
     let config = watch::Config::load(&watch::expand(&args.config))?;
     let _lock = watch::Lock::take(&config.state)?;
+    refresh_trivy_db(&config);
     let now = lore::now();
     let mut failed = 0;
     for list in &config.lists {
@@ -130,6 +131,21 @@ fn poll(args: PollArgs) -> Result<()> {
 }
 
 /// Marks checked patches that have landed upstream, across all lists.
+/// Keeps trivy's database current when a Django application is configured.
+/// A failed download is logged and the checks go on with the old database;
+/// without one, a series that changes requirements pins reports trivy as
+/// not run.
+fn refresh_trivy_db(config: &watch::Config) {
+    if !config.repos.values().any(|r| r.kind == Kind::DjangoApp) {
+        return;
+    }
+    match (runner::Runner { config }).refresh_trivy_db() {
+        Ok(true) => println!("trivy: vulnerability database downloaded"),
+        Ok(false) => {}
+        Err(err) => eprintln!("bodnuti: trivy database: {err:#}"),
+    }
+}
+
 fn load_states(
     config: &watch::Config,
 ) -> Result<std::collections::BTreeMap<String, watch::ListState>> {
