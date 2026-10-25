@@ -343,7 +343,7 @@ const STYLE: &str = r#"
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 2rem 1rem; }
-  main { max-width: 64rem; margin: 0 auto; }
+  main { max-width: 90rem; margin: 0 auto; }
   h1 { font: 600 1.8rem/1.1 ui-monospace, "SF Mono", Menlo, monospace; margin: 0 0 .25rem; }
   h1 a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: .5rem; }
   h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; overflow-wrap: anywhere; }
@@ -356,6 +356,13 @@ const STYLE: &str = r#"
   th { color: var(--muted); font-weight: 500; }
   td.subject { overflow-wrap: anywhere; }
   td.when, td.list, td.result, td.applied { white-space: nowrap; }
+  table.index { table-layout: fixed; font-size: .85rem; }
+  table.index th, table.index td { padding: .3rem .5rem; }
+  table.index tr:hover td { background: var(--card); }
+  table.index th.when { width: 8.5rem; } table.index th.list { width: 11rem; }
+  table.index th.author { width: 10rem; } table.index th.result { width: 9rem; }
+  table.index th.applied { width: 8rem; }
+  table.index td.list, table.index td.author { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .clean { color: var(--ok); } .warn { color: var(--warn); } .error { color: var(--error); }
   code, pre { font: .88rem/1.45 ui-monospace, "SF Mono", Menlo, monospace; }
   .finding { border: 1px solid var(--line); border-left: 4px solid var(--muted);
@@ -379,7 +386,9 @@ const STYLE: &str = r#"
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
   dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
   footer { margin-top: 2.5rem; font-size: .85rem; color: var(--muted); }
-  @media (max-width: 40rem) { .wide { display: none; } }
+  @media (max-width: 40rem) { .wide { display: none; }
+    table.index { table-layout: auto; } table.index th { width: auto !important; }
+    table.index td.when { white-space: normal; } }
 "#;
 
 /// The page frame. `root` is the relative path back to the site root.
@@ -424,12 +433,15 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
         body.push_str("<p>No series yet.</p>\n");
         return page("bodnuti", root, &body, generated);
     }
-    body.push_str("<table>\n<tr><th>Last message</th>");
+    // Every column but Series has a fixed width, as on sashiko.dev, so the
+    // subject gets the rest of the row instead of wrapping.
+    body.push_str("<table class=\"index\">\n<tr><th class=\"when\">Last message</th>");
     if list.is_none() {
-        body.push_str("<th class=\"wide\">List</th>");
+        body.push_str("<th class=\"wide list\">List</th>");
     }
     body.push_str(
-        "<th>Series</th><th class=\"wide\">Author</th><th>Result</th><th>Upstream</th></tr>\n",
+        "<th class=\"subject\">Series</th><th class=\"wide author\">Author</th>\
+         <th class=\"result\">Result</th><th class=\"wide applied\">Upstream</th></tr>\n",
     );
     for row in rows {
         let _ = write!(
@@ -441,7 +453,7 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
             let name = escape(row.list);
             let _ = write!(
                 body,
-                "<td class=\"wide list\"><a href=\"{name}/\">{name}</a></td>"
+                "<td class=\"wide list\" title=\"{name}\"><a href=\"{name}/\">{name}</a></td>"
             );
         }
         let subject = escape(&row.record.tracked.subject);
@@ -451,11 +463,11 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
             None => subject,
         };
         let outcome = row.outcome();
+        let author = escape(row.author().unwrap_or(""));
         let _ = writeln!(
             body,
-            "<td class=\"subject\">{subject}</td><td class=\"wide\">{}</td>\
-             <td class=\"result {}\">{}</td><td class=\"applied\">{}</td></tr>",
-            escape(row.author().unwrap_or("")),
+            "<td class=\"subject\">{subject}</td><td class=\"wide author\" title=\"{author}\">{author}</td>\
+             <td class=\"result {}\">{}</td><td class=\"wide applied\">{}</td></tr>",
             outcome.class(),
             outcome.label(),
             row.applied()
