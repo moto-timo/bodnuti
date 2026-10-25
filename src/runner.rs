@@ -180,6 +180,27 @@ impl Runner<'_> {
         std::fs::write(dir.join("report.txt"), report.text())?;
         record.result = Some(CheckResult::of(&report));
         record.status = Status::Checked;
+        // Patches that landed before the check: the scans only see later
+        // commits. A series checked after it was merged is applied.
+        // Not finding them is no reason to fail the check: the scans may
+        // still match later commits.
+        let last_seen = crate::lore::parse_time(&record.tracked.last_seen).unwrap_or(0);
+        match applied::landed(
+            &repo,
+            &report.base,
+            &branch,
+            &series,
+            &ids,
+            last_seen.saturating_sub(applied::LANDED_BEFORE_CHECK_WINDOW_SECS),
+        ) {
+            Ok(landed) => {
+                if landed.len() == series.patches.len() {
+                    record.status = Status::Applied;
+                }
+                record.applied = landed;
+            }
+            Err(err) => eprintln!("bodnuti: {root}: matching landed patches: {err:#}"),
+        }
         record.reason = pull.map(|pr| {
             format!(
                 "pull request: {} {}, {}..{}",

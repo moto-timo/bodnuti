@@ -245,13 +245,36 @@ pub fn already_applied(
     ids: &[(String, u32)],
     last_seen: u64,
 ) -> Result<Option<BTreeMap<u32, Landed>>> {
-    let range = vec![
-        format!(
-            "--since=@{}",
-            last_seen.saturating_sub(ALREADY_APPLIED_WINDOW_SECS)
-        ),
-        base.to_string(),
-    ];
+    let landed = landed(
+        clone,
+        base,
+        branch,
+        series,
+        ids,
+        last_seen.saturating_sub(ALREADY_APPLIED_WINDOW_SECS),
+    )?;
+    Ok((landed.len() == series.patches.len()).then_some(landed))
+}
+
+/// How far before a series' last message the check looks for its patches
+/// in the base's history: a patch lands after it is sent, and a series'
+/// first revision is rarely older than this.
+pub const LANDED_BEFORE_CHECK_WINDOW_SECS: u64 = 30 * 86_400;
+
+/// Where each patch of `series` that has landed in the history of `base`
+/// since `since` landed: by patch-id, else by subject and author. The
+/// scans only read commits that arrive after a series is checked, so the
+/// check calls this for those already there: a series checked late, as a
+/// backfill does, has often landed in part or in full.
+pub fn landed(
+    clone: &Path,
+    base: &str,
+    branch: &str,
+    series: &Series,
+    ids: &[(String, u32)],
+    since: u64,
+) -> Result<BTreeMap<u32, Landed>> {
+    let range = vec![format!("--since=@{since}"), base.to_string()];
     let by_id: BTreeMap<String, String> = commit_patch_ids(clone, &range)?.into_iter().collect();
     let commits = commit_subjects(clone, &range)?;
     let mut landed = BTreeMap::new();
@@ -269,7 +292,7 @@ pub fn already_applied(
                 .map(|(commit, _, _)| (commit.clone(), false)),
         };
         let Some((commit, exact)) = found else {
-            return Ok(None);
+            continue;
         };
         landed.insert(
             patch.index,
@@ -280,7 +303,7 @@ pub fn already_applied(
             },
         );
     }
-    Ok(Some(landed))
+    Ok(landed)
 }
 
 /// `(patch-id, commit)` for every non-merge commit in `range`, in one
@@ -470,6 +493,17 @@ mod tests {
             .unwrap();
         assert!(landed[&1].exact);
         assert_eq!(landed[&1].branch, "master");
+        // landed reports what is there, all of the series or not.
+        let partial = landed_patches(&clone, &series, &ids);
+        assert_eq!(partial.len(), 1);
+    }
+
+    fn landed_patches(
+        clone: &Path,
+        series: &Series,
+        ids: &[(String, u32)],
+    ) -> BTreeMap<u32, Landed> {
+        landed(clone, "origin/master", "master", series, ids, 0).unwrap()
     }
 
     #[test]
