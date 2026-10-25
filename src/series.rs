@@ -146,17 +146,40 @@ impl Series {
     /// The tags that may name a target branch, such as `scarthgap` or
     /// `meta-python`. Which of them is a real branch is up to the repository,
     /// so no codename list is kept here.
+    ///
+    /// A branch can also sit inside the PATCH tag, as b4's subject prefixes
+    /// put it (`[PATCH scarthgap 00/19]`), so the words of a PATCH tag other
+    /// than PATCH, RFC, RESEND, `vN` and `n/m` count too.
     pub fn branch_candidates(&self) -> Vec<&str> {
         let mut out: Vec<&str> = Vec::new();
         for patch in self.cover.iter().chain(&self.patches) {
             for tag in &patch.tags {
-                if !tag.to_ascii_uppercase().contains("PATCH") && !out.contains(&tag.as_str()) {
-                    out.push(tag);
+                let words: Vec<&str> = if tag.to_ascii_uppercase().contains("PATCH") {
+                    tag.split_whitespace()
+                        .filter(|w| !is_patch_tag_word(w))
+                        .collect()
+                } else {
+                    vec![tag.as_str()]
+                };
+                for word in words {
+                    if !out.contains(&word) {
+                        out.push(word);
+                    }
                 }
             }
         }
         out
     }
+}
+
+/// The words of a PATCH tag that are not a branch name.
+fn is_patch_tag_word(word: &str) -> bool {
+    let upper = word.to_ascii_uppercase();
+    matches!(upper.as_str(), "PATCH" | "RFC" | "RESEND")
+        || (upper.starts_with('V') && upper[1..].parse::<u32>().is_ok())
+        || word
+            .split_once('/')
+            .is_some_and(|(n, m)| n.parse::<u32>().is_ok() && m.parse::<u32>().is_ok())
 }
 
 /// A reply, or any message without a diff, is part of the thread but not of
@@ -342,6 +365,30 @@ mod tests {
             patches: vec![patch],
         };
         assert_eq!(series.branch_candidates(), vec!["OE-core", "scarthgap"]);
+    }
+
+    #[test]
+    fn reads_a_branch_inside_the_patch_tag() {
+        for (subject, want) in [
+            (
+                "[PATCH scarthgap 00/19] Disable compromised CA certificates",
+                vec!["scarthgap"],
+            ),
+            ("[PATCH blacksail] python3-pip: upgrade", vec!["blacksail"]),
+            ("[PATCH RFC v2 1/3] sstate: replay", vec![]),
+            (
+                "[OE-core][wrynose][PATCH v2 0/5] curl: fixes",
+                vec!["OE-core", "wrynose"],
+            ),
+        ] {
+            let raw = message(subject, "x");
+            let patch = parse_message(raw.into_bytes()).unwrap();
+            let series = Series {
+                cover: None,
+                patches: vec![patch],
+            };
+            assert_eq!(series.branch_candidates(), want, "{subject}");
+        }
     }
 
     #[test]
