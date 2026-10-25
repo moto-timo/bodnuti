@@ -1,1 +1,0 @@
-**poll:** A `git request-pull` cover letter is checked like a series: its branch is fetched over https from git.openembedded.org or git.yoctoproject.org and base..head is checked against the pull request's own base.

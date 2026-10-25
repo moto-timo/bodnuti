@@ -1,1 +1,0 @@
-Checks run in the container without network, read-only, as an unprivileged user with every capability dropped and limits on memory, CPUs and processes; only fetching a series, and the daily vulnerability database download, have network.

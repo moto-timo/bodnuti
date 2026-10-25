@@ -1,1 +1,0 @@
-`make audit` and `make audit-image` scan the dependencies, the git history and the image (cargo-audit, trivy, gitleaks); `make fuzz` runs the fuzz targets for the mail, lore feed, subject and pull request parsers.
