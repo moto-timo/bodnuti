@@ -93,14 +93,22 @@ impl Runner<'_> {
 
     /// Moves a routed, complete series on to `Checked`, `Duplicate` or
     /// `Unrouted`. An error leaves it `Complete` for the caller to retry.
-    pub fn process(&self, list: &str, route: Route, record: &mut SeriesRecord) -> Result<()> {
+    /// `members` are the other Message-IDs seen in the series, to fetch its
+    /// thread through when lore does not have the root.
+    pub fn process(
+        &self,
+        list: &str,
+        route: Route,
+        record: &mut SeriesRecord,
+        members: &[String],
+    ) -> Result<()> {
         let root = record.tracked.root.clone();
         let repo_name = record.repo.clone().context("series has no repository")?;
         let repo = self.config.cache.join(&repo_name);
         let dir = self.series_dir(list, &root);
         std::fs::create_dir_all(&dir)?;
 
-        let mbox = self.fetch(&dir, &root)?;
+        let mbox = self.fetch(&dir, &root, members)?;
         let series = match Series::load(&[&mbox]) {
             Err(err) if err.downcast_ref::<NoPatches>().is_some() => {
                 record.status = Status::NoPatches;
@@ -158,29 +166,35 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// `b4 mbox` in the image, which saves `<root>.mbx` into the series
-    /// directory.
-    fn fetch(&self, dir: &Path, root: &str) -> Result<PathBuf> {
-        let output = self
-            .container()?
-            .arg("-v")
-            .arg(format!("{}:/out", dir.display()))
-            .args([
-                "--entrypoint",
-                "b4",
-                &self.config.image,
-                "mbox",
-                "-o",
-                "/out",
-                root,
-            ])
-            .output()
-            .context("starting the container to fetch the series")?;
+    /// `b4 mbox` in the image, saving the thread as `<root>.mbx` in the
+    /// series directory. When lore does not have the root (a parent on
+    /// another list, say), the thread is fetched through the series' other
+    /// messages in turn (designs/PHASE2.md §5.0).
+    fn fetch(&self, dir: &Path, root: &str, members: &[String]) -> Result<PathBuf> {
         let mbox = dir.join(format!("{root}.mbx"));
-        if !output.status.success() || !mbox.is_file() {
-            bail!("b4 mbox failed: {}", last_line(&output.stderr));
+        let mut error = String::new();
+        for id in std::iter::once(root).chain(members.iter().map(String::as_str)) {
+            let output = self
+                .container()?
+                .arg("-v")
+                .arg(format!("{}:/out", dir.display()))
+                .args(["--entrypoint", "b4", &self.config.image])
+                .args(["mbox", "-o", "/out", id])
+                .output()
+                .context("starting the container to fetch the series")?;
+            // b4 names the file after the Message-ID it was given.
+            let fetched = dir.join(format!("{id}.mbx"));
+            if output.status.success() && fetched.is_file() {
+                if fetched != mbox {
+                    std::fs::rename(&fetched, &mbox)?;
+                }
+                return Ok(mbox);
+            }
+            if error.is_empty() {
+                error = last_line(&output.stderr);
+            }
         }
-        Ok(mbox)
+        bail!("b4 mbox failed: {error}")
     }
 
     /// `bodnuti check --json` in the image, without network.
@@ -388,6 +402,7 @@ for a in "$@"; do
   root="$a"
 done
 if [ "$db" = 1 ]; then mkdir -p "$trivy/db" && : > "$trivy/db/trivy.db"; exit 0; fi
+case "$root" in gone@*) echo "Server returned an error: 404" >&2; exit 1 ;; esac
 if [ "$check" = 1 ]; then
   echo "$kind" > "$BODNUTI_TEST_REPORT.kind"
   cat "$BODNUTI_TEST_REPORT"; exit 1
@@ -454,6 +469,30 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
     }
 
     #[test]
+    fn fetches_through_another_message_when_lore_lacks_the_root() {
+        let (dir, config) = setup();
+        let runner = Runner { config: &config };
+        let mut record = routed("gone@x");
+        let err = runner
+            .process("openembedded-core", Route::Fixed, &mut record, &[])
+            .unwrap_err();
+        assert!(err.to_string().contains("404"), "{err}");
+
+        runner
+            .process(
+                "openembedded-core",
+                Route::Fixed,
+                &mut record,
+                &["a@x".to_string()],
+            )
+            .unwrap();
+        assert_eq!(record.status, Status::Checked);
+        let dir = dir.path().join("state/series/openembedded-core/gone@x");
+        assert!(dir.join("gone@x.mbx").is_file());
+        assert!(!dir.join("a@x.mbx").exists());
+    }
+
+    #[test]
     fn a_thread_without_patches_is_not_a_failure() {
         let (dir, config) = setup();
         std::fs::write(
@@ -465,7 +504,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
         let runner = Runner { config: &config };
         let mut record = routed("a@x");
         runner
-            .process("openembedded-core", Route::Fixed, &mut record)
+            .process("openembedded-core", Route::Fixed, &mut record, &[])
             .unwrap();
         assert_eq!(record.status, Status::NoPatches);
         assert!(record.reason.as_deref().unwrap().contains("pull request"));
@@ -488,7 +527,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
 
         let mut first = routed("a@x");
         runner
-            .process("openembedded-core", Route::Fixed, &mut first)
+            .process("openembedded-core", Route::Fixed, &mut first, &[])
             .unwrap();
         assert_eq!(first.status, Status::Checked);
         let result = first.result.as_ref().unwrap();
@@ -510,7 +549,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
         // A v2 with the same diff is the same patch.
         let mut resend = routed("b@x");
         runner
-            .process("openembedded-core", Route::Fixed, &mut resend)
+            .process("openembedded-core", Route::Fixed, &mut resend, &[])
             .unwrap();
         assert_eq!(resend.status, Status::Duplicate);
         assert!(
@@ -548,7 +587,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
         let runner = Runner { config: &config };
         let mut master = routed("m@x");
         runner
-            .process("openembedded-core", Route::Fixed, &mut master)
+            .process("openembedded-core", Route::Fixed, &mut master, &[])
             .unwrap();
         assert_eq!(master.status, Status::Checked);
 
@@ -567,7 +606,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
         let runner = Runner { config: &config };
         let mut stable = routed("s@x");
         runner
-            .process("openembedded-core", Route::Fixed, &mut stable)
+            .process("openembedded-core", Route::Fixed, &mut stable, &[])
             .unwrap();
         assert_eq!(stable.status, Status::Checked, "{:?}", stable.reason);
         assert_eq!(stable.branch.as_deref(), Some("scarthgap"));
@@ -606,7 +645,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
         let runner = Runner { config: &config };
         let mut record = routed("c@x");
         runner
-            .process("yocto-patches", Route::SubjectTag, &mut record)
+            .process("yocto-patches", Route::SubjectTag, &mut record, &[])
             .unwrap();
         assert_eq!(record.status, Status::Unrouted);
         assert!(record.reason.as_deref().unwrap().contains("meta/foo.bb"));

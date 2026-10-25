@@ -224,10 +224,17 @@ fn check_ready(
         .collect();
     ready.sort();
     for (_, root) in ready {
+        let mut members: Vec<String> = state
+            .root_of
+            .iter()
+            .filter(|(id, r)| **r == root && **id != root)
+            .map(|(id, _)| id.clone())
+            .collect();
+        members.sort();
         let Some(record) = state.series.get_mut(&root) else {
             continue;
         };
-        if let Err(err) = runner.process(&list.name, list.route, record) {
+        if let Err(err) = runner.process(&list.name, list.route, record, &members) {
             record.attempts += 1;
             record.reason = Some(format!("{err:#}"));
             if record.attempts >= watch::MAX_ATTEMPTS {
