@@ -175,7 +175,20 @@ width, long names are cut short, and the page is up to 90rem wide.
 Matching a landed patch by subject and author now uses the author git am
 records, from an in-body `From:` line when the sender is not the author: a
 meta-lts-mixins backport of an OE-Core fix, sent by someone else, matched
-only once it did.
+only once it did. And a patch that landed before its series was checked is
+now matched when the series is checked: the scans read only commits that
+arrive later, so after the two-week backfill openembedded-core showed 1
+landed series in a week while opensbi, curl 8.23.0 and createrepo-c, all on
+master, showed none.
+
+oelint-adv's layout rules (spacing, ordering, suggested variables) no
+longer bury the findings that matter. Measured on the 397 published series,
+they gave about 470 of the 919 findings. Their findings are now style: kept
+apart, collapsed under each patch behind "Show N style findings", and not
+counted in the result or the exit status (`designs/PHASE2.md` §6.1.1). The
+style rules OE-Core does not follow, once suppressed, are shown that way
+too; only `homepageping` and `bbclass.underscores`, whose result is not
+about the series, stay suppressed.
 
 ### Other repositories on yocto-patches
 
@@ -303,7 +316,9 @@ and a live "This week" block, per list the last seven days' series, those
 with findings and those landed, and the latest series. `bodnuti publish`
 writes it as `reports/summary.html`, and Caddy inserts it as it is
 (`readFile`, never as a template, since it holds mail subjects;
-`designs/PHASE2.md` §6.2).
+`designs/PHASE2.md` §6.2). `readFile` needs a newer Caddy than Debian
+trixie's 2.6.2; the web host runs 2.11.7 from Caddy's repository, and the
+front page is live.
 
 A CI check, the News workflow, fails a pull request that adds no fragment,
 unless it carries the `no news` label; Dependabot's are exempt.
@@ -332,8 +347,10 @@ window held about eight sashiko reviews.
 - Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
   when the repository goes public), and let the worker pull it instead of
   loading a copied image.
-- Deploy the front page: the new `index.html` and `Caddyfile` on the web
-  host, and a worker binary that writes `summary.html`.
+- Deploy the current binary on the worker, then remove
+  `~/state/upstream/*.json` once so the next scan matches the backfilled
+  series' landed patches, and re-check series with findings for excerpts
+  and style findings.
 - Release 0.2.0, the first with the license.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
@@ -342,8 +359,6 @@ window held about eight sashiko reviews.
   and `makemigrations --check`, after tiers 1 and 2 have run for a while
   (`designs/PHASE2.md` §3.2).
 - Decide on a license policy for `cargo deny`.
-- Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
-  info-level `suggestedvar` rules).
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
   defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
