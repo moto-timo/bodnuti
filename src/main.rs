@@ -75,6 +75,11 @@ struct PollArgs {
     /// With --dry-run: how far back to look, in hours.
     #[arg(long, default_value_t = 24)]
     hours: u64,
+    /// Also look this many hours back on every list, this once, to check
+    /// series from before the watcher started. Series already known are
+    /// not checked again.
+    #[arg(long, conflicts_with = "dry_run")]
+    backfill_hours: Option<u64>,
     /// With --dry-run: lore inbox names, e.g. openembedded-core.
     lists: Vec<String>,
 }
@@ -93,10 +98,12 @@ fn poll(args: PollArgs) -> Result<()> {
     for list in &config.lists {
         let result = (|| -> Result<()> {
             let mut state = watch::ListState::load(&config.state, &list.name)?;
-            let entries = safe_entries(lore::fetch(
-                &list.name,
-                &state.since(config.initial_hours, now),
-            )?);
+            let mut since = state.since(config.initial_hours, now);
+            if let Some(hours) = args.backfill_hours {
+                // Both are YYYYMMDDhhmmss, so the earlier sorts first.
+                since = since.min(lore::utc(now.saturating_sub(hours * 3600)));
+            }
+            let entries = safe_entries(lore::fetch(&list.name, &since)?);
             let new = state.ingest(&entries, now, config.settle_minutes * 60);
             state.route(list, &config.repos);
             state.save(&config.state, &list.name)?;
