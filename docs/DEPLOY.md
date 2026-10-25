@@ -292,8 +292,28 @@ compromised worker cannot touch anything else, for example in
 command="rrsync /var/www/bodnuti.dev/reports",restrict ssh-ed25519 AAAA... bodnuti-worker
 ```
 
-Watching the lists and generating reports is phase 2 and is not built yet;
-this section describes where its output goes.
+On the worker, name the web host in `~/.ssh/config` with that key:
+
+```
+Host bodnuti-web
+    HostName <the bodnuti.dev host, ideally its private-network IP>
+    User <the account with the authorized_keys entry above>
+    IdentityFile ~/.ssh/bodnuti-deploy
+    IdentitiesOnly yes
+```
+
+and set the destination in `~/.config/bodnuti/watch.toml`. `rrsync` roots
+every path at the directory in its forced command, so `./` is the reports
+directory itself:
+
+```toml
+publish_to = "bodnuti-web:./"
+retain_months = 6
+```
+
+`bodnuti publish` renders the reports into `~/state/site/` and copies them
+with `rsync -a --delete`. Render once with `bodnuti publish --local` and look
+at `~/state/site/index.html` before the first copy.
 
 ## Not yet verified
 

@@ -43,6 +43,7 @@ cache = "~/cache"          # layer clones, as in DEPLOY.md
 poll_minutes = 5
 settle_minutes = 15         # wait this long after a series' last message
 retain_months = 6           # how far back the published site goes
+publish_to = "bodnuti-web:./"         # rsync destination; unset: state/site/ only
 
 [[list]]
 name = "openembedded-core"  # lore inbox name
@@ -237,7 +238,7 @@ HTML-escaped. The pages are plain HTML and CSS with no JavaScript, styled
 like the bodnuti.dev landing page. Output goes to `state/site/`, then:
 
 ```
-rsync -a --delete state/site/ bodnuti-web:reports/
+rsync -a --delete state/site/ bodnuti-web:./
 ```
 
 over the restricted deploy key from `DEPLOY.md` (`rrsync` on the web host).
