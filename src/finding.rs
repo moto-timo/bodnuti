@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tool {
     Patchtest,
@@ -16,7 +16,7 @@ pub enum Tool {
     Docs,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
@@ -24,7 +24,7 @@ pub enum Severity {
     Info,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub tool: Tool,
     /// The tool's own check id, e.g. `oelint.vars.inconspaces`. Kept as text
@@ -53,7 +53,7 @@ pub trait Checker {
 
 /// A checker that could not produce a result. Never the author's fault, and
 /// never silently treated as a pass.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolError {
     pub tool: Tool,
     pub message: String,

@@ -7,6 +7,7 @@ mod lore;
 mod oelint;
 mod patchtest;
 mod report;
+mod runner;
 mod series;
 mod shell;
 mod srcuri;
@@ -80,13 +81,17 @@ fn poll(args: PollArgs) -> Result<()> {
             let new = state.ingest(&entries, now, config.settle_minutes * 60);
             state.route(list, &config.repos);
             state.save(&config.state, &list.name)?;
+            check_ready(&config, list, &mut state)?;
             let count = |status| state.series.values().filter(|r| r.status == status).count();
             println!(
-                "{}: {} messages, {new} new series, {} complete, {} unrouted",
+                "{}: {} messages, {new} new series; {} waiting, {} checked, {} duplicate, {} unrouted, {} failed",
                 list.name,
                 entries.len(),
-                count(watch::Status::Complete),
+                count(watch::Status::Seen) + count(watch::Status::Complete),
+                count(watch::Status::Checked),
+                count(watch::Status::Duplicate),
                 count(watch::Status::Unrouted),
+                count(watch::Status::Failed),
             );
 
             Ok(())
@@ -98,6 +103,47 @@ fn poll(args: PollArgs) -> Result<()> {
     }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());
+    }
+    Ok(())
+}
+
+/// Fetches and checks every routed, complete series on the list, oldest
+/// first, saving the state after each so a crash loses at most one check.
+fn check_ready(
+    config: &watch::Config,
+    list: &watch::ListConfig,
+    state: &mut watch::ListState,
+) -> Result<()> {
+    let runner = runner::Runner { config };
+    let mut ready: Vec<(String, String)> = state
+        .series
+        .values()
+        .filter(|r| r.status == watch::Status::Complete && r.repo.is_some())
+        .map(|r| (r.tracked.last_seen.clone(), r.tracked.root.clone()))
+        .collect();
+    ready.sort();
+    for (_, root) in ready {
+        let Some(record) = state.series.get_mut(&root) else {
+            continue;
+        };
+        if let Err(err) = runner.process(&list.name, list.route, record) {
+            record.attempts += 1;
+            record.reason = Some(format!("{err:#}"));
+            if record.attempts >= watch::MAX_ATTEMPTS {
+                record.status = watch::Status::Failed;
+            }
+        }
+        println!(
+            "  {:?} {}{}",
+            record.status,
+            record.tracked.subject,
+            record
+                .reason
+                .as_deref()
+                .map(|r| format!(" ({r})"))
+                .unwrap_or_default()
+        );
+        state.save(&config.state, &list.name)?;
     }
     Ok(())
 }

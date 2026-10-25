@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::finding::{Finding, Severity, Tool};
 use crate::git;
@@ -33,7 +33,7 @@ pub struct Patchtest {
 /// Tests that only make sense when the target is openembedded-core.
 const OECORE_ONLY: &[&str] = &["test_mbox.test_target_mailing_list"];
 
-#[derive(Debug, Default, Serialize, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Counts {
     pub pass: u32,
     pub fail: u32,

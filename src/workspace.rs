@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
 use crate::git;
@@ -20,7 +20,7 @@ pub struct Workspace {
 }
 
 /// The commit `git am` created for one patch of the series.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Applied {
     pub index: u32,
     pub commit: String,

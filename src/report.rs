@@ -3,14 +3,14 @@
 
 use std::fmt::Write;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::finding::{Finding, Severity, ToolError};
 use crate::patchtest::Counts;
 use crate::series::Series;
 use crate::workspace::Applied;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Report {
     pub series: Series,
     pub base: String,

@@ -8,11 +8,11 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// One message of a series, kept byte for byte so it can be handed to
 /// `git am` and patchtest unchanged.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Patch {
     pub subject: String,
     pub message_id: Option<String>,
@@ -36,6 +36,26 @@ impl Patch {
         self.changes().into_iter().map(|(_, new)| new).collect()
     }
 
+    /// Paths the patch creates (`new file mode`), which exist in no tree
+    /// before it.
+    pub fn added_files(&self) -> Vec<String> {
+        let text = String::from_utf8_lossy(&self.raw);
+        let mut out = Vec::new();
+        let mut current: Option<String> = None;
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("diff --git a/") {
+                current = rest.split_once(" b/").map(|(_, b)| b.to_string());
+            } else if line.starts_with("new file mode")
+                && let Some(path) = current.take()
+            {
+                out.push(path);
+            } else if line.starts_with("@@") {
+                current = None;
+            }
+        }
+        out
+    }
+
     /// `(old, new)` path pairs from the `diff --git` lines; they differ for a
     /// rename, which every recipe version upgrade is.
     // ponytail: paths containing " b/" or quoted paths are misread; OE
@@ -52,7 +72,7 @@ impl Patch {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Series {
     pub cover: Option<Patch>,
     pub patches: Vec<Patch>,
@@ -367,6 +387,15 @@ mod tests {
         assert!(!is_remote("series.mbx"));
         let file = tempfile::NamedTempFile::new().unwrap();
         assert!(!is_remote(file.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn lists_added_files() {
+        let raw = "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] foo\n\n---\n\
+                   diff --git a/a.bb b/a.bb\nindex 1..2 100644\n@@ -1 +1 @@\n-new file mode in a hunk\n\
+                   diff --git a/files/fix.patch b/files/fix.patch\nnew file mode 100644\n";
+        let patch = parse_message(raw.as_bytes().to_vec()).unwrap();
+        assert_eq!(patch.added_files(), vec!["files/fix.patch"]);
     }
 
     #[test]

@@ -32,6 +32,12 @@ const OVERLAP_SECS: u64 = 600;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// The bodnuti image checks run in.
+    pub image: String,
+    /// The container command, before the image. Its default is the
+    /// rootless, read-only Podman invocation from docs/DEPLOY.md.
+    #[serde(default = "default_runner")]
+    pub runner: Vec<String>,
     pub state: PathBuf,
     pub cache: PathBuf,
     #[serde(default = "default_settle")]
@@ -45,6 +51,32 @@ pub struct Config {
     #[serde(default)]
     pub repos: BTreeMap<String, String>,
 }
+
+fn default_runner() -> Vec<String> {
+    [
+        "podman",
+        "run",
+        "--rm",
+        "--userns=keep-id:uid=1000,gid=1000",
+        "--read-only",
+        "--tmpfs",
+        "/tmp:rw,size=2g",
+        "--cap-drop=ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--pids-limit",
+        "512",
+        "--memory",
+        "2g",
+        "--cpus",
+        "2",
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
+/// Attempts at fetching and checking a series before it is marked failed.
+pub const MAX_ATTEMPTS: u32 = 3;
 
 fn default_settle() -> u64 {
     15
@@ -94,6 +126,15 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
+        // Both become container volume sources, which must be absolute.
+        for (key, path) in [("state", &self.state), ("cache", &self.cache)] {
+            if !path.is_absolute() {
+                bail!(
+                    "{key} must be an absolute path or start with ~/, not {}",
+                    path.display()
+                );
+            }
+        }
         for list in &self.lists {
             // List names become file names.
             if !lore::safe_id(&list.name) || list.name.contains('@') {
@@ -127,6 +168,34 @@ pub enum Status {
     Complete,
     /// No configured repository can take the series; `reason` says why.
     Unrouted,
+    /// Checked; the report is in the series directory.
+    Checked,
+    /// Every patch was already checked in an earlier series (a resend).
+    Duplicate,
+    /// Fetching or checking failed `MAX_ATTEMPTS` times; `reason` says why.
+    Failed,
+}
+
+/// What a check found, kept with the series for the index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckResult {
+    pub findings: usize,
+    pub errors: usize,
+    pub tool_errors: usize,
+}
+
+impl CheckResult {
+    pub fn of(report: &crate::report::Report) -> CheckResult {
+        CheckResult {
+            findings: report.findings.len(),
+            errors: report
+                .findings
+                .iter()
+                .filter(|f| f.severity == crate::finding::Severity::Error)
+                .count(),
+            tool_errors: report.tool_errors.len(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,9 +206,13 @@ pub struct SeriesRecord {
     /// The clone under `cache/` the series is checked against.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
-    /// Why the series is unrouted or failed.
+    /// Why the series is unrouted, a duplicate, or failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub attempts: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<CheckResult>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -215,6 +288,8 @@ impl ListState {
                             status: Status::Seen,
                             repo: None,
                             reason: None,
+                            attempts: 0,
+                            result: None,
                         },
                     );
                 }
@@ -308,7 +383,8 @@ mod tests {
     }
 
     const CONFIG: &str = r#"
-        state = "~/state"
+        image = "localhost/bodnuti"
+        state = "/srv/state"
         cache = "/srv/cache"
 
         [[list]]
@@ -324,6 +400,17 @@ mod tests {
     "#;
 
     #[test]
+    fn expands_a_home_relative_path() {
+        if let Some(home) = std::env::var_os("HOME") {
+            assert_eq!(
+                expand(Path::new("~/state")),
+                PathBuf::from(home).join("state")
+            );
+        }
+        assert_eq!(expand(Path::new("/srv/state")), PathBuf::from("/srv/state"));
+    }
+
+    #[test]
     fn reads_and_checks_the_config() {
         let mut c: Config = toml::from_str(CONFIG).unwrap();
         c.validate().unwrap();
@@ -337,6 +424,15 @@ mod tests {
                 .contains("not in [repos]")
         );
         assert!(toml::from_str::<Config>(&CONFIG.replace("cache =", "cash =")).is_err());
+        let mut relative: Config = toml::from_str(&CONFIG.replace("/srv/state", "state")).unwrap();
+        relative.lists.truncate(1);
+        assert!(
+            relative
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("absolute")
+        );
     }
 
     #[test]
