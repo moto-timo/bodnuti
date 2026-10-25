@@ -73,6 +73,9 @@ pub struct Config {
 pub struct Repo {
     pub url: String,
     pub kind: Kind,
+    /// Subject tags besides the repository's name that route to it, such
+    /// as `AUH` for auto-upgrade-helper (designs/PHASE2.md §3.1.1).
+    pub tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +91,8 @@ struct RepoTable {
     url: String,
     #[serde(default)]
     kind: Kind,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 impl From<RepoSpec> for Repo {
@@ -96,10 +101,12 @@ impl From<RepoSpec> for Repo {
             RepoSpec::Url(url) => Repo {
                 url,
                 kind: Kind::Layer,
+                tags: Vec::new(),
             },
             RepoSpec::Table(t) => Repo {
                 url: t.url,
                 kind: t.kind,
+                tags: t.tags,
             },
         }
     }
@@ -309,6 +316,11 @@ pub struct SeriesRecord {
     /// Patch index to where it landed.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub applied: BTreeMap<u32, Landed>,
+    /// The repositories a subject tag names, when it names more than one;
+    /// `repo` is the one the path check picked, or the first before it ran
+    /// (designs/PHASE2.md §3.1.1). Absent in older state.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -388,6 +400,7 @@ impl ListState {
                             result: None,
                             branch: None,
                             applied: BTreeMap::new(),
+                            candidates: Vec::new(),
                         },
                     );
                 }
@@ -412,13 +425,22 @@ impl ListState {
 /// The configured repository a subject tag names, if any. Any tag counts,
 /// whatever its position: yocto-patches has both `[pseudo][PATCH]` and
 /// `[PATCH][yocto-autobuilder-helper]`.
-fn repo_from_tags(subject: &str, repos: &BTreeMap<String, Repo>) -> Option<String> {
-    tag_words(subject).into_iter().find_map(|word| {
-        repos
-            .keys()
-            .find(|repo| repo.eq_ignore_ascii_case(&word))
-            .cloned()
-    })
+/// Every configured repository a subject tag names, by its name or one of
+/// its `tags`, in the order of the tags and then of `[repos]`. A tag may
+/// name several: `[AUH]` is both auto-upgrade-helper's own tag and the one
+/// its bot sends OE-Core upgrades under. The path check picks among them.
+fn repos_from_tags(subject: &str, repos: &BTreeMap<String, Repo>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for word in tag_words(subject) {
+        for (name, repo) in repos {
+            let named = name.eq_ignore_ascii_case(&word)
+                || repo.tags.iter().any(|t| t.eq_ignore_ascii_case(&word));
+            if named && !out.contains(name) {
+                out.push(name.clone());
+            }
+        }
+    }
+    out
 }
 
 /// The subject's tags, with a PATCH tag split into its words: b4 puts the
@@ -453,13 +475,19 @@ impl ListState {
             {
                 continue;
             }
-            let repo = match list.route {
-                Route::Fixed => list.repo.clone(),
-                Route::SubjectTag => repo_from_tags(&record.tracked.subject, repos),
+            let candidates = match list.route {
+                Route::Fixed => list.repo.iter().cloned().collect(),
+                Route::SubjectTag => repos_from_tags(&record.tracked.subject, repos),
             };
-            match repo {
+            match candidates.first().cloned() {
                 Some(repo) => {
                     record.repo = Some(repo);
+                    // The runner's path check chooses when there is a choice.
+                    record.candidates = if candidates.len() > 1 {
+                        candidates
+                    } else {
+                        Vec::new()
+                    };
                     if unrouted_by_tag {
                         record.status = Status::Complete;
                         record.reason = None;
@@ -526,6 +554,42 @@ mod tests {
         [repos]
         openembedded-core = "https://git.openembedded.org/openembedded-core"
     "#;
+
+    #[test]
+    fn a_tag_alias_can_name_several_repositories() {
+        let c: Config = toml::from_str(&format!(
+            "{CONFIG}auto-upgrade-helper = {{ url = \"u\", kind = \"python\", tags = [\"AUH\"] }}\n"
+        ))
+        .unwrap();
+        let mut repos = c.repos.clone();
+        repos.get_mut("openembedded-core").unwrap().tags = vec!["AUH".into()];
+        assert_eq!(
+            repos_from_tags("[AUH][PATCH] steps: add an option", &repos),
+            ["auto-upgrade-helper", "openembedded-core"]
+        );
+        assert_eq!(
+            repos_from_tags("[auh] curl: upgrading to 8.23.0 SUCCEEDED", &repos),
+            ["auto-upgrade-helper", "openembedded-core"]
+        );
+        assert!(repos_from_tags("[PATCH] x: y", &repos).is_empty());
+
+        let t = lore::parse_time("2026-10-24T10:00:00Z").unwrap();
+        let mut s = ListState::default();
+        s.ingest(
+            &[entry(
+                "a@x",
+                "[AUH][PATCH] steps: add",
+                None,
+                "2026-10-24T10:00:00Z",
+            )],
+            t,
+            900,
+        );
+        s.route(&c.lists[1], &repos);
+        let r = &s.series["a@x"];
+        assert_eq!(r.repo.as_deref(), Some("auto-upgrade-helper"));
+        assert_eq!(r.candidates, ["auto-upgrade-helper", "openembedded-core"]);
+    }
 
     #[test]
     fn a_repository_is_a_url_or_a_table_with_a_kind() {
@@ -714,6 +778,7 @@ mod tests {
             Repo {
                 url: "u".into(),
                 kind: Kind::Layer,
+                tags: Vec::new(),
             },
         );
         patches.series.get_mut("c@x").unwrap().tracked.subject =

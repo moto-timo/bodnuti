@@ -406,6 +406,7 @@ mod tests {
                 result: None,
                 branch: Some(branch.into()),
                 applied: BTreeMap::new(),
+                candidates: Vec::new(),
             },
         );
     }

@@ -106,8 +106,8 @@ impl Runner<'_> {
         members: &[String],
     ) -> Result<()> {
         let root = record.tracked.root.clone();
-        let repo_name = record.repo.clone().context("series has no repository")?;
-        let repo = self.config.cache.join(&repo_name);
+        let mut repo_name = record.repo.clone().context("series has no repository")?;
+        let mut repo = self.config.cache.join(&repo_name);
         let dir = self.series_dir(list, &root);
         std::fs::create_dir_all(&dir)?;
 
@@ -128,6 +128,14 @@ impl Runner<'_> {
             }
             loaded => {
                 let series = loaded?;
+                if route == Route::SubjectTag
+                    && record.candidates.len() > 1
+                    && let Some(chosen) = self.choose(&record.candidates, &series)?
+                {
+                    repo = self.config.cache.join(&chosen);
+                    record.repo = Some(chosen.clone());
+                    repo_name = chosen;
+                }
                 let base = resolve_base(&repo, &series, None);
                 let branch = branch_name(&base);
                 (series, base, branch, None)
@@ -183,6 +191,24 @@ impl Runner<'_> {
         });
         self.remember(&ids, list, &root, &branch)?;
         Ok(())
+    }
+
+    /// The first of a tag's candidate repositories in which every path the
+    /// series modifies or deletes exists at its base (designs/PHASE2.md
+    /// §3.1.1). A candidate without a clone is skipped. None leaves the
+    /// first candidate, whose path check then fails with its paths.
+    fn choose(&self, candidates: &[String], series: &Series) -> Result<Option<String>> {
+        for name in candidates {
+            let repo = self.config.cache.join(name);
+            if !repo.is_dir() {
+                continue;
+            }
+            let base = resolve_base(&repo, series, None);
+            if missing_paths(&repo, &base, series)?.is_empty() {
+                return Ok(Some(name.clone()));
+            }
+        }
+        Ok(None)
     }
 
     /// For a thread without patches, the commits of the pull request its
@@ -741,5 +767,43 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
             .unwrap();
         assert_eq!(record.status, Status::Unrouted);
         assert!(record.reason.as_deref().unwrap().contains("meta/foo.bb"));
+    }
+
+    fn repo_with(dir: &Path, name: &str, file: &str) {
+        let repo = dir.join("cache").join(name);
+        std::fs::create_dir_all(repo.join(file).parent().unwrap()).unwrap();
+        git::run(&repo, &["init", "-q", "-b", "master"]).unwrap();
+        std::fs::write(repo.join(file), "A = \"1\"\n").unwrap();
+        git::run(&repo, &["add", file]).unwrap();
+        git::run(
+            &repo,
+            &[
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@x",
+                "commit",
+                "-qm",
+                "init",
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_path_check_picks_among_a_tags_repositories() {
+        let (dir, config) = setup();
+        // [AUH] names both; the series changes meta/foo.bb.
+        repo_with(dir.path(), "auto-upgrade-helper", "upgrade-helper.py");
+        repo_with(dir.path(), "openembedded-core", "meta/foo.bb");
+        let runner = Runner { config: &config };
+        let mut record = routed("a@x");
+        record.repo = Some("auto-upgrade-helper".into());
+        record.candidates = vec!["auto-upgrade-helper".into(), "openembedded-core".into()];
+        runner
+            .process("yocto-patches", Route::SubjectTag, &mut record, &[])
+            .unwrap();
+        assert_eq!(record.repo.as_deref(), Some("openembedded-core"));
+        assert_eq!(record.status, Status::Checked);
     }
 }
