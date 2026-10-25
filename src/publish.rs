@@ -455,6 +455,9 @@ const STYLE: &str = r#"
                 padding: .35rem 0; margin: .5rem 0 0; overflow-x: auto; font-size: .8rem; }
   .excerpt .line { display: block; padding: 0 .6rem; white-space: pre; }
   .excerpt .here { background: var(--here); }
+  details.style { margin: .4rem 0 .8rem; }
+  details.style > summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+  details.style[open] > summary { margin-bottom: .2rem; }
   .excerpt .ln { display: inline-block; min-width: 3.5em; padding-right: .8rem; text-align: right;
                  color: var(--muted); user-select: none; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
@@ -576,10 +579,19 @@ fn series_page(config: &Config, row: &Row, generated: &str) -> String {
         item("Author", escape(author));
     }
     item("Last message", timestamp(&record.tracked.last_seen));
+    let style = row.report.as_ref().map_or(0, |r| r.style.len());
+    let style = if style == 0 {
+        String::new()
+    } else {
+        format!(
+            " <span class=\"muted\">· {}</span>",
+            plural(style, "style finding")
+        )
+    };
     item(
         "Result",
         format!(
-            "<span class=\"{}\">{}</span>",
+            "<span class=\"{}\">{}</span>{style}",
             outcome.class(),
             outcome.label()
         ),
@@ -647,15 +659,18 @@ fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Re
             .filter(|f| f.patch == Some(patch.index))
             .collect();
         out.push_str(&finding_list(record, report, &findings));
+        out.push_str(&style_list(record, report, Some(patch.index)));
     }
     let series: Vec<&Finding> = report
         .findings
         .iter()
         .filter(|f| f.patch.is_none())
         .collect();
-    if !series.is_empty() {
+    let series_style = style_list(record, report, None);
+    if !series.is_empty() || !series_style.is_empty() {
         out.push_str("<h3>Series</h3>\n");
         out.push_str(&finding_list(record, report, &series));
+        out.push_str(&series_style);
     }
     if !report.fixed.is_empty() {
         out.push_str("<h3>Fixes</h3>\n");
@@ -707,6 +722,21 @@ fn finding_list(record: &SeriesRecord, report: &Report, findings: &[&Finding]) -
         out.push_str(&finding_block(report, f, &badge, class, true));
     }
     out
+}
+
+/// A patch's style findings (`patch` None: the series'), collapsed in a
+/// `<details>` element that opens without JavaScript (designs/PHASE2.md
+/// §6.1.1). Empty when there are none.
+fn style_list(record: &SeriesRecord, report: &Report, patch: Option<u32>) -> String {
+    let style: Vec<&Finding> = report.style.iter().filter(|f| f.patch == patch).collect();
+    if style.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<details class=\"style\"><summary>Show {}</summary>\n{}</details>\n",
+        plural(style.len(), "style finding"),
+        finding_list(record, report, &style)
+    )
 }
 
 /// One finding as a block (designs/PHASE2.md §6.1): a header with the
@@ -836,6 +866,22 @@ mod tests {
         assert!(!html.contains("<script>"), "{html}");
         assert!(!html.contains("<b>"), "{html}");
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn style_findings_are_collapsed() {
+        let mut f = apply_failure();
+        f.tool = Tool::Oelint;
+        f.check = "oelint.vars.dependsordered".into();
+        let mut r = report(vec![]);
+        r.style = vec![f.clone(), f];
+        let rec = record(Status::Checked, &[]);
+        let html = style_list(&rec, &r, Some(1));
+        assert!(
+            html.starts_with("<details class=\"style\"><summary>Show 2 style findings</summary>"),
+            "{html}"
+        );
+        assert!(style_list(&rec, &r, Some(2)).is_empty());
     }
 
     #[test]
