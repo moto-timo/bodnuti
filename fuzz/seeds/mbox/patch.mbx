@@ -1,0 +1,18 @@
+From x Mon Sep 17 00:00:00 2001
+From: "Ann Dev" <ann@example.org>
+Message-ID: <1@x>
+Subject: [OE-core][scarthgap][PATCH v2 1/2] glib-2.0: patch CVE-2026-1
+Content-Transfer-Encoding: quoted-printable
+
+fix=
+=3D
+---
+diff --git a/a.bb b/a.bb
+index 1..2 100644
+--- a/a.bb
++++ b/a.bb
+@@ -1 +1 @@
+-A =3D "1"
++A =3D "2"
+diff --git a/files/fix.patch b/files/fix.patch
+new file mode 100644

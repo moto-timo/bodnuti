@@ -1,0 +1,41 @@
+# Fuzz targets for the parsers that read untrusted input (see
+# fuzz/README.md). Needs a nightly toolchain and cargo-fuzz; the
+# main crate does not depend on this one.
+
+[package]
+name = "bodnuti-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bodnuti = { path = ".." }
+
+# Its own workspace, so the main crate's builds never pick it up.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "mbox"
+path = "fuzz_targets/mbox.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lore_feed"
+path = "fuzz_targets/lore_feed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "subject"
+path = "fuzz_targets/subject.rs"
+test = false
+doc = false
+bench = false
