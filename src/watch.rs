@@ -108,7 +108,12 @@ impl From<RepoSpec> for Repo {
 fn default_runner() -> Vec<String> {
     [
         "podman",
+        // Under systemd, podman writes each container's events and output to
+        // the journal. bodnuti reads the output itself and logs one line per
+        // series, so both would only repeat it.
+        "--events-backend=none",
         "run",
+        "--log-driver=none",
         "--rm",
         "--userns=keep-id:uid=1000,gid=1000",
         "--read-only",
