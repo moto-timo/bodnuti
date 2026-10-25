@@ -473,6 +473,39 @@ not read.
 **Not in tier 2.** Unpinned or range requirements, `pyproject.toml` and lock
 files, which neither application uses; licence checks.
 
+### 5.4 Other repositories on yocto-patches
+
+The first backfill left four more repositories' series unrouted. Measured
+over three months of yocto-patches (messages tagged with the name):
+
+| Repository | What it is | Messages | Kind |
+|---|---|---|---|
+| meta-security | a layer | 92 | `layer` |
+| pseudo | C (282 `.c` files), shell tests, `configure` | 62 | `c` |
+| yocto-autobuilder-helper | Python scripts, mostly without `.py`, bash, `config.json` | 66 | `python` |
+| yocto-autobuilder2 | the BuildBot master (`master.cfg` is Python), a TypeScript view | 20 | `python` |
+
+meta-security needs only a clone and a `[repos]` entry. The others get two
+new kinds, which select checkers as `django-app` does (§5.2):
+
+**`python`.** patchtest's mbox suite; ruff with the django-app rule set
+(the Django rules find nothing outside Django), on touched `.py` files,
+files whose first line is a `python` shebang, and `master.cfg`, which ruff
+checks when named; shellcheck; and a JSON check: a touched `.json` file
+must still parse, because the autobuilder reads `config.json` at start.
+
+**`c`.** patchtest's mbox suite; shellcheck; and cppcheck on touched `.c`
+and `.h` files with `--enable=warning`, keeping its `error` and `warning`
+findings and dropping style, performance and portability. On pseudo's four
+main sources it finds eight existing problems in about four seconds; as
+everywhere, only what a series adds is reported. cppcheck comes from
+Debian's package in the image.
+
+**Not now.** Building pseudo with compiler warnings: it needs a C toolchain
+and sqlite headers in the image and runs the series' `configure` and
+Makefile. It can follow as a later tier, like Django's own checks. Linting
+yocto-autobuilder2's TypeScript view.
+
 ## 6. Publishing
 
 `bodnuti publish` renders, from `state/`:
