@@ -534,24 +534,45 @@ Pages are regenerated in full each time; at a few thousand series this takes
 well under a second. Series older than `retain_months` drop off the site at
 the next publish (`--delete`), but stay in `state/`.
 
-### 6.1 Findings as blocks (planned)
+### 6.1 Findings as blocks
 
-Today each finding on a series page is one line of `<code>`: severity,
-tool, file and line, message and check id run together, and a long
-message (a patchtest explanation, a trivy advisory title) wraps into an
-unreadable run. Each finding becomes its own multi-line block, as the
-review comments on sashiko.dev are laid out:
+Each finding on a series page was one line of `<code>`: severity, tool,
+file and line, message and check id run together, and a long message (a
+patchtest explanation, an advisory title) wrapped into an unreadable run.
+Each finding becomes a block of its own, laid out as sashiko.dev lays out a
+review (`static/index.html` in sashiko: a bordered `review-card`, a header
+of labelled values, the severity in its own colour, and the text in a
+`log-inline-block`, monospace with `white-space: pre-wrap`):
 
-- a header: severity, tool, check id, and the file and line, linked where
-  the repository has a web view;
-- the message as a block of its own, its line breaks kept;
-- where the finding has a line in a file the series changes, the few lines
-  of the patched file around it, as a code excerpt;
-- fixes (§5.3) and tool errors in the same form.
+```
++--------------------------------------------------------------------+
+| [ERROR] oelint  oelint.vars.inconspaces       meta/foo/foo.bb:12   |
+| Assignment should be enclosed in double quotes                     |
+|   10 | SRC_URI = "..."                                             |
+| > 12 | A:append= "x"                                               |
+|   13 | ...                                                         |
++--------------------------------------------------------------------+
+```
 
-The text report (`report.txt`) gets the same structure in plain text. The
-index is unchanged. The design is settled against sashiko's own web UI
-(`static/` in the sashiko repository) before it is built.
+- **Header:** a severity badge (error, warning, info), the tool, the check
+  id, and the file and line.
+- **Message:** a block of its own with its line breaks kept.
+- **Excerpt:** when the finding has a file and line, the lines around it
+  (three before and after) in the file as the series leaves it, numbered,
+  the finding's line marked. Only the check has the patched tree, so the
+  check records the excerpts in the report (`excerpts`, keyed by file and
+  line; at most seven lines, each cut at 200 characters). The text comes
+  from the series and is escaped like everything else.
+- **Fixes** (§5.3) are blocks in the same form with a "fixed" badge and no
+  excerpt (their line is in the tree before the series). **Tool errors**
+  are blocks with the tool and the error text. An apply failure on a patch
+  that has landed stays the one-line "already has it" note.
+
+Findings stay grouped under the patch they belong to. `report.txt` gets the
+same blocks in plain text: a header line, the indented message, and the
+numbered excerpt with `>` on the finding's line, a blank line between
+blocks. The index is unchanged. Reports written before `excerpts` existed
+render without excerpts.
 
 ## 7. Testing
 
