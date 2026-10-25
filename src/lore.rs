@@ -70,19 +70,19 @@ pub fn parse(xml: &str) -> Result<Vec<Entry>> {
             Event::Start(e) | Event::Empty(e) => {
                 let name = e.name();
                 match (name.as_ref(), current.as_mut()) {
-                    (b"entry", _) => current = Some((None, String::new(), None, String::new())),
-                    (b"title", Some(_)) => field = Some("title"),
-                    (b"updated", Some(_)) => field = Some("updated"),
-                    (b"link", Some(c)) if c.0.is_none() => {
+                    ("entry", _) => current = Some((None, String::new(), None, String::new())),
+                    ("title", Some(_)) => field = Some("title"),
+                    ("updated", Some(_)) => field = Some("updated"),
+                    ("link", Some(c)) if c.0.is_none() => {
                         c.0 = href(&e).as_deref().and_then(message_id)
                     }
-                    (b"thr:in-reply-to", Some(c)) => c.2 = href(&e).as_deref().and_then(message_id),
+                    ("thr:in-reply-to", Some(c)) => c.2 = href(&e).as_deref().and_then(message_id),
                     _ => {}
                 }
             }
             Event::Text(t) => {
                 if let (Some(f), Some(c)) = (field, current.as_mut()) {
-                    let text = t.xml10_content().context("bad text in lore feed")?;
+                    let text = t.xml10_content();
                     match f {
                         "title" => c.1.push_str(&text),
                         _ => c.3.push_str(&text),
@@ -97,8 +97,8 @@ pub fn parse(xml: &str) -> Result<Vec<Entry>> {
                 }
             }
             Event::End(e) => match e.name().as_ref() {
-                b"title" | b"updated" => field = None,
-                b"entry" => {
+                "title" | "updated" => field = None,
+                "entry" => {
                     if let Some((Some(message_id), subject, in_reply_to, updated)) = current.take()
                     {
                         let subject = subject.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -128,8 +128,8 @@ fn entity(r: &BytesRef) -> Result<String> {
     {
         return Ok(c.to_string());
     }
-    let name = r.decode().context("bad entity in lore feed")?;
-    resolve_predefined_entity(&name)
+    let name: &str = r;
+    resolve_predefined_entity(name)
         .map(String::from)
         .with_context(|| format!("unknown entity &{name}; in lore feed"))
 }
@@ -137,7 +137,7 @@ fn entity(r: &BytesRef) -> Result<String> {
 fn href(e: &quick_xml::events::BytesStart) -> Option<String> {
     e.attributes()
         .flatten()
-        .find(|a| a.key.as_ref() == b"href")
+        .find(|a| a.key.as_ref() == "href")
         .and_then(|a| {
             a.normalized_value(XmlVersion::Implicit1_0)
                 .ok()
