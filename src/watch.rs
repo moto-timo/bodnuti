@@ -53,6 +53,11 @@ pub struct Config {
     /// How far back the published site goes. Older series stay in `state/`.
     #[serde(default = "default_retain")]
     pub retain_months: u64,
+    /// Where `bodnuti publish` copies the site with rsync, e.g.
+    /// `bodnuti-web:./`. Without it the site is only written to
+    /// `state/site/`.
+    #[serde(default)]
+    pub publish_to: Option<String>,
 }
 
 fn default_runner() -> Vec<String> {
@@ -140,6 +145,18 @@ impl Config {
                     path.display()
                 );
             }
+        }
+        // The destination is an rsync argument; one that starts with a dash
+        // would be read as an option.
+        if self
+            .publish_to
+            .as_deref()
+            .is_some_and(|d| d.is_empty() || d.starts_with('-'))
+        {
+            bail!(
+                "publish_to {:?} is not an rsync destination",
+                self.publish_to
+            );
         }
         for list in &self.lists {
             // List names become file names.
@@ -442,7 +459,13 @@ mod tests {
         let mut c: Config = toml::from_str(CONFIG).unwrap();
         c.validate().unwrap();
         assert_eq!(c.settle_minutes, 15);
+        assert_eq!(c.retain_months, 6);
+        assert_eq!(c.publish_to, None);
         assert_eq!(c.lists[1].route, Route::SubjectTag);
+        c.publish_to = Some("--rsh=evil".into());
+        assert!(c.validate().unwrap_err().to_string().contains("rsync"));
+        c.publish_to = Some("bodnuti-web:./".into());
+        c.validate().unwrap();
         c.lists[0].repo = Some("meta-oe".into());
         assert!(
             c.validate()

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 
 use crate::finding::{Checker, Finding, Tool, ToolError, new_findings};
@@ -45,7 +45,8 @@ enum Command {
     Check(CheckArgs),
     /// Find new patch series on lore lists.
     Poll(PollArgs),
-    /// Render the watcher's reports as static HTML.
+    /// Render the watcher's reports as static HTML and copy them to the
+    /// web host.
     Publish(PublishArgs),
 }
 
@@ -54,6 +55,9 @@ struct PublishArgs {
     /// The watcher configuration.
     #[arg(long, default_value = "~/.config/bodnuti/watch.toml")]
     config: PathBuf,
+    /// Write state/site/ only, even when publish_to is set.
+    #[arg(long)]
+    local: bool,
 }
 
 #[derive(Args)]
@@ -153,12 +157,27 @@ fn scan_applied(config: &watch::Config) -> Result<()> {
 }
 
 /// Renders the site under the lock, so it never shows a half-written
-/// state.
+/// state, then copies it to the web host.
 fn publish(args: PublishArgs) -> Result<()> {
     let config = watch::Config::load(&watch::expand(&args.config))?;
-    let _lock = watch::Lock::take(&config.state)?;
-    let site = publish::render(&config, &load_states(&config)?, lore::now())?;
+    let site = {
+        let _lock = watch::Lock::take(&config.state)?;
+        publish::render(&config, &load_states(&config)?, lore::now())?
+    };
     println!("site: {}", site.display());
+    let Some(dest) = config.publish_to.as_deref().filter(|_| !args.local) else {
+        return Ok(());
+    };
+    // The trailing slash copies the directory's contents, not the directory.
+    let source = format!("{}/", site.display());
+    let status = std::process::Command::new("rsync")
+        .args(["-a", "--delete", "--", &source, dest])
+        .status()
+        .context("running rsync")?;
+    if !status.success() {
+        anyhow::bail!("rsync to {dest} failed: {status}");
+    }
+    println!("published to {dest}");
     Ok(())
 }
 
