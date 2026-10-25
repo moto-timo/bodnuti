@@ -159,6 +159,28 @@ adding the two applications to `[repos]` checked the three layerindex-web
 series the first day had left unrouted. All three are clean: patchtest's
 mail checks 63 pass, 0 fail, and no ruff or djLint findings.
 
+### Other repositories on yocto-patches
+
+Four more repositories send patches to yocto-patches (about 240 messages
+in three months between them), now routed by their tags
+(`designs/PHASE2.md` §5.4):
+
+- meta-security, a layer, with the layer checks;
+- pseudo, in C, with a `c` kind: patchtest's mail checks, shellcheck, and
+  cppcheck's errors and warnings;
+- yocto-autobuilder-helper and yocto-autobuilder2, with a `python` kind:
+  patchtest's mail checks, ruff (including the helper's scripts without a
+  `.py` suffix and BuildBot's `master.cfg`), shellcheck, and a check that a
+  touched JSON file still parses, since the autobuilder reads `config.json`
+  when it starts.
+
+Four recent autobuilder series and a recent pseudo series check clean
+(two other pseudo series no longer apply to today's tree, which already
+has them); test patches that break
+`config.json`, use an undefined name in a shebang script, or dereference a
+null pointer in pseudo report exactly those. Building pseudo with compiler
+warnings is a later tier.
+
 Deploying found one more problem, now fixed: lore answers a search with no
 matches with 404, so the quiet lists (yocto-docs, yocto-meta-virtualization)
 failed every poll until an empty result was read as no new messages.

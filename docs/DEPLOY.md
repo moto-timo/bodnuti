@@ -189,6 +189,10 @@ git clone https://git.yoctoproject.org/meta-virtualization ~/cache/meta-virtuali
 git clone https://git.yoctoproject.org/meta-yocto ~/cache/meta-yocto
 git clone https://git.yoctoproject.org/layerindex-web ~/cache/layerindex-web
 git clone https://git.yoctoproject.org/error-report-web ~/cache/error-report-web
+git clone https://git.yoctoproject.org/meta-security ~/cache/meta-security
+git clone https://git.yoctoproject.org/pseudo ~/cache/pseudo
+git clone https://git.yoctoproject.org/yocto-autobuilder-helper ~/cache/yocto-autobuilder-helper
+git clone https://git.yoctoproject.org/yocto-autobuilder2 ~/cache/yocto-autobuilder2
 ```
 
 bodnuti writes temporary worktrees into these clones' `.git` and removes
@@ -475,6 +479,10 @@ meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
 meta-yocto = "https://git.yoctoproject.org/meta-yocto"
 layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app" }
 error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app" }
+meta-security = "https://git.yoctoproject.org/meta-security"
+pseudo = { url = "https://git.yoctoproject.org/pseudo", kind = "c" }
+yocto-autobuilder-helper = { url = "https://git.yoctoproject.org/yocto-autobuilder-helper", kind = "python" }
+yocto-autobuilder2 = { url = "https://git.yoctoproject.org/yocto-autobuilder2", kind = "python" }
 ```
 
 Every `repo` needs a `[repos]` entry, or the configuration is rejected, and
@@ -488,6 +496,12 @@ and come to yocto-patches tagged by name too. `kind = "django-app"` checks
 them with patchtest's mail checks, ruff, djLint and shellcheck instead of
 the layer checks (designs/PHASE2.md §5.2). They need an image built after
 these checkers were added; an older image rejects `--kind`.
+
+pseudo (`kind = "c"`) and the two autobuilder repositories (`kind =
+"python"`) come to yocto-patches the same way. The c kind runs patchtest's
+mail checks, shellcheck and cppcheck; the python kind patchtest's mail
+checks, ruff, shellcheck and a JSON parse check (designs/PHASE2.md §5.4).
+meta-security is a layer.
 
 With a django-app repository configured, each poll also keeps trivy's
 vulnerability database in `~/cache/trivy/` current, downloading it again

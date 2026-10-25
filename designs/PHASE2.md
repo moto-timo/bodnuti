@@ -501,6 +501,10 @@ main sources it finds eight existing problems in about four seconds; as
 everywhere, only what a series adds is reported. cppcheck comes from
 Debian's package in the image.
 
+Built as designed; cppcheck's "could not parse" findings (`syntaxError`
+and the like) are dropped, because pseudo's `ports/*/guts/*.c` are function
+bodies spliced into generated wrappers and are a syntax error on their own.
+
 **Not now.** Building pseudo with compiler warnings: it needs a C toolchain
 and sqlite headers in the image and runs the series' `configure` and
 Makefile. It can follow as a later tier, like Django's own checks. Linting
