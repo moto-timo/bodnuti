@@ -21,6 +21,7 @@ FROM docker.io/aquasec/trivy:0.76.1 AS trivy
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git python3 python3-venv ca-certificates \
+      cppcheck \
  && rm -rf /var/lib/apt/lists/*
 
 # Python tools in one venv. The pins live in requirements.txt, where
