@@ -1,0 +1,1 @@
+**kinds:** Django applications (layerindex-web, error-report-web) are checked with patchtest's mail checks, ruff (bugs, Django and security rules), djLint (template bugs and accessibility) and shellcheck.

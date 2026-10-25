@@ -1,0 +1,1 @@
+Report pages escape everything from mail, run no JavaScript, and are served under a Content-Security-Policy that allows only same-site images and inline styles; the documented deploy key can only write the reports directory.

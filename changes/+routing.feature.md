@@ -1,0 +1,1 @@
+**poll:** A list maps to one repository, or, for yocto-patches, a series is routed by its subject tag (also inside the PATCH tag, `[PATCH yocto-autobuilder2]`) and then checked against the paths it changes. A series whose tags name no configured repository is tried again on every poll, so adding the repository picks it up.

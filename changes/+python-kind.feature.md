@@ -1,0 +1,1 @@
+**kinds:** Python tools (yocto-autobuilder-helper, yocto-autobuilder2, auto-upgrade-helper, yocto-metrics) are checked with patchtest's mail checks, ruff (including scripts without `.py` and BuildBot's `master.cfg`), shellcheck, and a check that touched JSON files still parse.

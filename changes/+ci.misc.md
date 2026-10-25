@@ -1,0 +1,1 @@
+GitHub Actions runs fmt, clippy and the tests, a build on Rust 1.89, dependency and secret scans, the image build and scan, and the wheel on every change, the scans daily and the fuzz targets weekly. Dependabot watches the Cargo, pip and Actions dependencies.

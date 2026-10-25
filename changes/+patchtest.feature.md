@@ -1,0 +1,1 @@
+**check:** OE-Core's patchtest mbox and patch suites run on every series: commit message, shortlog, Signed-off-by, Upstream-Status and CVE tags. Its mailing-list test is skipped for repositories other than OE-Core, and quoted-printable mail is decoded first, so it no longer fails good patches.

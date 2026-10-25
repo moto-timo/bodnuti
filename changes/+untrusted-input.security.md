@@ -1,0 +1,1 @@
+Everything taken from mail is validated before use: Message-IDs before they become file names, and a pull request's repository (https on git.openembedded.org or git.yoctoproject.org only), branch and commits before they reach `git fetch`. The documentation build refuses series that change files the build would run.

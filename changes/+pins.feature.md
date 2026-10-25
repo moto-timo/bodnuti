@@ -1,0 +1,1 @@
+**kinds:** For Django applications, trivy scans the `requirements*.txt` files a series changes, offline against a database the watcher downloads daily: advisories the series adds are findings, and advisories it fixes are listed as fixes, which do not count as findings.

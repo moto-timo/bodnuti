@@ -1,0 +1,1 @@
+**poll:** Each poll matches checked patches to upstream commits on their branch, by patch-id and else by subject and author, and marks a series applied once all its patches have landed. A series merged before it was checked is recognised as applied rather than as unrouted.

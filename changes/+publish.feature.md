@@ -1,0 +1,1 @@
+**publish:** `bodnuti publish` renders the watcher's state as static HTML, an index of recent series per list and a page per series with its patches, findings, fixes and where each patch landed, and copies it to the web host with rsync. `retain_months` sets how far back the site goes.

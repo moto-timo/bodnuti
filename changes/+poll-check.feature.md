@@ -1,0 +1,1 @@
+**poll:** Complete series are fetched with b4 and checked in the container without network, one at a time; a resend whose patches were all checked for the same branch is recorded as a duplicate instead.
