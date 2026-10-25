@@ -310,9 +310,11 @@ fn missing_paths(repo: &Path, series: &Series) -> Result<Vec<String>> {
             if added.contains(&new) || missing.contains(&old) {
                 continue;
             }
+            // A missing path is the answer sought, not an error to log.
             let found = git::command(repo)
                 .args(["cat-file", "-e"])
                 .arg(format!("{base}:{old}"))
+                .stderr(std::process::Stdio::null())
                 .status()
                 .context("running git cat-file")?;
             if !found.success() {
