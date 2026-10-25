@@ -167,6 +167,16 @@ impl Series {
         if patches.is_empty() {
             bail!("no patches found in the input");
         }
+        // A thread can carry a later revision posted as a reply, such as a
+        // [PATCH v2] of one patch of a v1 series. It is its own series: keep
+        // only patches of the cover letter's revision, or, without one, of
+        // the first patch in the input (the root b4 fetched the thread from).
+        let (version, total) = cover
+            .as_ref()
+            .or(patches.first())
+            .map(|p| (p.version, p.total))
+            .unwrap_or((1, 1));
+        patches.retain(|p| p.version == version && p.total == total);
         patches.sort_by_key(|p| p.index);
         Ok(Series { cover, patches })
     }
@@ -409,6 +419,26 @@ mod tests {
         // A body line starting with "From " that does not follow a blank line
         // must not start a new message.
         assert_eq!(series.patches.len(), 2);
+    }
+
+    #[test]
+    fn a_later_revision_in_the_thread_is_not_part_of_the_series() {
+        let diff = "x\ndiff --git a/a b/a\n";
+        let mbox = [
+            message("[PATCH 1/2] a: one", diff),
+            message("[PATCH 2/2] strace: upgrade 7.2 -> 7.3", diff),
+            message("[PATCH v2] strace: upgrade 7.2 -> 7.3", diff),
+        ]
+        .concat();
+        let series = Series::from_messages(split_mbox(mbox.as_bytes())).unwrap();
+        let subjects: Vec<_> = series.patches.iter().map(|p| p.subject.as_str()).collect();
+        assert_eq!(
+            subjects,
+            vec![
+                "[PATCH 1/2] a: one",
+                "[PATCH 2/2] strace: upgrade 7.2 -> 7.3"
+            ]
+        );
     }
 
     #[test]
