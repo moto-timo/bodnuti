@@ -6,8 +6,9 @@
 //! bodies are fetched later, per series, with b4.
 
 use anyhow::{Context, Result};
-use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::escape::resolve_predefined_entity;
+use quick_xml::events::{BytesRef, Event};
+use quick_xml::{Reader, XmlVersion};
 
 const LORE: &str = "https://lore.kernel.org";
 const USER_AGENT: &str = concat!(
@@ -81,11 +82,18 @@ pub fn parse(xml: &str) -> Result<Vec<Entry>> {
             }
             Event::Text(t) => {
                 if let (Some(f), Some(c)) = (field, current.as_mut()) {
-                    let text = t.unescape().context("bad text in lore feed")?;
+                    let text = t.xml10_content().context("bad text in lore feed")?;
                     match f {
                         "title" => c.1.push_str(&text),
                         _ => c.3.push_str(&text),
                     }
+                }
+            }
+            // The reader reports `&amp;`, `&#8217;` and the like apart from
+            // the text around them.
+            Event::GeneralRef(r) => {
+                if let (Some("title"), Some(c)) = (field, current.as_mut()) {
+                    c.1.push_str(&entity(&r)?);
                 }
             }
             Event::End(e) => match e.name().as_ref() {
@@ -111,11 +119,30 @@ pub fn parse(xml: &str) -> Result<Vec<Entry>> {
     Ok(entries)
 }
 
+/// The text an entity or character reference stands for. Atom has no DTD,
+/// so only XML's five predefined entities and character references occur.
+fn entity(r: &BytesRef) -> Result<String> {
+    if let Some(c) = r
+        .resolve_char_ref()
+        .context("bad character reference in lore feed")?
+    {
+        return Ok(c.to_string());
+    }
+    let name = r.decode().context("bad entity in lore feed")?;
+    resolve_predefined_entity(&name)
+        .map(String::from)
+        .with_context(|| format!("unknown entity &{name}; in lore feed"))
+}
+
 fn href(e: &quick_xml::events::BytesStart) -> Option<String> {
     e.attributes()
         .flatten()
         .find(|a| a.key.as_ref() == b"href")
-        .and_then(|a| a.unescape_value().ok().map(|v| v.into_owned()))
+        .and_then(|a| {
+            a.normalized_value(XmlVersion::Implicit1_0)
+                .ok()
+                .map(|v| v.into_owned())
+        })
 }
 
 /// `https://lore.kernel.org/<list>/<message-id>/` to `<message-id>`,
@@ -232,6 +259,21 @@ mod tests {
             .unwrap();
         assert!(member.in_reply_to.is_some());
         assert!(entries.iter().all(|e| e.updated.starts_with("2026-")));
+    }
+
+    #[test]
+    fn decodes_entities_in_subjects() {
+        let feed = r#"<feed><entry>
+            <title>[PATCH] a&amp;b: upgrade 1.0 -&gt; 1.1 &#8217;x&#x2019;</title>
+            <updated>2026-10-24T10:00:00Z</updated>
+            <link href="https://lore.kernel.org/l/1%40x/?a=1&amp;b=2/"/>
+            </entry></feed>"#;
+        let entries = parse(feed).unwrap();
+        assert_eq!(
+            entries[0].subject,
+            "[PATCH] a&b: upgrade 1.0 -> 1.1 \u{2019}x\u{2019}"
+        );
+        assert!(parse("<feed><entry><title>&bogus;</title></entry></feed>").is_err());
     }
 
     #[test]
