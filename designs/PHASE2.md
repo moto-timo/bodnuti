@@ -141,6 +141,29 @@ seven of about 160 with no repository tag.
    a repository to `[repos]` picks up its earlier series; series unrouted
    by the path check are not retried.
 
+### 3.1.1 Routing refinements
+
+Found after the first backfill:
+
+- **Name inside the PATCH tag.** `[PATCH yocto-autobuilder2] ...` names the
+  repository inside the PATCH tag, as b4's prefixes do. The words of a
+  PATCH tag count as tags, as they already do for branch names.
+- **Tag aliases, several repositories per tag.** A `[repos]` table may list
+  `tags`: `[AUH]` is the subject tag of both patches to auto-upgrade-helper
+  and the upgrade patches its bot sends for OE-Core recipes. Routing keeps
+  every repository whose name or alias a tag gives, in `[repos]` order (by
+  name), and the path check (step 2) picks the first in which every path
+  the series modifies or deletes exists; with none, the series is unrouted
+  with the first candidate's paths. The record keeps the candidates in a new
+  `candidates` list, absent in older state, and `repo` the one picked.
+- **Missing clone.** A configured repository without its clone under
+  `cache/` used to fail its series three times. It is a configuration
+  problem: the poll logs `clone missing: git clone <url> <path>` once and
+  leaves the series waiting, attempts untouched, until the clone exists.
+- **Branches with a slash.** meta-lts-mixins names branches by release and
+  topic (`scarthgap/go`). The branch recorded for a series is the full name
+  after `refs/remotes/<remote>/`, not its last component (`go`).
+
 ### 3.2 Repositories that are not layers
 
 Two projects on yocto-patches are Django web applications, not layers:
