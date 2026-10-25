@@ -311,7 +311,7 @@ fn lore_url(list: &str, message_id: &str) -> String {
 
 /// A link to an upstream commit, for the cgit hosts the layers live on.
 fn commit_url(config: &Config, repo: Option<&str>, commit: &str) -> Option<String> {
-    let url = config.repos.get(repo?)?.trim_end_matches('/');
+    let url = config.repos.get(repo?)?.url.trim_end_matches('/');
     let cgit = [
         "https://git.openembedded.org/",
         "https://git.yoctoproject.org/",

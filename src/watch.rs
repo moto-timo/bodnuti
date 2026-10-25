@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::kind::Kind;
 use crate::lore;
 use crate::series::subject_tags;
 use crate::track::{Tracked, Tracker};
@@ -47,9 +48,9 @@ pub struct Config {
     pub initial_hours: u64,
     #[serde(rename = "list")]
     pub lists: Vec<ListConfig>,
-    /// Clone name under `cache/` to its upstream URL.
+    /// Clone name under `cache/` to its upstream URL and kind.
     #[serde(default)]
-    pub repos: BTreeMap<String, String>,
+    pub repos: BTreeMap<String, Repo>,
     /// How far back the published site goes. Older series stay in `state/`.
     #[serde(default = "default_retain")]
     pub retain_months: u64,
@@ -58,6 +59,50 @@ pub struct Config {
     /// `state/site/`.
     #[serde(default)]
     pub publish_to: Option<String>,
+}
+
+/// A `[repos]` entry: its upstream URL, a layer, or a table with the URL and
+/// a kind (designs/PHASE2.md §5.2):
+///
+/// ```toml
+/// openembedded-core = "https://git.openembedded.org/openembedded-core"
+/// layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app" }
+/// ```
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(from = "RepoSpec")]
+pub struct Repo {
+    pub url: String,
+    pub kind: Kind,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RepoSpec {
+    Url(String),
+    Table(RepoTable),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepoTable {
+    url: String,
+    #[serde(default)]
+    kind: Kind,
+}
+
+impl From<RepoSpec> for Repo {
+    fn from(spec: RepoSpec) -> Repo {
+        match spec {
+            RepoSpec::Url(url) => Repo {
+                url,
+                kind: Kind::Layer,
+            },
+            RepoSpec::Table(t) => Repo {
+                url: t.url,
+                kind: t.kind,
+            },
+        }
+    }
 }
 
 fn default_runner() -> Vec<String> {
@@ -358,7 +403,7 @@ impl ListState {
 /// The configured repository a subject tag names, if any. Any tag counts,
 /// whatever its position: yocto-patches has both `[pseudo][PATCH]` and
 /// `[PATCH][yocto-autobuilder-helper]`.
-fn repo_from_tags(subject: &str, repos: &BTreeMap<String, String>) -> Option<String> {
+fn repo_from_tags(subject: &str, repos: &BTreeMap<String, Repo>) -> Option<String> {
     subject_tags(subject).iter().find_map(|tag| {
         repos
             .keys()
@@ -370,7 +415,7 @@ fn repo_from_tags(subject: &str, repos: &BTreeMap<String, String>) -> Option<Str
 impl ListState {
     /// Chooses the repository for every complete series that has none yet.
     /// A series no configured repository can take becomes `Unrouted`.
-    pub fn route(&mut self, list: &ListConfig, repos: &BTreeMap<String, String>) {
+    pub fn route(&mut self, list: &ListConfig, repos: &BTreeMap<String, Repo>) {
         for record in self.series.values_mut() {
             if record.status != Status::Complete || record.repo.is_some() {
                 continue;
@@ -442,6 +487,27 @@ mod tests {
         [repos]
         openembedded-core = "https://git.openembedded.org/openembedded-core"
     "#;
+
+    #[test]
+    fn a_repository_is_a_url_or_a_table_with_a_kind() {
+        let c: Config = toml::from_str(&format!(
+            "{CONFIG}layerindex-web = {{ url = \"https://git.yoctoproject.org/layerindex-web\", kind = \"django-app\" }}\n"
+        ))
+        .unwrap();
+        assert_eq!(c.repos["openembedded-core"].kind, Kind::Layer);
+        let web = &c.repos["layerindex-web"];
+        assert_eq!(web.kind, Kind::DjangoApp);
+        assert_eq!(web.url, "https://git.yoctoproject.org/layerindex-web");
+        for bad in [
+            "x = { url = \"u\", kind = \"rails-app\" }",
+            "x = { url = \"u\", knid = \"django-app\" }",
+        ] {
+            assert!(
+                toml::from_str::<Config>(&format!("{CONFIG}{bad}\n")).is_err(),
+                "{bad}"
+            );
+        }
+    }
 
     #[test]
     fn expands_a_home_relative_path() {

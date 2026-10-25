@@ -22,4 +22,12 @@ impl Kind {
     pub fn is_layer(self) -> bool {
         self == Kind::Layer
     }
+
+    /// The value `bodnuti check --kind` takes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Layer => "layer",
+            Kind::DjangoApp => "django-app",
+        }
+    }
 }

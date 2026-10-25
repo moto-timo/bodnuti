@@ -13,6 +13,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 use crate::git;
+use crate::kind::Kind;
 use crate::report::Report;
 use crate::series::Series;
 use crate::watch::{CheckResult, Config, Route, SeriesRecord, Status};
@@ -124,8 +125,10 @@ impl Runner<'_> {
                 ))
                 .args(["-e", "BODNUTI_OECORE=/oecore"]);
         }
+        let kind = self.config.repos.get(repo).map_or(Kind::Layer, |r| r.kind);
         let output = cmd
             .args([&self.config.image, "check", "--json", "--repo", "/repo"])
+            .args(["--kind", kind.as_str()])
             .arg(format!("/in/{root}.mbx"))
             .output()
             .context("starting the container to check the series")?;
@@ -294,15 +297,20 @@ mod tests {
     /// Stands in for `podman run`: answers `b4 mbox` by writing the test
     /// mbox, and `check` by printing a report with one finding.
     const STUB: &str = r#"#!/bin/sh
-out=""; root=""; check=0
+out=""; root=""; check=0; kind=""; prev=""
 for a in "$@"; do
   case "$a" in
     *:/out) out="${a%:/out}" ;;
     check) check=1 ;;
   esac
+  [ "$prev" = --kind ] && kind="$a"
+  prev="$a"
   root="$a"
 done
-if [ "$check" = 1 ]; then cat "$BODNUTI_TEST_REPORT"; exit 1; fi
+if [ "$check" = 1 ]; then
+  echo "$kind" > "$BODNUTI_TEST_REPORT.kind"
+  cat "$BODNUTI_TEST_REPORT"; exit 1
+fi
 cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
 "#;
 
@@ -379,6 +387,9 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
             (result.findings, result.errors, result.tool_errors),
             (1, 1, 0)
         );
+        // The repository's kind reaches the check.
+        let kind = std::fs::read_to_string(dir.path().join("report.json.kind")).unwrap();
+        assert_eq!(kind.trim(), "layer");
         let series_dir = dir.path().join("state/series/openembedded-core/a@x");
         assert!(series_dir.join("report.json").is_file());
         assert!(
