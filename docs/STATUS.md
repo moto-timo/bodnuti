@@ -13,7 +13,7 @@ Haiku 5.5.
 | Approach | State | Where |
 |---|---|---|
 | **Sashiko project**: `--project yoctoproject` (and `bitbake`), with an OpenEmbedded review workflow and prompt guides. Full multi-stage LLM review, results in sashiko's web UI. | Working prototype | [moto-timo/sashiko, branch `yoctoproject`](https://github.com/moto-timo/sashiko/tree/yoctoproject) (public fork, no pull request) |
-| **bodnuti standalone**: a Rust tool that runs the checks OE already has (patchtest, oelint-adv, shellcheck, the yocto-docs Sphinx checks) and will add at most one cheap LLM call per patch. | Phase 1 (deterministic checks) working; phase 2 watching openembedded-core and publishing to [bodnuti.dev/reports](https://bodnuti.dev/reports/) | this repository; see [`README.md`](../README.md) and [`designs/DESIGN.md`](../designs/DESIGN.md) |
+| **bodnuti standalone**: a Rust tool that runs the checks OE already has (patchtest, oelint-adv, shellcheck, the yocto-docs Sphinx checks) and will add at most one cheap LLM call per patch. | Phase 1 (deterministic checks) working; phase 2 watching six OE and Yocto lists and publishing to [bodnuti.dev/reports](https://bodnuti.dev/reports/) | this repository; see [`README.md`](../README.md) and [`designs/DESIGN.md`](../designs/DESIGN.md) |
 
 The landing page for the eventual service is in
 [moto-timo/bodnuti.dev](https://github.com/moto-timo/bodnuti.dev).
@@ -104,8 +104,10 @@ Design: [`designs/PHASE2.md`](../designs/PHASE2.md). Deployment:
   deploy key there is write-only and confined to the reports directory.
 
 Running on the Hetzner arm64 worker since 25 October 2026. A systemd user
-timer polls openembedded-core five minutes after each run ends, then
-publishes.
+timer polls six lists five minutes after each run ends, then publishes:
+openembedded-core, openembedded-devel, bitbake-devel, yocto-docs,
+yocto-meta-virtualization and yocto-patches (routed by subject tag,
+including `[meta-yocto]`).
 
 Before the deployment, a 48-hour openembedded-core run on a development
 machine gave these results:
@@ -146,9 +148,10 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- After a day of openembedded-core results, add openembedded-devel,
-  bitbake-devel and yocto-docs, then yocto-patches and
-  yocto-meta-virtualization (which needs its clone).
+- Check layerindex-web and error-report-web, the two Django applications on
+  yocto-patches, with their own checker set (patchtest's mail checks and a
+  Python linter) instead of the layer checks; until then they are unrouted
+  (`designs/PHASE2.md` §3.2).
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
