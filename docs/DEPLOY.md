@@ -50,7 +50,7 @@ Check both behaviours against Hetzner's documentation.
 | 80 | TCP | any | Debian mirrors, if apt sources use `http://`; drop it if they use https |
 | 53 | UDP, TCP | Hetzner's recursive resolvers (see the console) | DNS |
 | 123 | UDP | any, or Hetzner's NTP servers | time |
-| 22 | TCP | the bodnuti.dev host only, ideally its private-network IP | rsync of reports |
+| 2222 | TCP | the bodnuti.dev host only, ideally its private-network IP | rsync of reports (§8) |
 
 Port-level rules still allow any host on 443. The checks need no network at
 all, so they run with `--network none` (step 8); only the fetch step talks to
@@ -283,27 +283,113 @@ systemctl --user enable --now bodnuti-fetch.timer
 
 ## 8. Publishing reports
 
-Reports go to the bodnuti.dev host with rsync over SSH. On that host, give
-the worker's deploy key a forced command limited to one directory, so a
-compromised worker cannot touch anything else, for example in
-`~/.ssh/authorized_keys`:
+Reports go to the bodnuti.dev host with rsync over SSH, as a dedicated
+account whose key can only write one directory. The commands below assume
+both hosts are on one Hetzner private network (the worker `10.1.0.2`, the web
+host `10.1.0.3`) and that the web host's sshd listens on 2222, as in step 1.
 
-```
-command="rrsync /var/www/bodnuti.dev/reports",restrict ssh-ed25519 AAAA... bodnuti-worker
+### On the web host
+
+1. Create the deploy account and the reports directory Caddy serves:
+
+   ```sh
+   sudo apt install rsync          # provides /usr/bin/rrsync
+   sudo useradd --system --create-home --shell /bin/sh bodnuti-deploy
+   sudo install -d -o bodnuti-deploy -g bodnuti-deploy -m 755 /var/www/bodnuti.dev/reports
+   sudo install -d -o bodnuti-deploy -g bodnuti-deploy -m 700 /home/bodnuti-deploy/.ssh
+   ```
+
+   `.ssh` must be owned by `bodnuti-deploy`: sshd reads `authorized_keys` as
+   that user, and a root-owned `700` directory makes every login fail with
+   only `Connection closed by authenticating user bodnuti-deploy [preauth]`
+   in the log.
+
+2. If `sshd_config` has an `AllowUsers` line, add `bodnuti-deploy` and run
+   `sudo systemctl reload ssh`.
+
+3. Note the host key fingerprint, to check on the worker:
+
+   ```sh
+   ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+   ```
+
+4. Report pages carry subjects and messages from mail. They are escaped and
+   have no scripts; a Content-Security-Policy in the `bodnuti.dev` block of
+   the Caddyfile makes sure nothing slipped through can run:
+
+   ```
+   header /reports/* Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'"
+   ```
+
+   then `sudo systemctl reload caddy`.
+
+### On the worker, as `bodnuti`
+
+5. Create the key, without a passphrase since a timer uses it:
+
+   ```sh
+   ssh-keygen -t ed25519 -N "" -C bodnuti-worker -f ~/.ssh/bodnuti-deploy
+   ```
+
+6. Name the web host in `~/.ssh/config` (mode `600`):
+
+   ```
+   Host bodnuti-web
+       HostName 10.1.0.3
+       Port 2222
+       User bodnuti-deploy
+       IdentityFile ~/.ssh/bodnuti-deploy
+       IdentitiesOnly yes
+   ```
+
+7. Record the host key, and compare the fingerprint with step 3 before
+   appending it:
+
+   ```sh
+   ssh-keyscan -p 2222 -t ed25519 10.1.0.3 > /tmp/k && ssh-keygen -lf /tmp/k
+   cat /tmp/k >> ~/.ssh/known_hosts && rm /tmp/k
+   ```
+
+8. Print the `authorized_keys` line, built from the key file so a terminal
+   paste cannot break it:
+
+   ```sh
+   printf 'command="/usr/bin/rrsync -wo /var/www/bodnuti.dev/reports",restrict %s\n' \
+     "$(cat ~/.ssh/bodnuti-deploy.pub)"
+   ```
+
+### Back on the web host
+
+9. Install that line as the account's only key:
+
+   ```sh
+   echo '<the line from step 8>' | sudo tee /home/bodnuti-deploy/.ssh/authorized_keys
+   sudo chown bodnuti-deploy: /home/bodnuti-deploy/.ssh/authorized_keys
+   sudo chmod 600 /home/bodnuti-deploy/.ssh/authorized_keys
+   ```
+
+   `rrsync` confines the key to the reports directory, and `-wo` makes it
+   write-only: a compromised worker can replace the reports but not read
+   anything back or run a shell.
+
+10. Allow TCP 2222 from the worker in the web host's firewall, and the
+    outbound rule in the worker's (table at the top). Keep the web host's
+    2222 closed to everything else; scanners find it within minutes.
+
+### Test from the worker
+
+```sh
+mkdir -p /tmp/t && echo ok > /tmp/t/test.html
+rsync -a --delete /tmp/t/ bodnuti-web:./
+curl -s https://bodnuti.dev/reports/test.html   # ok
+ssh bodnuti-web ls                              # refused by rrsync
+rm /tmp/t/test.html && rsync -a --delete /tmp/t/ bodnuti-web:./
 ```
 
-On the worker, name the web host in `~/.ssh/config` with that key:
+### Configure bodnuti
 
-```
-Host bodnuti-web
-    HostName <the bodnuti.dev host, ideally its private-network IP>
-    User <the account with the authorized_keys entry above>
-    IdentityFile ~/.ssh/bodnuti-deploy
-    IdentitiesOnly yes
-```
-
-and set the destination in `~/.config/bodnuti/watch.toml`. `rrsync` roots
-every path at the directory in its forced command, so `./` is the reports
+Set the destination in `~/.config/bodnuti/watch.toml`. `rrsync` roots every
+path at the directory in its forced command, so `./` is the reports
 directory itself:
 
 ```toml
