@@ -51,6 +51,12 @@ pub trait Checker {
     fn touched_files_only(&self) -> bool {
         true
     }
+    /// Whether what the series removes is reported too, as fixes. For a
+    /// dependency scanner, an advisory that goes away is what a series
+    /// claims to fix; for a linter it is only a tidier tree.
+    fn reports_fixes(&self) -> bool {
+        false
+    }
 }
 
 /// A checker that could not produce a result. Never the author's fault, and

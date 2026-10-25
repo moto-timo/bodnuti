@@ -408,13 +408,21 @@ fn head_paths(series: &Series) -> HashMap<String, String> {
     head_of
 }
 
+/// What the checkers found the series adds and, for checkers that report
+/// fixes, removes.
+struct Linted {
+    applied: Vec<Applied>,
+    findings: Vec<Finding>,
+    fixed: Vec<Finding>,
+}
+
 /// Runs every checker before and after the series and keeps what is new.
 fn lint(
     checkers: &[&dyn Checker],
     workspace: &Workspace,
     series: &Series,
     tool_errors: &mut Vec<ToolError>,
-) -> Result<(Vec<Applied>, Vec<Finding>)> {
+) -> Result<Linted> {
     let files: Vec<String> = series.patches.iter().flat_map(|p| p.files()).collect();
     let head_of = head_paths(series);
     let base_files: Vec<String> = head_of.keys().cloned().collect();
@@ -442,12 +450,17 @@ fn lint(
                     not_applied.base, not_applied.reason
                 ),
             };
-            return Ok((Vec::new(), vec![finding]));
+            return Ok(Linted {
+                applied: Vec::new(),
+                findings: vec![finding],
+                fixed: Vec::new(),
+            });
         }
     };
     let after: Vec<_> = checkers.iter().map(|c| c.lint(&tree, &files)).collect();
 
     let mut findings = Vec::new();
+    let mut fixed = Vec::new();
     for ((checker, before), after) in checkers.iter().zip(before).zip(after) {
         match (before, after) {
             (Ok(mut before), Ok(after)) => {
@@ -459,11 +472,17 @@ fn lint(
                         f.file = Some(head.clone());
                     }
                 }
-                let after = after.into_iter().filter(|f| {
-                    !checker.touched_files_only()
-                        || f.file.as_ref().is_some_and(|p| files.contains(p))
-                });
-                findings.extend(new_findings(&before, after.collect()));
+                let after: Vec<Finding> = after
+                    .into_iter()
+                    .filter(|f| {
+                        !checker.touched_files_only()
+                            || f.file.as_ref().is_some_and(|p| files.contains(p))
+                    })
+                    .collect();
+                findings.extend(new_findings(&before, after.clone()));
+                if checker.reports_fixes() {
+                    fixed.extend(new_findings(&after, before));
+                }
             }
             (Err(err), _) | (_, Err(err)) => tool_errors.push(ToolError {
                 tool: checker.tool(),
@@ -471,7 +490,7 @@ fn lint(
             }),
         }
     }
-    for finding in &mut findings {
+    for finding in findings.iter_mut().chain(fixed.iter_mut()) {
         finding.patch = series
             .patches
             .iter()
@@ -479,7 +498,11 @@ fn lint(
             .find(|p| finding.file.as_ref().is_some_and(|f| p.files().contains(f)))
             .map(|p| p.index);
     }
-    Ok((applied, findings))
+    Ok(Linted {
+        applied,
+        findings,
+        fixed,
+    })
 }
 
 /// A program installed beside the bodnuti executable, else its bare name
@@ -552,11 +575,11 @@ fn check(args: CheckArgs) -> Result<Report> {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
         Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint],
     };
-    let (applied, mut lint_findings) = lint(&checkers, &workspace, &series, &mut tool_errors)?;
+    let linted = lint(&checkers, &workspace, &series, &mut tool_errors)?;
+    findings.extend(linted.findings);
     if args.kind.is_layer() {
-        lint_findings.extend(srcuri::leftover_files(&workspace.path(), &series));
+        findings.extend(srcuri::leftover_files(&workspace.path(), &series));
     }
-    findings.extend(lint_findings);
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
     });
@@ -564,10 +587,11 @@ fn check(args: CheckArgs) -> Result<Report> {
     Ok(Report {
         series,
         base: workspace.base.clone(),
-        applied,
+        applied: linted.applied,
         findings,
         tool_errors,
         patchtest: patchtest_counts,
+        fixed: linted.fixed,
     })
 }
 

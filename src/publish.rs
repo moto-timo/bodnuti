@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 
 use crate::finding::{Finding, Severity};
 use crate::lore;
-use crate::report::{Report, line};
+use crate::report::{Report, fixed_line, line};
 use crate::watch::{Config, ListState, SeriesRecord, Status};
 
 /// Seconds in a month, for `retain_months`. The cutoff is approximate; a
@@ -547,6 +547,17 @@ fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Re
         out.push_str("<h3>Series</h3>\n");
         out.push_str(&finding_list(record, &series));
     }
+    if !report.fixed.is_empty() {
+        out.push_str("<h3>Fixes</h3>\n<ul class=\"findings\">\n");
+        for f in &report.fixed {
+            let _ = writeln!(
+                out,
+                "<li class=\"clean\"><code>{}</code></li>",
+                escape(&fixed_line(f))
+            );
+        }
+        out.push_str("</ul>\n");
+    }
     if !report.tool_errors.is_empty() {
         out.push_str("<h3>Not checked</h3>\n<ul class=\"findings\">\n");
         for e in &report.tool_errors {
@@ -648,6 +659,7 @@ mod tests {
             findings,
             tool_errors: vec![],
             patchtest: None,
+            fixed: vec![],
         }
     }
 

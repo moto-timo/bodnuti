@@ -19,6 +19,11 @@ pub struct Report {
     pub tool_errors: Vec<ToolError>,
     /// patchtest results that are not findings: passes and skips.
     pub patchtest: Option<Counts>,
+    /// Problems the series removes, from checkers that report fixes (a
+    /// dependency advisory a pin upgrade fixes). Not findings: a series
+    /// that only fixes is clean. Reports written before it have none.
+    #[serde(default)]
+    pub fixed: Vec<Finding>,
 }
 
 impl Report {
@@ -63,6 +68,12 @@ impl Report {
                 let _ = writeln!(out, "  {}", line(f));
             }
         }
+        if !self.fixed.is_empty() {
+            let _ = writeln!(out, "\nfixes");
+            for f in &self.fixed {
+                let _ = writeln!(out, "  {}", fixed_line(f));
+            }
+        }
         if !self.tool_errors.is_empty() {
             let _ = writeln!(out, "\nnot checked");
             for e in &self.tool_errors {
@@ -89,6 +100,19 @@ impl Report {
         );
         out
     }
+}
+
+/// `FIXED   trivy       path  message (check)`
+pub fn fixed_line(f: &Finding) -> String {
+    let tool = format!("{:?}", f.tool).to_lowercase();
+    let file = f
+        .file
+        .as_deref()
+        .map_or(String::new(), |p| format!("{p}  "));
+    format!(
+        "{:<7} {tool:<10}  {file}{} ({})",
+        "FIXED", f.message, f.check
+    )
 }
 
 /// `ERROR   oelint      path:line  message (check)`
@@ -127,6 +151,7 @@ mod tests {
                 fail: 0,
                 skip: 2,
             }),
+            fixed: Vec::new(),
         }
     }
 
@@ -140,6 +165,30 @@ mod tests {
             line: Some(426),
             message: "In POSIX sh, echo flags are undefined.".into(),
         }
+    }
+
+    #[test]
+    fn lists_fixes_apart_from_findings() {
+        let mut r = report(Vec::new(), Vec::new());
+        r.fixed.push(Finding {
+            tool: Tool::Bodnuti,
+            check: "CVE-2026-112393".into(),
+            severity: Severity::Error,
+            patch: Some(1),
+            file: Some("requirements.txt".into()),
+            line: Some(30),
+            message: "Pillow 12.3.0: heap overflow (fixed in 13.0.0)".into(),
+        });
+        let text = r.text();
+        assert!(
+            text.contains(
+                "\nfixes\n  FIXED   bodnuti     requirements.txt  \
+             Pillow 12.3.0: heap overflow (fixed in 13.0.0) (CVE-2026-112393)\n"
+            ),
+            "{text}"
+        );
+        assert!(text.ends_with("0 findings: 0 errors, 0 warnings, 0 info\n"));
+        assert_eq!(r.exit_code(), 0);
     }
 
     #[test]
