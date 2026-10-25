@@ -199,7 +199,7 @@ Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
 decision by the layerindex-web and error-report-web maintainer (who is
 also bodnuti's), after tiers 1 and 2 have run for a while.
 
-This gets its own design section, settling the ruff defaults and the
+Tier 1 is designed in §5.2. Tier 2 gets a design section, settling the
 vulnerability database handling, before implementation.
 
 ## 4. State
@@ -288,6 +288,77 @@ commit is not matched by patch-id. As a fallback, a commit whose subject and
 author equal those of a checked, unapplied patch is marked **probably
 applied**, and shown as such. patch-id matches are exact; subject matches are
 labelled as guesses.
+
+### 5.2 django-app checks, tier 1
+
+The design for tier 1 of §3.2. Tiers 2 and 3 are not designed yet.
+
+**Repository kind.** A `[repos]` entry is either a URL, as now, which is a
+layer, or a table with a kind:
+
+```toml
+[repos]
+openembedded-core = "https://git.openembedded.org/openembedded-core"
+layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app" }
+error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app" }
+```
+
+The kind is an enum (`layer`, `django-app`), not free text, and the runner
+passes it to the check as `bodnuti check --kind django-app`. `--kind`
+defaults to `layer`, so a check by hand behaves as before. Routing (§3.1)
+does not change: the subject tag still selects the repository, and the
+path check still guards against the wrong tree.
+
+**Checkers by kind.**
+
+| Checker | layer | django-app |
+|---|---|---|
+| patchtest | mbox and patch suites | mbox suite only (`test_mbox*.py`); the patch suite expects a layer |
+| oelint-adv, docs, leftover-file check | yes | no |
+| shellcheck | recipes, classes, scripts | scripts |
+| ruff | no | touched `.py` files |
+| djLint | no | touched templates (`.html` under a `templates/` directory) |
+
+patchtest still comes from the OE-Core clone mounted as `/oecore`, as for
+any repository that is not OE-Core.
+
+**ruff rules.** bodnuti passes its own `--select`, so both applications are
+checked the same way whatever their `ruff.toml` selects; the rest of the
+project's configuration (excluded paths, per-file ignores, target version)
+still applies. Style is left to the projects' own tooling.
+
+- the classic defaults: `E4`, `E7`, `E9`, `F` (error-report-web's
+  `ruff.toml` already selects exactly these);
+- the Django rules except `DJ012` (member order, which is style);
+- the security rules except `S101` (assert, used throughout the tests),
+  `S603` and `S607` (any subprocess call), which carry little signal in
+  these code bases.
+
+On the applications' master branches at 20 October 2026, that set finds
+357 existing problems in layerindex-web and 6 in error-report-web.
+They do not matter for patches, because only what a series adds is
+reported, but layerindex-web's `ruff.toml` selects no rules at all, so
+ruff's current broad defaults would report 1,504.
+
+**djLint rules.** djLint runs with `--profile=django`, and bodnuti keeps
+the rules that find template bugs or accessibility problems, not
+formatting:
+
+- template bugs: `H019`, `H025`, `H037`, `H041`, `H053`, `T027`, `T034`,
+  `T038` to `T045`. For example `T045`, a template tag inside an HTML
+  comment, which still runs, has 42 existing cases in layerindex-web;
+- accessibility: `H005`, `H006`, `H013`, `H016`, `H043`, `H045` to `H051`,
+  `H054` (missing `lang`, `alt` and image sizes, button types, ARIA
+  mistakes, nested interactive elements).
+
+**Findings.** Two new tools, `ruff` and `djlint`, with each rule's code as
+the check id. ruff's JSON output gives file, line and message; djLint's
+`--linter-output-format` is set to one parseable line per finding. Both are
+pinned in `requirements.txt` (ruff 0.17.2, djLint 1.47.0) and so in the
+image.
+
+**Not in tier 1.** Dependency pin scanning (tier 2) and Django's own checks
+(tier 3).
 
 ## 6. Publishing
 
