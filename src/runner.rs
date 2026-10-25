@@ -376,9 +376,18 @@ pub fn read_owners(state: &Path, id: &str) -> Result<Vec<Owner>> {
 }
 
 /// The branch a base ref names: `refs/remotes/origin/scarthgap` gives
-/// `scarthgap`, `origin/master` gives `master`.
+/// `scarthgap`, `origin/master` gives `master`, and a branch with a slash
+/// keeps it: `refs/remotes/origin/scarthgap/go` gives `scarthgap/go`.
 fn branch_name(base: &str) -> String {
-    base.rsplit('/').next().unwrap_or(base).to_string()
+    let name = base
+        .strip_prefix("refs/heads/")
+        .or_else(|| {
+            base.strip_prefix("refs/remotes/")
+                .and_then(|r| r.split_once('/').map(|(_, b)| b))
+        })
+        .or_else(|| base.split_once('/').map(|(_, b)| b))
+        .unwrap_or(base);
+    name.to_string()
 }
 
 /// `git patch-id --stable` for each patch, which is the same for a patch
@@ -526,6 +535,18 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
         let mut record = state.series.remove(root).unwrap();
         record.repo = Some("openembedded-core".into());
         record
+    }
+
+    #[test]
+    fn branch_names_keep_their_slashes() {
+        assert_eq!(branch_name("refs/remotes/origin/scarthgap"), "scarthgap");
+        assert_eq!(
+            branch_name("refs/remotes/origin/scarthgap/go"),
+            "scarthgap/go"
+        );
+        assert_eq!(branch_name("refs/heads/wrynose/go"), "wrynose/go");
+        assert_eq!(branch_name("origin/master"), "master");
+        assert_eq!(branch_name("HEAD"), "HEAD");
     }
 
     #[test]
