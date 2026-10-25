@@ -370,13 +370,10 @@ input. This lets CI and scripts gate on the result.
 
 1. **Deterministic checks (this document):** `bodnuti check`, container, JSON
    and text output.
-2. **Watch and report:** poll lore (`openembedded-core`,
-   `openembedded-devel`, `yocto-patches`, `yocto-meta-virtualization`,
-   `yocto-docs`, `bitbake-devel`) by Message-ID and keep state in SQLite.
-   Skip a resend whose patches all have a `git patch-id --stable` already
-   checked. Publish reports on a static page (bodnuti.dev). Email replies
-   stay opt-in per list, start in dry-run, and need the list owners'
-   agreement.
+2. **Watch and report:** poll lore for new series on each list, check them
+   in the phase 1 sandbox, and publish static reports on bodnuti.dev. See
+   [`PHASE2.md`](PHASE2.md). Email replies stay opt-in per list, start in
+   dry-run, and need the list owners' agreement.
 3. **LLM review at a low token rate:** see §6.
 
 ## 6. Phase 3: LLM review at a low token rate
