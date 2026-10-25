@@ -27,7 +27,7 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -41,7 +41,7 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.89.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --locked --all-targets
@@ -51,7 +51,7 @@ jobs:
     if: github.event_name != 'schedule' || github.event.schedule == '17 5 * * *'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # gitleaks scans the whole history
       - uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,7 @@ jobs:
     if: github.event_name != 'schedule' || github.event.schedule == '17 5 * * *'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t bodnuti:ci -f Containerfile .
       - name: smoke test
         run: |
@@ -81,7 +81,7 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: PyO3/maturin-action@v1
         with:
           command: build
@@ -102,7 +102,7 @@ jobs:
     if: github.event.schedule == '17 6 * * 1' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@v2
         with:
