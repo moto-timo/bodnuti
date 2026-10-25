@@ -3,7 +3,8 @@
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
-first day of the bodnuti phase 2 deployment and the first security scans.
+first day of the bodnuti phase 2 deployment, the first security scans and
+the addition of CI.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -138,9 +139,10 @@ That run found four problems, all fixed:
 - quoted-printable mail caused false patchtest failures;
 - a v2 posted in the v1 thread mixed the two revisions.
 
-## bodnuti security scans
+## bodnuti CI and security
 
-bodnuti reads untrusted mail, so its dependencies and image are scanned:
+bodnuti reads untrusted mail, so its dependencies and image are scanned and
+its parsers fuzzed:
 
 - `make audit` runs cargo-audit on `Cargo.lock`, trivy on `Cargo.lock` and
   `requirements.txt` (the image's Python pins, moved out of the
@@ -149,17 +151,34 @@ bodnuti reads untrusted mail, so its dependencies and image are scanned:
 - `make audit-image` scans a built image with trivy, failing on HIGH or
   CRITICAL findings that have a fix. `DEPLOY.md` runs it before an image
   ships.
-- Dependabot checks the Cargo and pip pins weekly.
+- `make fuzz` runs three cargo-fuzz targets: mbox parsing and everything
+  read from a parsed patch, the lore feed and grouping it into series, and
+  subject tags. For this, the mail and lore parsers are now a small
+  library the binary uses. Two minutes per target, about 5.2 million
+  inputs, found no crash.
+- Dependabot checks the Cargo and pip pins and the GitHub Actions weekly.
+
+GitHub Actions runs on every push and pull request: fmt, clippy and the
+tests; a build on rust-version 1.89; `make audit`; the image build, a smoke
+test of its tools and `make audit-image`; and a manylinux wheel, installed
+and run. The scans and the image also run daily, the fuzz targets weekly
+(five minutes each). trivy and gitleaks are pinned release binaries checked
+against their checksums, not third-party actions.
 
 The first scans on 25 October 2026 found one real problem, now fixed:
 quick-xml 0.37.5, which parses the lore feed, had two high-severity
 denial-of-service advisories (RUSTSEC-2026-0194 and RUSTSEC-2026-0195). It
-is now on 0.41. The other results:
+is now on 0.42. The other results:
 
 - no other Rust or Python dependency findings;
 - no secrets in the bodnuti or bodnuti.dev history;
 - 75 HIGH, 0 CRITICAL findings in the image's Debian trixie packages, none
   with a Debian fix yet. Rebuilding the image picks the fixes up.
+
+Dependabot's first six pull requests were version updates, not security
+fixes. The two action updates were merged. The toml 1.1, quick-xml 0.42
+and ureq 3 updates needed code or feature changes and were done by hand,
+and a proposed bump of the rust-version toolchain was declined.
 
 ## What it costs
 
@@ -189,9 +208,9 @@ window held about eight sashiko reviews.
   yocto-patches, with their own checker set (patchtest's mail checks and a
   Python linter) instead of the layer checks; until then they are unrouted
   (`designs/PHASE2.md` §3.2).
-- Rebuild the worker's image and binary to deploy the quick-xml upgrade.
-- Fuzz the parsers that read mail and the lore feed (`cargo fuzz`), and
-  decide on a license policy for `cargo deny`.
+- Rebuild the worker's image and binary to deploy the quick-xml, toml and
+  ureq upgrades.
+- Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
