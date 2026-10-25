@@ -70,6 +70,9 @@ docker run --rm \
     bodnuti check --repo /repo '<20261023192932.159420-1-peter.marko@siemens.com>'
 ```
 
+For a server deployment with rootless Podman, a read-only container and no
+network during checks, see [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ### On the host
 
 Install oelint-adv, b4, patchtest's requirements
