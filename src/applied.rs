@@ -503,7 +503,17 @@ mod tests {
         series: &Series,
         ids: &[(String, u32)],
     ) -> BTreeMap<u32, Landed> {
-        landed(clone, "origin/master", "master", series, ids, 0).unwrap()
+        // A day back, not 0: git does not reliably read --since=@0 as
+        // the epoch.
+        landed(
+            clone,
+            "origin/master",
+            "master",
+            series,
+            ids,
+            lore::now() - 86_400,
+        )
+        .unwrap()
     }
 
     #[test]
