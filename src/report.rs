@@ -119,7 +119,7 @@ impl Report {
             }
             let _ = writeln!(out, "\n{}", patch.subject);
             for f in findings {
-                let _ = writeln!(out, "  {}", line(f));
+                out.push_str(&self.text_block(f, &severity_label(f.severity), true));
             }
         }
         let unattributed: Vec<&Finding> =
@@ -127,19 +127,24 @@ impl Report {
         if !unattributed.is_empty() {
             let _ = writeln!(out, "\nseries");
             for f in unattributed {
-                let _ = writeln!(out, "  {}", line(f));
+                out.push_str(&self.text_block(f, &severity_label(f.severity), true));
             }
         }
         if !self.fixed.is_empty() {
             let _ = writeln!(out, "\nfixes");
             for f in &self.fixed {
-                let _ = writeln!(out, "  {}", fixed_line(f));
+                // The line of a fix is in the tree before the series, which
+                // the excerpts do not show.
+                out.push_str(&self.text_block(f, "FIXED", false));
             }
         }
         if !self.tool_errors.is_empty() {
             let _ = writeln!(out, "\nnot checked");
             for e in &self.tool_errors {
-                let _ = writeln!(out, "  {:?}: {}", e.tool, e.message.replace('\n', "\n    "));
+                let _ = writeln!(out, "\n  {}", tool_name(e.tool));
+                for line in e.message.lines() {
+                    let _ = writeln!(out, "      {line}");
+                }
             }
         }
 
@@ -162,6 +167,79 @@ impl Report {
         );
         out
     }
+}
+
+impl Report {
+    /// The excerpt recorded for a finding, if any.
+    pub fn excerpt(&self, f: &Finding) -> Option<&Excerpt> {
+        self.excerpts.get(&excerpt_key(f.file.as_deref()?, f.line?))
+    }
+
+    /// One finding as a block of text (designs/PHASE2.md §6.1):
+    ///
+    /// ```text
+    ///
+    ///   ERROR   oelint oelint.vars.inconspaces  meta/foo/foo.bb:12
+    ///       Assignment should be enclosed in double quotes
+    ///        11 | SRC_URI = "..."
+    ///     >  12 | A:append= "x"
+    /// ```
+    fn text_block(&self, f: &Finding, label: &str, with_excerpt: bool) -> String {
+        let mut out = String::new();
+        let place = location(f).map(|p| format!("  {p}")).unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "\n  {label:<7} {} {}{place}",
+            tool_name(f.tool),
+            f.check
+        );
+        for line in f.message.lines() {
+            let _ = writeln!(out, "      {line}");
+        }
+        if let Some(e) = self.excerpt(f).filter(|_| with_excerpt) {
+            for (number, text, here) in numbered(e, f.line) {
+                let mark = if here { '>' } else { ' ' };
+                let _ = writeln!(out, "    {mark} {number} | {text}");
+            }
+        }
+        out
+    }
+}
+
+/// An excerpt's lines with right-aligned numbers, and whether each is the
+/// finding's line.
+pub fn numbered(e: &Excerpt, line: Option<u32>) -> Vec<(String, &str, bool)> {
+    let last = e.first as usize + e.lines.len().saturating_sub(1);
+    let width = last.to_string().len();
+    e.lines
+        .iter()
+        .enumerate()
+        .map(|(i, text)| {
+            let n = e.first as usize + i;
+            (
+                format!("{n:>width$}"),
+                text.as_str(),
+                line.is_some_and(|l| l as usize == n),
+            )
+        })
+        .collect()
+}
+
+/// `file:line`, `file`, or nothing.
+pub fn location(f: &Finding) -> Option<String> {
+    match (&f.file, f.line) {
+        (Some(file), Some(n)) => Some(format!("{file}:{n}")),
+        (Some(file), None) => Some(file.clone()),
+        _ => None,
+    }
+}
+
+pub fn tool_name(tool: crate::finding::Tool) -> String {
+    format!("{tool:?}").to_lowercase()
+}
+
+pub fn severity_label(severity: Severity) -> String {
+    format!("{severity:?}").to_uppercase()
 }
 
 /// `FIXED   trivy       path  message (check)`
@@ -254,6 +332,28 @@ mod tests {
     }
 
     #[test]
+    fn shows_the_excerpt_under_the_message() {
+        let mut f = finding(Severity::Error);
+        f.message = "first line\nsecond line".into();
+        let mut r = report(vec![f], Vec::new());
+        r.excerpts.insert(
+            excerpt_key("meta/classes-recipe/uboot-sign.bbclass", 426),
+            Excerpt {
+                first: 424,
+                lines: vec!["a".into(), "b".into(), "echo -e x".into(), "d".into()],
+            },
+        );
+        let text = r.text();
+        assert!(
+            text.contains(
+                "      first line\n      second line\n      424 | a\n      425 | b\n    \
+                 > 426 | echo -e x\n      427 | d\n"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn lists_fixes_apart_from_findings() {
         let mut r = report(Vec::new(), Vec::new());
         r.fixed.push(Finding {
@@ -268,8 +368,8 @@ mod tests {
         let text = r.text();
         assert!(
             text.contains(
-                "\nfixes\n  FIXED   bodnuti     requirements.txt  \
-             Pillow 12.3.0: heap overflow (fixed in 13.0.0) (CVE-2026-112393)\n"
+                "\nfixes\n\n  FIXED   bodnuti CVE-2026-112393  requirements.txt:30\n      \
+                 Pillow 12.3.0: heap overflow (fixed in 13.0.0)\n"
             ),
             "{text}"
         );
@@ -284,10 +384,14 @@ mod tests {
             text.starts_with("bodnuti: [PATCH] foo: bar\nbase: 0123456789ab\n"),
             "{text}"
         );
-        assert!(text.contains(
-            "\n[PATCH] foo: bar\n  WARNING shellcheck  meta/classes-recipe/uboot-sign.bbclass:426  \
-             In POSIX sh, echo flags are undefined. (SC3037)\n"
-        ), "{text}");
+        assert!(
+            text.contains(
+                "\n[PATCH] foo: bar\n\n  WARNING shellcheck SC3037  \
+                 meta/classes-recipe/uboot-sign.bbclass:426\n      \
+                 In POSIX sh, echo flags are undefined.\n"
+            ),
+            "{text}"
+        );
         assert!(text.contains("patchtest: 8 pass, 0 fail, 2 skip"));
         assert!(text.ends_with("1 findings: 0 errors, 1 warnings, 0 info\n"));
     }
@@ -307,7 +411,7 @@ mod tests {
         assert_eq!(r.exit_code(), 2);
         assert!(
             r.text()
-                .contains("not checked\n  Oelint: oelint-adv exited with 2")
+                .contains("not checked\n\n  oelint\n      oelint-adv exited with 2\n")
         );
     }
 }
