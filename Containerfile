@@ -33,6 +33,8 @@ ENV PATH=/opt/venv/bin:$PATH \
     BODNUTI_PYTHON=/opt/venv/bin/python \
     BODNUTI_OELINT=/opt/venv/bin/oelint-adv \
     BODNUTI_B4=/opt/venv/bin/b4 \
+    BODNUTI_RUFF=/opt/venv/bin/ruff \
+    BODNUTI_DJLINT=/opt/venv/bin/djlint \
     XDG_CACHE_HOME=/tmp/.cache
 
 # Patches are untrusted input; nothing here needs root. XDG_CACHE_HOME

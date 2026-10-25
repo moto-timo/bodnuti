@@ -34,6 +34,11 @@ docs = [
     "PyYAML",
     "sphinx-lint",
 ]
+# For Django applications (--kind django-app).
+django = [
+    "ruff",
+    "djlint",
+]
 
 [tool.maturin]
 bindings = "bin"
