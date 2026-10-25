@@ -2,8 +2,8 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 24 October 2026; the
-bodnuti phase 1 section was updated the same day.
+as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, when the
+bodnuti phase 2 section was added.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -13,7 +13,7 @@ Haiku 5.5.
 | Approach | State | Where |
 |---|---|---|
 | **Sashiko project**: `--project yoctoproject` (and `bitbake`), with an OpenEmbedded review workflow and prompt guides. Full multi-stage LLM review, results in sashiko's web UI. | Working prototype | [moto-timo/sashiko, branch `yoctoproject`](https://github.com/moto-timo/sashiko/tree/yoctoproject) (public fork, no pull request) |
-| **bodnuti standalone**: a Rust tool that runs the checks OE already has (patchtest, oelint-adv, shellcheck, the yocto-docs Sphinx checks) and will add at most one cheap LLM call per patch. | Phase 1 (deterministic checks) working | this repository; see [`README.md`](../README.md) and [`designs/DESIGN.md`](../designs/DESIGN.md) |
+| **bodnuti standalone**: a Rust tool that runs the checks OE already has (patchtest, oelint-adv, shellcheck, the yocto-docs Sphinx checks) and will add at most one cheap LLM call per patch. | Phase 1 (deterministic checks) working; phase 2 watching openembedded-core and publishing to [bodnuti.dev/reports](https://bodnuti.dev/reports/) | this repository; see [`README.md`](../README.md) and [`designs/DESIGN.md`](../designs/DESIGN.md) |
 
 The landing page for the eventual service is in
 [moto-timo/bodnuti.dev](https://github.com/moto-timo/bodnuti.dev).
@@ -82,6 +82,46 @@ Noise:
 A run takes 4-12 s for a recipe patch and about 40 s for a documentation
 patch, which builds the docs twice.
 
+## bodnuti phase 2: watching the lists
+
+Design: [`designs/PHASE2.md`](../designs/PHASE2.md). Deployment:
+[`docs/DEPLOY.md`](DEPLOY.md) §8 and §9.
+
+- `bodnuti poll` reads each list's lore search feed and groups messages
+  into series. Once a series has all its patches and has been quiet for 15
+  minutes, it is fetched with b4 and checked in the container, with no
+  network.
+- Each series is routed to a repository, either fixed per list or from its
+  subject tag (yocto-patches), and checked against the branch its subject
+  names.
+- Resends whose patches were all checked before, matched by patch-id per
+  branch, are recorded as duplicates and not checked again.
+- Each poll also matches checked patches against the upstream branches. A
+  matching patch-id is an exact match; the same subject and author is a
+  probable one. A series whose patches have all landed is marked applied.
+- `bodnuti publish` renders the results as static HTML (no JavaScript,
+  mail text escaped) and copies them with rsync to bodnuti.dev. The
+  deploy key there is write-only and confined to the reports directory.
+
+Running on the Hetzner arm64 worker since 25 October 2026. A systemd user
+timer polls openembedded-core five minutes after each run ends, then
+publishes.
+
+Before the deployment, a 48-hour openembedded-core run on a development
+machine gave these results:
+
+- 26 series checked and 0 failed;
+- 3 resends recognized as duplicates;
+- 7 patches matched upstream, all by patch-id, including a 6-patch wrynose
+  series that landed in full.
+
+That run found four problems, all fixed:
+
+- a branch named inside the PATCH tag was missed;
+- a series that does not apply aborted instead of reporting it;
+- quoted-printable mail caused false patchtest failures;
+- a v2 posted in the v1 thread mixed the two revisions.
+
 ## What it costs
 
 The OE and Yocto lists carry about 5,100 patches a month (sampled from
@@ -106,8 +146,13 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Push bodnuti phase 1 for review, then build and score its single-call LLM
-  layer against the six defects the deterministic checks miss.
+- After a day of openembedded-core results, add openembedded-devel,
+  bitbake-devel and yocto-docs, then yocto-patches and
+  yocto-meta-virtualization (which needs its clone).
+- Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
+  info-level `suggestedvar` rules).
+- Build and score bodnuti's single-call LLM layer (phase 3) against the six
+  defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
   Yocto maintainers before any upstream pull request. Nothing would be emailed
   to the lists without their agreement.
