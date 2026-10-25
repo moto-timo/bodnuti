@@ -223,11 +223,9 @@ default branch. Known limits:
   the series' `conf.py`, and it runs in the same offline, read-only
   container.
 
-Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
-decision by the layerindex-web and error-report-web maintainer (who is
-also bodnuti's), after tiers 1 and 2 have run for a while.
-
-Tiers 1 and 2 are designed in §5.2 and §5.3, and built; tier 3 in §5.5.
+All three tiers are built: tier 1 in §5.2, tier 2 in §5.3, and tier 3, on
+the decision of the applications' maintainer (who is also bodnuti's), in
+§5.5.
 
 ## 4. State
 

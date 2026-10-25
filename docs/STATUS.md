@@ -190,6 +190,13 @@ style rules OE-Core does not follow, once suppressed, are shown that way
 too; only `homepageping` and `bbclass.underscores`, whose result is not
 about the series, stay suppressed.
 
+The third tier runs Django's own checks, `manage.py check` and
+`makemigrations --check`, before and after each series, offline against
+in-memory sqlite, in a venv per application built into the image from
+copies of their requirements (`designs/PHASE2.md` §5.5). On
+error-report-web, a patch adding a model field without its migration
+reports exactly that; layerindex-web's checks run clean.
+
 ### Other repositories on yocto-patches
 
 Four more repositories send patches to yocto-patches (about 240 messages
@@ -246,10 +253,11 @@ That run found four problems, all fixed:
 bodnuti reads untrusted mail, so its dependencies and image are scanned and
 its parsers fuzzed:
 
-- `make audit` runs cargo-audit on `Cargo.lock`, trivy on `Cargo.lock` and
-  `requirements.txt` (the image's Python pins, moved out of the
-  Containerfile so scanners can read them), and gitleaks on the git
-  history.
+- `make audit` runs cargo-deny on `Cargo.lock` (advisories; a license
+  policy in `deny.toml` that allows only the permissive licenses bodnuti's
+  crates use; crates.io as the only source), trivy on `requirements.txt`
+  (the image's Python pins, moved out of the Containerfile so scanners can
+  read them), and gitleaks on the git history.
 - `make audit-image` scans a built image with trivy, failing on HIGH or
   CRITICAL findings that have a fix. `DEPLOY.md` runs it before an image
   ships.
@@ -355,10 +363,9 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Decide on tier 3 of the Django application checks, Django's own `check`
-  and `makemigrations --check`, after tiers 1 and 2 have run for a while
-  (`designs/PHASE2.md` §3.2).
-- Decide on a license policy for `cargo deny`.
+- Refresh `django/<application>/requirements.txt` from the applications'
+  master branches when their pins change, so Django's checks run against
+  current dependencies.
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
   defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
