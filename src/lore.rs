@@ -28,11 +28,38 @@ pub struct Entry {
     pub updated: String,
 }
 
+/// How many entries lore returns per page of search results.
+const PAGE: usize = 200;
+
+/// A bound on the pages one fetch reads, so a mistaken `since` cannot page
+/// through a list's whole history.
+const MAX_PAGES: usize = 50;
+
 /// Fetches the patch messages on `list` since `since` (`YYYYMMDDhhmmss`,
-/// UTC), newest first. lore returns at most 200 entries per page.
-// ponytail: one page only; poll more often than 200 patches arrive per list.
+/// UTC), newest first, reading as many pages as lore has.
 pub fn fetch(list: &str, since: &str) -> Result<Vec<Entry>> {
-    let url = format!("{LORE}/{list}/?q=s:PATCH+dt:{since}..&x=A");
+    let mut entries = Vec::new();
+    for page in 0..MAX_PAGES {
+        let Some(body) = fetch_page(list, since, page * PAGE)? else {
+            return Ok(entries);
+        };
+        entries.extend(parse(&body)?);
+        // A short page is the last. Count the raw entries: parse skips any
+        // without a usable Message-ID.
+        if body.matches("<entry>").count() < PAGE {
+            return Ok(entries);
+        }
+    }
+    anyhow::bail!(
+        "{list}: more than {} messages since {since}",
+        MAX_PAGES * PAGE
+    )
+}
+
+/// One page of search results, from entry `offset`; None when there are no
+/// more.
+fn fetch_page(list: &str, since: &str, offset: usize) -> Result<Option<String>> {
+    let url = format!("{LORE}/{list}/?q=s:PATCH+dt:{since}..&x=A&o={offset}");
     // Statuses are read below rather than turned into errors, because a
     // 404 body says whether the search was empty.
     let mut response = ureq::get(&url)
@@ -49,17 +76,16 @@ pub fn fetch(list: &str, since: &str) -> Result<Vec<Entry>> {
         .read_to_string()
         .context("reading the lore feed")?;
     match status {
-        200 => {}
+        200 => Ok(Some(body)),
         // lore answers a search with no matches with 404 and an HTML page
         // saying so, not with an empty feed. An unknown inbox is also 404,
         // with a plain "Not Found", and stays an error.
-        404 if no_results(&body) => return Ok(Vec::new()),
+        404 if no_results(&body) => Ok(None),
         _ => {
             let first = body.lines().next().unwrap_or("").trim();
             anyhow::bail!("fetching {url}: status code {status}: {first}");
         }
     }
-    parse(&body)
 }
 
 fn no_results(page: &str) -> bool {
