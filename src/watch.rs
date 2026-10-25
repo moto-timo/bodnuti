@@ -413,12 +413,27 @@ impl ListState {
 /// whatever its position: yocto-patches has both `[pseudo][PATCH]` and
 /// `[PATCH][yocto-autobuilder-helper]`.
 fn repo_from_tags(subject: &str, repos: &BTreeMap<String, Repo>) -> Option<String> {
-    subject_tags(subject).iter().find_map(|tag| {
+    tag_words(subject).into_iter().find_map(|word| {
         repos
             .keys()
-            .find(|repo| repo.eq_ignore_ascii_case(tag.trim()))
+            .find(|repo| repo.eq_ignore_ascii_case(&word))
             .cloned()
     })
+}
+
+/// The subject's tags, with a PATCH tag split into its words: b4 puts the
+/// repository in it, as in `[PATCH yocto-autobuilder2]`.
+fn tag_words(subject: &str) -> Vec<String> {
+    subject_tags(subject)
+        .iter()
+        .flat_map(|tag| {
+            if tag.to_ascii_uppercase().contains("PATCH") {
+                tag.split_whitespace().map(String::from).collect()
+            } else {
+                vec![tag.trim().to_string()]
+            }
+        })
+        .collect()
 }
 
 impl ListState {
@@ -665,11 +680,21 @@ mod tests {
                     None,
                     "2026-10-24T10:00:00Z",
                 ),
+                entry(
+                    "d@x",
+                    "[PATCH yocto-autobuilder-helper] schedulers: fix",
+                    None,
+                    "2026-10-24T10:00:00Z",
+                ),
             ],
             t,
             900,
         );
         patches.route(&c.lists[1], &c.repos);
+        assert_eq!(
+            patches.series["d@x"].repo.as_deref(),
+            Some("yocto-autobuilder-helper")
+        );
         assert_eq!(
             patches.series["a@x"].repo.as_deref(),
             Some("layerindex-web")
