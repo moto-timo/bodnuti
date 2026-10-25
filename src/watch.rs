@@ -213,6 +213,10 @@ pub struct SeriesRecord {
     pub attempts: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<CheckResult>,
+    /// The branch the series was checked against, e.g. `master` or
+    /// `scarthgap`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -290,6 +294,7 @@ impl ListState {
                             reason: None,
                             attempts: 0,
                             result: None,
+                            branch: None,
                         },
                     );
                 }

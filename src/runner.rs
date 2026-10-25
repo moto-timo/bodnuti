@@ -53,9 +53,13 @@ impl Runner<'_> {
         let mbox = self.fetch(&dir, &root)?;
         let series = Series::load(&[&mbox])?;
         let ids = patch_ids(&series)?;
-        if let Some(earlier) = self.all_known(&ids, list, &root)? {
+        let branch = branch_name(&resolve_base(&repo, &series, None));
+        record.branch = Some(branch.clone());
+        if let Some(earlier) = self.all_known(&ids, list, &root, &branch)? {
             record.status = Status::Duplicate;
-            record.reason = Some(format!("every patch was already checked in {earlier}"));
+            record.reason = Some(format!(
+                "every patch was already checked for {branch} in {earlier}"
+            ));
             return Ok(());
         }
         if route == Route::SubjectTag {
@@ -76,7 +80,7 @@ impl Runner<'_> {
         record.result = Some(CheckResult::of(&report));
         record.status = Status::Checked;
         record.reason = None;
-        self.remember(&ids, list, &root)?;
+        self.remember(&ids, list, &root, &branch)?;
         Ok(())
     }
 
@@ -131,41 +135,91 @@ impl Runner<'_> {
             .with_context(|| format!("check produced no report: {}", last_line(&output.stderr)))
     }
 
-    /// The series every patch-id was first seen in, if all are known from
-    /// another series.
-    fn all_known(&self, ids: &[String], list: &str, root: &str) -> Result<Option<String>> {
+    /// The series every patch-id was first checked in for `branch`, if all
+    /// are known from another series. The same patch sent to two branches
+    /// (a backport) is checked for each.
+    fn all_known(
+        &self,
+        ids: &[(String, u32)],
+        list: &str,
+        root: &str,
+        branch: &str,
+    ) -> Result<Option<String>> {
         let this = format!("{list}/{root}");
         let mut first = None;
-        for id in ids {
-            match std::fs::read_to_string(self.config.state.join("patch-ids").join(id)) {
-                Ok(owner) if owner.trim() != this => {
-                    first = first.or(Some(owner.trim().to_string()))
-                }
-                Ok(_) => return Ok(None),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(e) => return Err(e.into()),
+        for (id, _) in ids {
+            let owners = read_owners(&self.config.state, id)?;
+            match owners.iter().find(|o| o.branch.as_deref() == Some(branch)) {
+                Some(o) if o.series != this => first = first.or(Some(o.series.clone())),
+                _ => return Ok(None),
             }
         }
         Ok(first)
     }
 
-    /// Records the series as the first one with each patch-id.
-    fn remember(&self, ids: &[String], list: &str, root: &str) -> Result<()> {
+    /// Records the series as the first one checked with each patch-id for
+    /// `branch`, with the patch's position in it.
+    fn remember(&self, ids: &[(String, u32)], list: &str, root: &str, branch: &str) -> Result<()> {
         let dir = self.config.state.join("patch-ids");
         std::fs::create_dir_all(&dir)?;
-        for id in ids {
-            let path = dir.join(id);
-            if !path.exists() {
-                std::fs::write(path, format!("{list}/{root}\n"))?;
+        for (id, index) in ids {
+            if read_owners(&self.config.state, id)?
+                .iter()
+                .any(|o| o.branch.as_deref() == Some(branch))
+            {
+                continue;
             }
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join(id))?;
+            writeln!(file, "{list}/{root} {branch} {index}")?;
         }
         Ok(())
     }
 }
 
+/// One series a patch-id was checked in.
+#[derive(Debug, PartialEq)]
+pub struct Owner {
+    /// `<list>/<root>`.
+    pub series: String,
+    /// The branch it was checked for; unknown in records from before
+    /// branches were kept.
+    pub branch: Option<String>,
+    pub index: Option<u32>,
+}
+
+/// Every series a patch-id was checked in: one line each, as
+/// `<list>/<root> <branch> <index>`.
+pub fn read_owners(state: &Path, id: &str) -> Result<Vec<Owner>> {
+    let text = match std::fs::read_to_string(state.join("patch-ids").join(id)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            Some(Owner {
+                series: words.next()?.to_string(),
+                branch: words.next().map(String::from),
+                index: words.next().and_then(|i| i.parse().ok()),
+            })
+        })
+        .collect())
+}
+
+/// The branch a base ref names: `refs/remotes/origin/scarthgap` gives
+/// `scarthgap`, `origin/master` gives `master`.
+fn branch_name(base: &str) -> String {
+    base.rsplit('/').next().unwrap_or(base).to_string()
+}
+
 /// `git patch-id --stable` for each patch, which is the same for a patch
 /// whatever its commit message, so a resend with a reworded message matches.
-fn patch_ids(series: &Series) -> Result<Vec<String>> {
+fn patch_ids(series: &Series) -> Result<Vec<(String, u32)>> {
     let mut ids = Vec::new();
     for patch in &series.patches {
         let mut child = git::command(Path::new("."))
@@ -185,7 +239,7 @@ fn patch_ids(series: &Series) -> Result<Vec<String>> {
             .split_whitespace()
             .next()
             .context("git patch-id printed nothing")?;
-        ids.push(id.to_string());
+        ids.push((id.to_string(), patch.index));
     }
     Ok(ids)
 }
@@ -346,6 +400,65 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
                 .unwrap()
                 .contains("openembedded-core/a@x")
         );
+    }
+
+    #[test]
+    fn a_backport_of_the_same_patch_is_checked_for_its_branch() {
+        let (dir, mut config) = setup();
+        let repo = dir.path().join("cache/openembedded-core");
+        std::fs::create_dir_all(&repo).unwrap();
+        git::run(&repo, &["init", "-q", "-b", "master"]).unwrap();
+        std::fs::create_dir_all(repo.join("meta")).unwrap();
+        std::fs::write(repo.join("meta/foo.bb"), "A = \"1\"\n").unwrap();
+        git::run(&repo, &["add", "."]).unwrap();
+        git::run(
+            &repo,
+            &[
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@x",
+                "commit",
+                "-qm",
+                "init",
+            ],
+        )
+        .unwrap();
+        git::run(&repo, &["branch", "scarthgap"]).unwrap();
+        let runner = Runner { config: &config };
+        let mut master = routed("m@x");
+        runner
+            .process("openembedded-core", Route::Fixed, &mut master)
+            .unwrap();
+        assert_eq!(master.status, Status::Checked);
+
+        // The same diff, sent for scarthgap.
+        let backport = dir.path().join("backport.mbx");
+        std::fs::write(
+            &backport,
+            MBOX.replace("[PATCH] foo", "[scarthgap][PATCH] foo"),
+        )
+        .unwrap();
+        for arg in &mut config.runner {
+            if arg.starts_with("BODNUTI_TEST_MBOX=") {
+                *arg = format!("BODNUTI_TEST_MBOX={}", backport.display());
+            }
+        }
+        let runner = Runner { config: &config };
+        let mut stable = routed("s@x");
+        runner
+            .process("openembedded-core", Route::Fixed, &mut stable)
+            .unwrap();
+        assert_eq!(stable.status, Status::Checked, "{:?}", stable.reason);
+        assert_eq!(stable.branch.as_deref(), Some("scarthgap"));
+        let owners = read_owners(
+            &config.state,
+            &patch_ids(&Series::load(&[&backport]).unwrap()).unwrap()[0].0,
+        )
+        .unwrap();
+        assert_eq!(owners.len(), 2);
+        assert_eq!(owners[1].branch.as_deref(), Some("scarthgap"));
+        assert_eq!(owners[1].index, Some(1));
     }
 
     #[test]
