@@ -540,6 +540,19 @@ journalctl --user -u bodnuti-poll -f
 `OnUnitInactiveSec` counts from the end of the previous run, so a long run
 of checks never overlaps the next.
 
+To check series from before the watcher started, run one poll by hand with
+the timer stopped, for example over the last week:
+
+```
+systemctl --user stop bodnuti-poll.timer
+~/.local/bin/bodnuti poll --backfill-hours 168
+~/.local/bin/bodnuti publish
+systemctl --user start bodnuti-poll.timer
+```
+
+Series already known are not checked again. A week of all six lists is
+about 200 series and takes an hour or more, one check at a time.
+
 To see why series were not checked, for example on yocto-patches:
 
 ```
