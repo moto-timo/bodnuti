@@ -130,7 +130,11 @@ seven of about 160 with no repository tag.
    (`git cat-file -e <base>:<path>`). Added files are not checked: they do
    not exist yet in any repository. A series whose paths do not match is
    recorded as `unrouted` with the mismatching paths, rather than checked
-   against the wrong tree.
+   against the wrong tree. A series merged before it was checked fails this
+   check too, since the merge renamed or removed its files; so a failing
+   series is first matched against the base's last 90 days of history, by
+   patch-id and else by subject and author (§5.1), and recorded as
+   `applied` if every patch is there.
 3. **No tag, or a repository that is not configured,** is `unrouted` with
    the reason. The index lists unrouted series, so a missing clone is visible
    rather than silent. Each poll tries these series' tags again, so adding

@@ -228,6 +228,61 @@ fn scan_repo(
     Ok(())
 }
 
+/// How far before a series' last message `already_applied` looks: patches
+/// are usually applied within weeks, and older history only costs time.
+const ALREADY_APPLIED_WINDOW_SECS: u64 = 90 * 86_400;
+
+/// Where each patch of `series` landed in the history of `base`, if every
+/// one did: by patch-id, else by subject and author. This recognizes a
+/// series checked after it was merged, whose files the merge renamed or
+/// removed. `ids` are the series' `(patch-id, index)` pairs and `last_seen`
+/// the time of its last message.
+pub fn already_applied(
+    clone: &Path,
+    base: &str,
+    branch: &str,
+    series: &Series,
+    ids: &[(String, u32)],
+    last_seen: u64,
+) -> Result<Option<BTreeMap<u32, Landed>>> {
+    let range = vec![
+        format!(
+            "--since=@{}",
+            last_seen.saturating_sub(ALREADY_APPLIED_WINDOW_SECS)
+        ),
+        base.to_string(),
+    ];
+    let by_id: BTreeMap<String, String> = commit_patch_ids(clone, &range)?.into_iter().collect();
+    let commits = commit_subjects(clone, &range)?;
+    let mut landed = BTreeMap::new();
+    for patch in &series.patches {
+        let exact = ids
+            .iter()
+            .find(|(_, index)| *index == patch.index)
+            .and_then(|(id, _)| by_id.get(id));
+        let email = patch.author_email();
+        let found = match exact {
+            Some(commit) => Some((commit.clone(), true)),
+            None => commits
+                .iter()
+                .find(|(_, e, s)| s == patch.summary() && Some(e) == email.as_ref())
+                .map(|(commit, _, _)| (commit.clone(), false)),
+        };
+        let Some((commit, exact)) = found else {
+            return Ok(None);
+        };
+        landed.insert(
+            patch.index,
+            Landed {
+                commit,
+                branch: branch.to_string(),
+                exact,
+            },
+        );
+    }
+    Ok(Some(landed))
+}
+
 /// `(patch-id, commit)` for every non-merge commit in `range`, in one
 /// `git log -p | git patch-id --stable` pipeline.
 fn commit_patch_ids(clone: &Path, range: &[String]) -> Result<Vec<(String, String)>> {
@@ -390,6 +445,30 @@ mod tests {
 
     fn fetch(config: &Config) {
         git::run(&config.cache.join("oe"), &["fetch", "-q"]).unwrap();
+    }
+
+    #[test]
+    fn finds_a_series_merged_before_it_was_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let up = upstream(dir.path());
+        let config = config(dir.path());
+        let clone = config.cache.join("oe");
+        let (mbox, id) = sent_patch(&up, "A = \"2\"\n");
+        let series = Series::parse(mbox.as_bytes()).unwrap();
+        let ids = vec![(id, 1)];
+        let now = lore::now();
+
+        assert_eq!(
+            already_applied(&clone, "origin/master", "master", &series, &ids, now).unwrap(),
+            None
+        );
+        commit(&up, "a.bb", "A = \"2\"\n", "a: change, as merged");
+        fetch(&config);
+        let landed = already_applied(&clone, "origin/master", "master", &series, &ids, now)
+            .unwrap()
+            .unwrap();
+        assert!(landed[&1].exact);
+        assert_eq!(landed[&1].branch, "master");
     }
 
     #[test]

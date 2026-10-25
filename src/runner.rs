@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
+use crate::applied;
 use crate::git;
 use crate::kind::Kind;
 use crate::report::Report;
@@ -102,7 +103,8 @@ impl Runner<'_> {
         let mbox = self.fetch(&dir, &root)?;
         let series = Series::load(&[&mbox])?;
         let ids = patch_ids(&series)?;
-        let branch = branch_name(&resolve_base(&repo, &series, None));
+        let base = resolve_base(&repo, &series, None);
+        let branch = branch_name(&base);
         record.branch = Some(branch.clone());
         if let Some(earlier) = self.all_known(&ids, list, &root, &branch)? {
             record.status = Status::Duplicate;
@@ -112,8 +114,20 @@ impl Runner<'_> {
             return Ok(());
         }
         if route == Route::SubjectTag {
-            let missing = missing_paths(&repo, &series)?;
+            let missing = missing_paths(&repo, &base, &series)?;
             if !missing.is_empty() {
+                // A series merged before it was checked fails the path check
+                // too: the merge renamed or removed its files.
+                let last_seen = crate::lore::parse_time(&record.tracked.last_seen).unwrap_or(0);
+                if let Some(landed) =
+                    applied::already_applied(&repo, &base, &branch, &series, &ids, last_seen)?
+                {
+                    record.applied = landed;
+                    record.status = Status::Applied;
+                    record.reason =
+                        Some(format!("already applied to {branch} when it was checked"));
+                    return Ok(());
+                }
                 record.status = Status::Unrouted;
                 record.reason = Some(format!(
                     "the series changes paths that do not exist in {repo_name}: {}",
@@ -301,8 +315,7 @@ fn patch_ids(series: &Series) -> Result<Vec<(String, u32)>> {
 
 /// Paths the series modifies or deletes that do not exist at its base in
 /// `repo`. Added files are skipped: they exist in no tree yet.
-fn missing_paths(repo: &Path, series: &Series) -> Result<Vec<String>> {
-    let base = resolve_base(repo, series, None);
+fn missing_paths(repo: &Path, base: &str, series: &Series) -> Result<Vec<String>> {
     let mut missing = Vec::new();
     for patch in &series.patches {
         let added = patch.added_files();

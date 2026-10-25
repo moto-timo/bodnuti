@@ -99,6 +99,8 @@ impl Row<'_> {
             Status::Duplicate => Outcome::Resend,
             Status::Failed => Outcome::Failed,
             Status::Checked | Status::Applied => match &self.report {
+                // Found upstream before it was checked (§3.1).
+                None if self.record.status == Status::Applied => Outcome::AlreadyApplied,
                 None => Outcome::NotChecked,
                 Some(r) if !r.tool_errors.is_empty() => Outcome::NotChecked,
                 Some(r) => {
