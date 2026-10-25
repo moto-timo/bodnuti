@@ -2,8 +2,8 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, when the
-bodnuti phase 2 section was added.
+as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
+first day of the bodnuti phase 2 deployment.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -107,7 +107,21 @@ Running on the Hetzner arm64 worker since 25 October 2026. A systemd user
 timer polls six lists five minutes after each run ends, then publishes:
 openembedded-core, openembedded-devel, bitbake-devel, yocto-docs,
 yocto-meta-virtualization and yocto-patches (routed by subject tag,
-including `[meta-yocto]`).
+including `[meta-yocto]`). The report pages carry the bodnuti logo and
+favicon, served from the reports directory under a Content-Security-Policy
+that allows only same-site images and inline styles.
+
+On the first day of the deployment, all six lists polled cleanly:
+
+- 8 series checked (5 openembedded-core, 2 openembedded-devel,
+  1 bitbake-devel), 0 failed;
+- 3 yocto-patches series unrouted, all `[layerindex-web]`, as planned
+  (`designs/PHASE2.md` §3.2);
+- each poll takes about a second when there is nothing new to check.
+
+Deploying found one more problem, now fixed: lore answers a search with no
+matches with 404, so the quiet lists (yocto-docs, yocto-meta-virtualization)
+failed every poll until an empty result was read as no new messages.
 
 Before the deployment, a 48-hour openembedded-core run on a development
 machine gave these results:
