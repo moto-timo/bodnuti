@@ -1,15 +1,17 @@
-# Vulnerability and secret scans, and fuzzing. Tools: cargo-audit (cargo
-# install cargo-audit), trivy and gitleaks (packaged by Homebrew and most
-# distributions), and for fuzzing nightly Rust and cargo-fuzz.
+# Vulnerability, license and secret scans, and fuzzing. Tools: cargo-deny
+# (cargo install --locked cargo-deny), trivy and gitleaks (packaged by
+# Homebrew and most distributions), and for fuzzing nightly Rust and
+# cargo-fuzz.
 
 IMAGE ?= localhost/bodnuti
 
 .PHONY: audit audit-image
 
-# Dependencies as pinned (Cargo.lock, requirements.txt) and the whole git
+# Dependencies as pinned (Cargo.lock: advisories, licenses against
+# deny.toml, sources; requirements.txt: advisories) and the whole git
 # history for committed secrets. Each tool exits non-zero on a finding.
 audit:
-	cargo audit
+	cargo deny check
 	trivy fs --quiet --scanners vuln --exit-code 1 --skip-dirs target .
 	gitleaks git --no-banner .
 

@@ -1,0 +1,33 @@
+# cargo deny check (make audit): advisories, licenses, duplicate crates and
+# sources for everything bodnuti links.
+
+[advisories]
+# Every vulnerability, unmaintained crate and yanked version fails.
+yanked = "deny"
+
+[licenses]
+# bodnuti is MIT OR Apache-2.0. It links only permissively licensed crates,
+# so that the binary and the wheel can be shared under its own terms.
+# CDLA-Permissive-2.0 is the CA certificate data of webpki-roots, which
+# ureq's rustls uses for https.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "0BSD",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Two versions of a crate is a cost worth seeing, not a failure.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
