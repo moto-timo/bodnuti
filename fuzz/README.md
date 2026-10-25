@@ -9,6 +9,7 @@ its parsers on arbitrary input with libFuzzer, through
 | `mbox` | `Series::parse` on mbox data, then every method bodnuti calls on a parsed patch (quoted-printable decoding, touched files, From header) |
 | `lore_feed` | `lore::parse` on an Atom feed, then grouping its entries into series; a reply must never name a series |
 | `subject` | subject tags and `k/N` counters, which routing and branch selection rely on |
+| `request_pull` | `request_pull::parse` on message text; whatever it accepts must be fit for `git fetch` |
 
 cargo-fuzz needs a nightly toolchain. The main crate stays on stable and
 does not depend on this one.

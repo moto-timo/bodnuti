@@ -39,3 +39,10 @@ path = "fuzz_targets/subject.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "request_pull"
+path = "fuzz_targets/request_pull.rs"
+test = false
+doc = false
+bench = false
