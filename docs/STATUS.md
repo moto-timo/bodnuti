@@ -159,6 +159,16 @@ adding the two applications to `[repos]` checked the three layerindex-web
 series the first day had left unrouted. All three are clean: patchtest's
 mail checks 63 pass, 0 fail, and no ruff or djLint findings.
 
+### Report pages
+
+Each finding on a series page is a block of its own, laid out after the
+review cards on sashiko.dev (`designs/PHASE2.md` §6.1): a severity badge,
+the tool, check id and location, the message with its line breaks, and the
+lines of the patched file around it, numbered, with the finding's line
+highlighted. The check records those lines in the report, since only it has
+the patched tree. Fixes and tool errors take the same form, and
+`report.txt` has the same blocks in plain text.
+
 ### Other repositories on yocto-patches
 
 Four more repositories send patches to yocto-patches (about 240 messages
@@ -267,8 +277,6 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Lay out each finding on the report pages as a multi-line block, as on
-  sashiko.dev (`designs/PHASE2.md` §6.1).
 - Decide on tier 3 of the Django application checks, Django's own `check`
   and `makemigrations --check`, after tiers 1 and 2 have run for a while
   (`designs/PHASE2.md` §3.2).
