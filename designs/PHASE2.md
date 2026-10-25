@@ -144,14 +144,18 @@ queries grow.
 ```
 state/
   lock
-  lists/<list>.json              newest timestamp seen, last poll time
+  lists/<list>.json              cursor, thread map, and every series on the list
+                                 (subject, n/N, patches seen, last seen, status)
   series/<list>/<root-msgid>/
-    series.json                  subject, n/N, message-ids seen, first/last seen, status
     <root-msgid>.mbx             what b4 fetched
     report.json                  bodnuti check --json
     report.txt                   bodnuti check
   patch-ids/<patch-id>           path of the series that first had this patch
 ```
+
+One file per list keeps a poll to one read and one atomic write (temporary
+file, then rename) per list; at about a thousand series per list per month it
+stays in the low megabytes.
 
 Message-IDs are used as directory names only after they pass a strict
 filter (letters, digits and `.-_+@=`, no `/`, no leading `.`), because they

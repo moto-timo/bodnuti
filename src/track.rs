@@ -7,10 +7,12 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use serde::{Deserialize, Serialize};
+
 use crate::lore::Entry;
 use crate::series::{counters, subject_tags};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tracked {
     pub root: String,
     pub subject: String,
@@ -31,7 +33,9 @@ impl Tracked {
 #[derive(Debug, Default)]
 pub struct Tracker {
     /// Message-ID of every patch or cover letter seen, to its series root.
-    root_of: HashMap<String, String>,
+    /// Kept between polls: a patch may reply to another patch of its series
+    /// that arrived in an earlier poll.
+    pub root_of: HashMap<String, String>,
     pub series: BTreeMap<String, Tracked>,
 }
 

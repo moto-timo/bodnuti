@@ -11,6 +11,7 @@ mod series;
 mod shell;
 mod srcuri;
 mod track;
+mod watch;
 mod workspace;
 
 use std::collections::HashMap;
@@ -45,35 +46,87 @@ enum Command {
 
 #[derive(Args)]
 struct PollArgs {
-    /// Print the series found instead of checking them. Required for now:
-    /// state and checking are not implemented yet.
+    /// The watcher configuration.
+    #[arg(long, default_value = "~/.config/bodnuti/watch.toml")]
+    config: PathBuf,
+    /// Print the series on the given lists, without the configuration or
+    /// any state.
     #[arg(long)]
     dry_run: bool,
-    /// How far back to look, in hours.
+    /// With --dry-run: how far back to look, in hours.
     #[arg(long, default_value_t = 24)]
     hours: u64,
-    /// lore inbox names, e.g. openembedded-core.
-    #[arg(required = true)]
+    /// With --dry-run: lore inbox names, e.g. openembedded-core.
     lists: Vec<String>,
 }
 
-/// Lists the series on each list since `hours` ago.
+/// Polls every configured list and records its series in the state
+/// directory. A list that fails is reported and the others still run.
 fn poll(args: PollArgs) -> Result<()> {
-    if !args.dry_run {
-        anyhow::bail!("only --dry-run is implemented");
+    if args.dry_run {
+        return poll_dry_run(&args);
+    }
+    let config = watch::Config::load(&watch::expand(&args.config))?;
+    let _lock = watch::Lock::take(&config.state)?;
+    let now = lore::now();
+    let mut failed = 0;
+    for list in &config.lists {
+        let result = (|| -> Result<()> {
+            let mut state = watch::ListState::load(&config.state, &list.name)?;
+            let entries = safe_entries(lore::fetch(
+                &list.name,
+                &state.since(config.initial_hours, now),
+            )?);
+            let new = state.ingest(&entries, now, config.settle_minutes * 60);
+            state.save(&config.state, &list.name)?;
+            let complete = state
+                .series
+                .values()
+                .filter(|r| r.status == watch::Status::Complete)
+                .count();
+            println!(
+                "{}: {} messages, {new} new series, {complete} complete",
+                list.name,
+                entries.len()
+            );
+            Ok(())
+        })();
+        if let Err(err) = result {
+            eprintln!("bodnuti: {}: {err:#}", list.name);
+            failed += 1;
+        }
+    }
+    if failed > 0 {
+        anyhow::bail!("{failed} of {} lists failed", config.lists.len());
+    }
+    Ok(())
+}
+
+/// Drops entries whose Message-ID cannot be used as a file name.
+fn safe_entries(entries: Vec<lore::Entry>) -> Vec<lore::Entry> {
+    entries
+        .into_iter()
+        .filter(|e| {
+            let ok = lore::safe_id(&e.message_id);
+            if !ok {
+                eprintln!(
+                    "bodnuti: skipping a message with an unusable Message-ID: {:?}",
+                    e.message_id
+                );
+            }
+            ok
+        })
+        .collect()
+}
+
+/// Lists the series on each list since `hours` ago.
+fn poll_dry_run(args: &PollArgs) -> Result<()> {
+    if args.lists.is_empty() {
+        anyhow::bail!("--dry-run needs at least one list name");
     }
     let since = lore::hours_ago(args.hours);
     for list in &args.lists {
-        let entries = lore::fetch(list, &since)?;
-        let (safe, unsafe_ids): (Vec<_>, Vec<_>) = entries
-            .into_iter()
-            .partition(|e| lore::safe_id(&e.message_id));
-        for e in &unsafe_ids {
-            eprintln!(
-                "bodnuti: skipping a message with an unusable Message-ID: {:?}",
-                e.message_id
-            );
-        }
+        let safe = safe_entries(lore::fetch(list, &since)?);
         let mut tracker = track::Tracker::default();
         tracker.ingest(&safe);
         println!(

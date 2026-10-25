@@ -131,14 +131,38 @@ fn percent_decode(s: &str) -> Option<String> {
 /// The UTC time `hours` ago as `YYYYMMDDhhmmss`, the form lore's `dt:`
 /// prefix takes.
 pub fn hours_ago(hours: u64) -> String {
-    let now = std::time::SystemTime::now()
+    utc(now().saturating_sub(hours * 3600))
+}
+
+pub fn now() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    utc(now.saturating_sub(hours * 3600))
+        .map_or(0, |d| d.as_secs())
+}
+
+/// Parses lore's `YYYY-MM-DDThh:mm:ssZ` timestamps to seconds since the
+/// epoch. Other RFC 3339 forms are not used by lore and are rejected.
+pub fn parse_time(t: &str) -> Option<u64> {
+    let b = t.as_bytes();
+    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
+        return None;
+    }
+    let num = |r: std::ops::Range<usize>| t.get(r)?.parse::<i64>().ok();
+    let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hh, mm, ss) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    // Howard Hinnant's days-from-civil algorithm.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from(days * 86_400 + hh * 3600 + mm * 60 + ss).ok()
 }
 
 /// Formats seconds since the epoch as `YYYYMMDDhhmmss`, UTC.
-fn utc(secs: u64) -> String {
+pub fn utc(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     // Howard Hinnant's days-to-civil algorithm.
@@ -214,6 +238,15 @@ mod tests {
         assert_eq!(utc(0), "19700101000000");
         assert_eq!(utc(1_792_800_000), "20261024000000");
         assert_eq!(utc(951_782_400 + 3661), "20000229010101");
+    }
+
+    #[test]
+    fn parses_lore_timestamps() {
+        assert_eq!(parse_time("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_time("2026-10-24T00:00:00Z"), Some(1_792_800_000));
+        let t = parse_time("2000-02-29T01:01:01Z").unwrap();
+        assert_eq!(utc(t), "20000229010101");
+        assert_eq!(parse_time("2026-10-24 00:00:00"), None);
     }
 
     #[test]
