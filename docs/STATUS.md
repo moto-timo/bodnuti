@@ -267,6 +267,8 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
+- Lay out each finding on the report pages as a multi-line block, as on
+  sashiko.dev (`designs/PHASE2.md` §6.1).
 - Decide on tier 3 of the Django application checks, Django's own `check`
   and `makemigrations --check`, after tiers 1 and 2 have run for a while
   (`designs/PHASE2.md` §3.2).

@@ -534,6 +534,25 @@ Pages are regenerated in full each time; at a few thousand series this takes
 well under a second. Series older than `retain_months` drop off the site at
 the next publish (`--delete`), but stay in `state/`.
 
+### 6.1 Findings as blocks (planned)
+
+Today each finding on a series page is one line of `<code>`: severity,
+tool, file and line, message and check id run together, and a long
+message (a patchtest explanation, a trivy advisory title) wraps into an
+unreadable run. Each finding becomes its own multi-line block, as the
+review comments on sashiko.dev are laid out:
+
+- a header: severity, tool, check id, and the file and line, linked where
+  the repository has a web view;
+- the message as a block of its own, its line breaks kept;
+- where the finding has a line in a file the series changes, the few lines
+  of the patched file around it, as a code excerpt;
+- fixes (§5.3) and tool errors in the same form.
+
+The text report (`report.txt`) gets the same structure in plain text. The
+index is unchanged. The design is settled against sashiko's own web UI
+(`static/` in the sashiko repository) before it is built.
+
 ## 7. Testing
 
 - Unit tests for the Atom parser (on a captured feed), series grouping
