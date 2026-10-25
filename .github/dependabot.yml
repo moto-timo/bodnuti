@@ -1,0 +1,12 @@
+# Security and version updates for the pinned dependencies. The image's
+# Debian packages are not covered: rebuild the image to pick up their fixes.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
