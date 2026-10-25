@@ -18,6 +18,10 @@ use crate::series::Series;
 /// Selects `test_mbox.py` and `test_patch.py` and nothing else.
 const PATTERN: &str = "test_[mp][ab]*.py";
 
+/// Selects `test_mbox.py` only: the mail checks, for repositories that are
+/// not layers.
+const MBOX_PATTERN: &str = "test_mbox*.py";
+
 pub struct Patchtest {
     pub python: String,
     /// An openembedded-core checkout providing `scripts/patchtest` and its
@@ -28,6 +32,9 @@ pub struct Patchtest {
     /// `documentation/` or with a `[meta-*]` subject tag, which is every
     /// patch on the docs and meta-openembedded lists.
     pub oecore_target: bool,
+    /// Run the mbox suite only. The patch suite's checks of added `.patch`
+    /// files are about layers.
+    pub mbox_only: bool,
 }
 
 /// Tests that only make sense when the target is openembedded-core.
@@ -87,7 +94,13 @@ impl Patchtest {
             .arg(&clone)
             .arg("--testdir")
             .arg(self.oecore.join("meta/lib/patchtest/tests"))
-            .args(["--base-commit", base, "--pattern", PATTERN, "--log-results"])
+            .args(["--base-commit", base, "--pattern"])
+            .arg(if self.mbox_only {
+                MBOX_PATTERN
+            } else {
+                PATTERN
+            })
+            .arg("--log-results")
             .output()
             .with_context(|| format!("running {} {}", self.python, script.display()))?;
         // patchtest's exit status says nothing useful: it is 2 whenever its

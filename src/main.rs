@@ -4,6 +4,7 @@ mod applied;
 mod docs;
 mod finding;
 mod git;
+mod kind;
 mod oelint;
 mod patchtest;
 mod publish;
@@ -23,6 +24,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 
 use crate::finding::{Checker, Finding, Tool, ToolError, new_findings};
+use crate::kind::Kind;
 use crate::oelint::Oelint;
 use crate::patchtest::Patchtest;
 use crate::report::Report;
@@ -270,9 +272,12 @@ fn poll_dry_run(args: &PollArgs) -> Result<()> {
 
 #[derive(Args)]
 struct CheckArgs {
-    /// The layer repository the series targets.
+    /// The repository the series targets.
     #[arg(long)]
     repo: PathBuf,
+    /// What the repository is, which selects the checks.
+    #[arg(long, value_enum, default_value_t = Kind::Layer)]
+    kind: Kind,
     /// Commit to apply the series to. Default: a branch named by a subject
     /// tag such as [scarthgap], else origin/HEAD, else HEAD.
     #[arg(long)]
@@ -499,6 +504,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         python: python.clone(),
         oecore_target: same(&oecore, &args.repo),
         oecore,
+        mbox_only: !args.kind.is_layer(),
     };
     let (mut findings, patchtest_counts) = match patchtest.run(&args.repo, &workspace.base, &series)
     {
@@ -526,13 +532,14 @@ fn check(args: CheckArgs) -> Result<Report> {
     let docs = docs::Docs {
         python: python.clone(),
     };
-    let (applied, mut lint_findings) = lint(
-        &[&oelint, &shellcheck, &docs],
-        &workspace,
-        &series,
-        &mut tool_errors,
-    )?;
-    lint_findings.extend(srcuri::leftover_files(&workspace.path(), &series));
+    let checkers: Vec<&dyn Checker> = match args.kind {
+        Kind::Layer => vec![&oelint, &shellcheck, &docs],
+        Kind::DjangoApp => vec![&shellcheck],
+    };
+    let (applied, mut lint_findings) = lint(&checkers, &workspace, &series, &mut tool_errors)?;
+    if args.kind.is_layer() {
+        lint_findings.extend(srcuri::leftover_files(&workspace.path(), &series));
+    }
     findings.extend(lint_findings);
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
