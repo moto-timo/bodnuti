@@ -135,14 +135,13 @@ seven of about 160 with no repository tag.
    the reason. The index lists unrouted series, so a missing clone is visible
    rather than silent.
 
-### 3.2 Repositories that are not layers (planned)
+### 3.2 Repositories that are not layers
 
 Two projects on yocto-patches are Django web applications, not layers:
 `[layerindex-web]` (git.yoctoproject.org/layerindex-web, behind
 layers.openembedded.org) and `[error-report-web]`
 (git.yoctoproject.org/error-report-web, behind errors.yoctoproject.org).
-Both send several series a month. They are left unrouted for now, because
-the layer checks find little in them:
+Both send several series a month. The layer checks find little in them:
 
 - oelint-adv and the documentation checks have nothing to read: no
   recipes, no Sphinx tree;
@@ -199,8 +198,8 @@ Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
 decision by the layerindex-web and error-report-web maintainer (who is
 also bodnuti's), after tiers 1 and 2 have run for a while.
 
-Tier 1 is designed in §5.2. Tier 2 gets a design section, settling the
-vulnerability database handling, before implementation.
+Tier 1 is designed in §5.2 and built. Tier 2 gets a design section,
+settling the vulnerability database handling, before implementation.
 
 ## 4. State
 

@@ -187,6 +187,8 @@ git clone https://git.yoctoproject.org/yocto-docs ~/cache/yocto-docs
 git clone https://git.openembedded.org/bitbake ~/cache/bitbake
 git clone https://git.yoctoproject.org/meta-virtualization ~/cache/meta-virtualization
 git clone https://git.yoctoproject.org/meta-yocto ~/cache/meta-yocto
+git clone https://git.yoctoproject.org/layerindex-web ~/cache/layerindex-web
+git clone https://git.yoctoproject.org/error-report-web ~/cache/error-report-web
 ```
 
 bodnuti writes temporary worktrees into these clones' `.git` and removes
@@ -471,6 +473,8 @@ bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
 meta-yocto = "https://git.yoctoproject.org/meta-yocto"
+layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app" }
+error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app" }
 ```
 
 Every `repo` needs a `[repos]` entry, or the configuration is rejected, and
@@ -478,6 +482,12 @@ a clone under `~/cache/` (§5), or its series fail to check. lore has no meta-yo
 come to yocto-patches tagged `[meta-yocto]`, which routes them to the
 `meta-yocto` repository by subject tag. A yocto-patches series whose tags
 name no repository here is recorded as unrouted, which is not an error.
+
+layerindex-web and error-report-web are Django applications, not layers,
+and come to yocto-patches tagged by name too. `kind = "django-app"` checks
+them with patchtest's mail checks, ruff, djLint and shellcheck instead of
+the layer checks (designs/PHASE2.md §5.2). They need an image built after
+these checkers were added; an older image rejects `--kind`.
 
 Run it once by hand:
 

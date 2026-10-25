@@ -206,12 +206,13 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Check layerindex-web and error-report-web, the two Django applications on
-  yocto-patches, as a django-app repository kind instead of with the layer
-  checks: static checks (ruff with Django and security rules, djLint,
-  patchtest's mail checks) and a vulnerability scan of changed requirements
-  pins, with Django's own `check` and `makemigrations --check` decided
-  later. Until then they are unrouted (`designs/PHASE2.md` §3.2).
+- Deploy the django-app checks for layerindex-web and error-report-web
+  (tier 1: patchtest's mail checks, ruff with Django and security rules,
+  djLint, shellcheck): rebuild the image, clone both applications and add
+  them to `[repos]` with `kind = "django-app"`. Then design tier 2, a
+  vulnerability scan of changed requirements pins; Django's own `check`
+  and `makemigrations --check` (tier 3) are decided later
+  (`designs/PHASE2.md` §3.2, §5.2).
 - Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
