@@ -21,6 +21,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::lore;
+use crate::series::subject_tags;
 use crate::track::{Tracked, Tracker};
 
 /// How far before the newest message already seen each poll starts, so a
@@ -124,6 +125,8 @@ pub enum Status {
     Seen,
     /// Every patch has arrived, or the series has settled.
     Complete,
+    /// No configured repository can take the series; `reason` says why.
+    Unrouted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +134,12 @@ pub struct SeriesRecord {
     #[serde(flatten)]
     pub tracked: Tracked,
     pub status: Status,
+    /// The clone under `cache/` the series is checked against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// Why the series is unrouted or failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -204,6 +213,8 @@ impl ListState {
                         SeriesRecord {
                             tracked,
                             status: Status::Seen,
+                            repo: None,
+                            reason: None,
                         },
                     );
                 }
@@ -222,6 +233,44 @@ impl ListState {
             }
         }
         new
+    }
+}
+
+/// The configured repository a subject tag names, if any. Any tag counts,
+/// whatever its position: yocto-patches has both `[pseudo][PATCH]` and
+/// `[PATCH][yocto-autobuilder-helper]`.
+fn repo_from_tags(subject: &str, repos: &BTreeMap<String, String>) -> Option<String> {
+    subject_tags(subject).iter().find_map(|tag| {
+        repos
+            .keys()
+            .find(|repo| repo.eq_ignore_ascii_case(tag.trim()))
+            .cloned()
+    })
+}
+
+impl ListState {
+    /// Chooses the repository for every complete series that has none yet.
+    /// A series no configured repository can take becomes `Unrouted`.
+    pub fn route(&mut self, list: &ListConfig, repos: &BTreeMap<String, String>) {
+        for record in self.series.values_mut() {
+            if record.status != Status::Complete || record.repo.is_some() {
+                continue;
+            }
+            let repo = match list.route {
+                Route::Fixed => list.repo.clone(),
+                Route::SubjectTag => repo_from_tags(&record.tracked.subject, repos),
+            };
+            match repo {
+                Some(repo) => record.repo = Some(repo),
+                None => {
+                    record.status = Status::Unrouted;
+                    record.reason = Some(format!(
+                        "no subject tag names a configured repository (tags: {})",
+                        subject_tags(&record.tracked.subject).join(", ")
+                    ));
+                }
+            }
+        }
     }
 }
 
@@ -345,6 +394,69 @@ mod tests {
         assert_eq!(s.series["1@x"].status, Status::Seen);
         s.ingest(&[], t0 + 900, 900);
         assert_eq!(s.series["1@x"].status, Status::Complete);
+    }
+
+    #[test]
+    fn routes_by_fixed_repo_or_by_any_subject_tag() {
+        let c: Config = toml::from_str(&format!(
+            "{CONFIG}\nlayerindex-web = \"x\"\nyocto-autobuilder-helper = \"y\"\n"
+        ))
+        .unwrap();
+        let t = lore::parse_time("2026-10-24T10:00:00Z").unwrap();
+        let mut patches = ListState::default();
+        patches.ingest(
+            &[
+                entry(
+                    "a@x",
+                    "[layerindex-web][PATCH 1/1] fix",
+                    None,
+                    "2026-10-24T10:00:00Z",
+                ),
+                entry(
+                    "b@x",
+                    "[PATCH][Yocto-Autobuilder-Helper] abint",
+                    None,
+                    "2026-10-24T10:00:00Z",
+                ),
+                entry(
+                    "c@x",
+                    "[PATCH] mystery: change",
+                    None,
+                    "2026-10-24T10:00:00Z",
+                ),
+            ],
+            t,
+            900,
+        );
+        patches.route(&c.lists[1], &c.repos);
+        assert_eq!(
+            patches.series["a@x"].repo.as_deref(),
+            Some("layerindex-web")
+        );
+        assert_eq!(
+            patches.series["b@x"].repo.as_deref(),
+            Some("yocto-autobuilder-helper")
+        );
+        let c_rec = &patches.series["c@x"];
+        assert_eq!(c_rec.status, Status::Unrouted);
+        assert!(c_rec.reason.as_deref().unwrap().contains("tags: PATCH"));
+
+        let mut core = ListState::default();
+        core.ingest(
+            &[entry(
+                "d@x",
+                "[PATCH] curl: fix",
+                None,
+                "2026-10-24T10:00:00Z",
+            )],
+            t,
+            900,
+        );
+        core.route(&c.lists[0], &c.repos);
+        assert_eq!(
+            core.series["d@x"].repo.as_deref(),
+            Some("openembedded-core")
+        );
     }
 
     #[test]

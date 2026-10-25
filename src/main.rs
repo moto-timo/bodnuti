@@ -78,17 +78,17 @@ fn poll(args: PollArgs) -> Result<()> {
                 &state.since(config.initial_hours, now),
             )?);
             let new = state.ingest(&entries, now, config.settle_minutes * 60);
+            state.route(list, &config.repos);
             state.save(&config.state, &list.name)?;
-            let complete = state
-                .series
-                .values()
-                .filter(|r| r.status == watch::Status::Complete)
-                .count();
+            let count = |status| state.series.values().filter(|r| r.status == status).count();
             println!(
-                "{}: {} messages, {new} new series, {complete} complete",
+                "{}: {} messages, {new} new series, {} complete, {} unrouted",
                 list.name,
-                entries.len()
+                entries.len(),
+                count(watch::Status::Complete),
+                count(watch::Status::Unrouted),
             );
+
             Ok(())
         })();
         if let Err(err) = result {
