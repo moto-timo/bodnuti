@@ -16,7 +16,7 @@ use crate::applied;
 use crate::git;
 use crate::kind::Kind;
 use crate::report::Report;
-use crate::series::Series;
+use crate::series::{NoPatches, Series};
 use crate::watch::{CheckResult, Config, Route, SeriesRecord, Status};
 use crate::workspace::resolve_base;
 
@@ -101,7 +101,18 @@ impl Runner<'_> {
         std::fs::create_dir_all(&dir)?;
 
         let mbox = self.fetch(&dir, &root)?;
-        let series = Series::load(&[&mbox])?;
+        let series = match Series::load(&[&mbox]) {
+            Err(err) if err.downcast_ref::<NoPatches>().is_some() => {
+                record.status = Status::NoPatches;
+                record.reason = Some(
+                    "the thread has no patches: a pull request, or a cover letter whose \
+                     patches were sent outside its thread"
+                        .into(),
+                );
+                return Ok(());
+            }
+            loaded => loaded?,
+        };
         let ids = patch_ids(&series)?;
         let base = resolve_base(&repo, &series, None);
         let branch = branch_name(&base);
@@ -440,6 +451,24 @@ cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
             "docker: Error response from daemon: pull access denied for x"
         );
         assert_eq!(last_line(b"one\ntwo\n"), "two");
+    }
+
+    #[test]
+    fn a_thread_without_patches_is_not_a_failure() {
+        let (dir, config) = setup();
+        std::fs::write(
+            dir.path().join("in.mbx"),
+            "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH 00/99] Wrynose pull request\n\
+             Message-Id: <a@x>\n\nPlease pull.\n",
+        )
+        .unwrap();
+        let runner = Runner { config: &config };
+        let mut record = routed("a@x");
+        runner
+            .process("openembedded-core", Route::Fixed, &mut record)
+            .unwrap();
+        assert_eq!(record.status, Status::NoPatches);
+        assert!(record.reason.as_deref().unwrap().contains("pull request"));
     }
 
     #[test]

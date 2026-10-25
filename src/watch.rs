@@ -249,6 +249,10 @@ pub enum Status {
     Failed,
     /// Every patch has landed upstream; `applied` says where.
     Applied,
+    /// The thread has no patches: a pull request, or a cover letter whose
+    /// patches were sent outside its thread (designs/PHASE2.md §5.0).
+    #[serde(rename = "no-patches")]
+    NoPatches,
 }
 
 /// Where a checked patch landed upstream.

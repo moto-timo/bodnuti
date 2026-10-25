@@ -54,6 +54,8 @@ enum Outcome {
     Unrouted,
     /// Every patch was checked before, in another series.
     Resend,
+    /// The thread has no patches, such as a pull request.
+    NoPatches,
     /// A patch did not apply because the base already had it, so the
     /// patches from it on were not checked.
     AlreadyApplied,
@@ -77,6 +79,7 @@ impl Outcome {
             Outcome::NotChecked => "not checked".into(),
             Outcome::Unrouted => "unrouted".into(),
             Outcome::Resend => "resend".into(),
+            Outcome::NoPatches => "no patches".into(),
             Outcome::Failed => "failed".into(),
         }
     }
@@ -97,6 +100,7 @@ impl Row<'_> {
             Status::Seen | Status::Complete => Outcome::Waiting,
             Status::Unrouted => Outcome::Unrouted,
             Status::Duplicate => Outcome::Resend,
+            Status::NoPatches => Outcome::NoPatches,
             Status::Failed => Outcome::Failed,
             Status::Checked | Status::Applied => match &self.report {
                 // Found upstream before it was checked (§3.1).

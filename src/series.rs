@@ -153,6 +153,19 @@ pub struct Series {
     pub patches: Vec<Patch>,
 }
 
+/// The input has no patches: a cover letter alone, such as a pull request,
+/// or one whose patches were sent outside its thread.
+#[derive(Debug)]
+pub struct NoPatches;
+
+impl std::fmt::Display for NoPatches {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no patches found in the input")
+    }
+}
+
+impl std::error::Error for NoPatches {}
+
 impl Series {
     pub fn load(paths: &[impl AsRef<Path>]) -> Result<Series> {
         let mut messages = Vec::new();
@@ -207,7 +220,7 @@ impl Series {
             }
         }
         if patches.is_empty() {
-            bail!("no patches found in the input");
+            return Err(NoPatches.into());
         }
         // A thread can carry a later revision posted as a reply, such as a
         // [PATCH v2] of one patch of a v1 series. It is its own series: keep

@@ -110,13 +110,14 @@ fn poll(args: PollArgs) -> Result<()> {
             check_ready(&config, list, &mut state)?;
             let count = |status| state.series.values().filter(|r| r.status == status).count();
             println!(
-                "{}: {} messages, {new} new series; {} waiting, {} checked, {} duplicate, {} unrouted, {} failed",
+                "{}: {} messages, {new} new series; {} waiting, {} checked, {} duplicate, {} unrouted, {} no patches, {} failed",
                 list.name,
                 entries.len(),
                 count(watch::Status::Seen) + count(watch::Status::Complete),
                 count(watch::Status::Checked),
                 count(watch::Status::Duplicate),
                 count(watch::Status::Unrouted),
+                count(watch::Status::NoPatches),
                 count(watch::Status::Failed),
             );
 
