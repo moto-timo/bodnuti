@@ -183,7 +183,13 @@ impl Series {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        Series::from_messages(split_mbox(&output.stdout))
+        Series::parse(&output.stdout)
+    }
+
+    /// Reads a series from mbox data: one or more messages, as `b4 mbox` or
+    /// `git format-patch --stdout` writes them.
+    pub fn parse(mbox: &[u8]) -> Result<Series> {
+        Series::from_messages(split_mbox(mbox))
     }
 
     fn from_messages(messages: Vec<Vec<u8>>) -> Result<Series> {
@@ -385,7 +391,7 @@ fn header(text: &str, name: &str) -> Option<String> {
 }
 
 /// Collects the leading `[...]` groups of a subject.
-pub(crate) fn subject_tags(subject: &str) -> Vec<String> {
+pub fn subject_tags(subject: &str) -> Vec<String> {
     let mut tags = Vec::new();
     let mut rest = subject.trim_start();
     while let Some(after) = rest.strip_prefix('[') {
@@ -397,7 +403,7 @@ pub(crate) fn subject_tags(subject: &str) -> Vec<String> {
 }
 
 /// Reads `vN` and `n/m` from the PATCH tag; a lone patch is `1/1`.
-pub(crate) fn counters(tags: &[String]) -> (u32, u32, u32) {
+pub fn counters(tags: &[String]) -> (u32, u32, u32) {
     let (mut version, mut index, mut total) = (1, 1, 1);
     for tag in tags
         .iter()
