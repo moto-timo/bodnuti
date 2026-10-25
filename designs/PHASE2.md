@@ -597,6 +597,34 @@ numbered excerpt with `>` on the finding's line, a blank line between
 blocks. The index is unchanged. Reports written before `excerpts` existed
 render without excerpts.
 
+### 6.1.1 Style findings
+
+Measured on the 397 series published by 25 October 2026: 919 findings, 677
+of them from oelint-adv, and about 470 of those from rules about layout
+rather than correctness (spacing, ordering, suggested variables). They
+drowned the findings that matter, and some style rules OE-Core does not
+follow were suppressed outright, so their findings were lost.
+
+oelint-adv rules are now in three groups:
+
+- **style**, recorded but kept apart: `vars.notneededspace`,
+  `var.suggestedvar`, `vars.dependsordered`, `tabs.notabs`,
+  `var.bbclassextend`, `task.docstrings`, `newline.consecutive`, and the
+  style rules previously suppressed (`var.order`, `var.filesoverride`,
+  `var.override`, `vars.multilineident`, `vars.outofcontext`);
+- **suppressed**, because their result is not about the series:
+  `vars.homepageping` (fetches HOMEPAGE, fails offline) and
+  `bbclass.underscores` (fires on the stub recipe for a `.inc`);
+- **findings**, everything else, `vars.spacesassignment` and
+  `vars.inconspaces` included.
+
+Style findings go into the report's `style` list, compared before and
+after like any other. They do not count: not in the result, not in the
+exit status, and a series with only style findings is clean. The series
+page shows them under each patch in a collapsed `<details>` element ("Show
+N style findings"), which needs no JavaScript; the result reads "3
+findings · 10 style". `report.txt` lists them under a `style` heading.
+
 ### 6.2 The front page
 
 bodnuti.dev's front page is a static page in the bodnuti.dev repository:
