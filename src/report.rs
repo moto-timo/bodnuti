@@ -242,34 +242,6 @@ pub fn severity_label(severity: Severity) -> String {
     format!("{severity:?}").to_uppercase()
 }
 
-/// `FIXED   trivy       path  message (check)`
-pub fn fixed_line(f: &Finding) -> String {
-    let tool = format!("{:?}", f.tool).to_lowercase();
-    let file = f
-        .file
-        .as_deref()
-        .map_or(String::new(), |p| format!("{p}  "));
-    format!(
-        "{:<7} {tool:<10}  {file}{} ({})",
-        "FIXED", f.message, f.check
-    )
-}
-
-/// `ERROR   oelint      path:line  message (check)`
-pub fn line(f: &Finding) -> String {
-    let severity = format!("{:?}", f.severity).to_uppercase();
-    let tool = format!("{:?}", f.tool).to_lowercase();
-    let place = match (&f.file, f.line) {
-        (Some(file), Some(n)) => format!("{file}:{n}  "),
-        (Some(file), None) => format!("{file}  "),
-        _ => String::new(),
-    };
-    format!(
-        "{severity:<7} {tool:<10}  {place}{} ({})",
-        f.message, f.check
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

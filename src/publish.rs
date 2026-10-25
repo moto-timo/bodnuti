@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 
 use crate::finding::{Finding, Severity};
 use crate::lore;
-use crate::report::{Report, fixed_line, line};
+use crate::report::{Report, location, numbered, tool_name};
 use crate::watch::{Config, ListState, SeriesRecord, Status};
 
 /// Seconds in a month, for `retain_months`. The cutoff is approximate; a
@@ -333,10 +333,12 @@ const LOGO: &str = include_str!("../assets/logo.svg");
 
 const STYLE: &str = r#"
   :root { --bg: #fafaf7; --fg: #1d1d1f; --muted: #6b6b70; --accent: #1f4e8c;
-          --ok: #2d7a3a; --warn: #9a6a00; --error: #b3261e; --line: #e2e2dc; }
+          --ok: #2d7a3a; --warn: #9a6a00; --error: #b3261e; --line: #e2e2dc;
+          --card: #ffffff; --code: #f3f3ee; --here: #fbecc8; }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #111214; --fg: #e8e8ea; --muted: #9a9aa0; --accent: #7fa8e0;
-            --ok: #7cc68a; --warn: #e0b660; --error: #f08a80; --line: #2a2b2f; }
+            --ok: #7cc68a; --warn: #e0b660; --error: #f08a80; --line: #2a2b2f;
+            --card: #17181b; --code: #0c0d0f; --here: #3a3220; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
@@ -356,8 +358,24 @@ const STYLE: &str = r#"
   td.when, td.list, td.result, td.applied { white-space: nowrap; }
   .clean { color: var(--ok); } .warn { color: var(--warn); } .error { color: var(--error); }
   code, pre { font: .88rem/1.45 ui-monospace, "SF Mono", Menlo, monospace; }
-  ul.findings { list-style: none; padding-left: 0; }
-  ul.findings li { margin: .3rem 0; overflow-wrap: anywhere; }
+  .finding { border: 1px solid var(--line); border-left: 4px solid var(--muted);
+             border-radius: 4px; padding: .5rem .75rem; margin: .6rem 0; background: var(--card); }
+  .finding.sev-error { border-left-color: var(--error); }
+  .finding.sev-warn { border-left-color: var(--warn); }
+  .finding.sev-fixed { border-left-color: var(--ok); }
+  .finding-head { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: baseline; }
+  .badge { font: 600 .7rem/1.7 ui-monospace, "SF Mono", Menlo, monospace; text-transform: uppercase;
+           padding: 0 .45rem; border-radius: 3px; color: var(--bg); background: var(--muted); }
+  .sev-error .badge { background: var(--error); } .sev-warn .badge { background: var(--warn); }
+  .sev-fixed .badge { background: var(--ok); }
+  .tool { font-weight: 600; } .where { color: var(--muted); overflow-wrap: anywhere; }
+  .finding .message { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .35rem; }
+  pre.excerpt { background: var(--code); border: 1px solid var(--line); border-radius: 4px;
+                padding: .35rem 0; margin: .5rem 0 0; overflow-x: auto; font-size: .8rem; }
+  .excerpt .line { display: block; padding: 0 .6rem; white-space: pre; }
+  .excerpt .here { background: var(--here); }
+  .excerpt .ln { display: inline-block; min-width: 3.5em; padding-right: .8rem; text-align: right;
+                 color: var(--muted); user-select: none; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
   dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
   footer { margin-top: 2.5rem; font-size: .85rem; color: var(--muted); }
@@ -542,7 +560,7 @@ fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Re
             .iter()
             .filter(|f| f.patch == Some(patch.index))
             .collect();
-        out.push_str(&finding_list(record, &findings));
+        out.push_str(&finding_list(record, report, &findings));
     }
     let series: Vec<&Finding> = report
         .findings
@@ -551,29 +569,27 @@ fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Re
         .collect();
     if !series.is_empty() {
         out.push_str("<h3>Series</h3>\n");
-        out.push_str(&finding_list(record, &series));
+        out.push_str(&finding_list(record, report, &series));
     }
     if !report.fixed.is_empty() {
-        out.push_str("<h3>Fixes</h3>\n<ul class=\"findings\">\n");
+        out.push_str("<h3>Fixes</h3>\n");
         for f in &report.fixed {
-            let _ = writeln!(
-                out,
-                "<li class=\"clean\"><code>{}</code></li>",
-                escape(&fixed_line(f))
-            );
+            // A fix's line is in the tree before the series; no excerpt.
+            out.push_str(&finding_block(report, f, "fixed", "sev-fixed", false));
         }
-        out.push_str("</ul>\n");
     }
     if !report.tool_errors.is_empty() {
-        out.push_str("<h3>Not checked</h3>\n<ul class=\"findings\">\n");
+        out.push_str("<h3>Not checked</h3>\n");
         for e in &report.tool_errors {
             let _ = writeln!(
                 out,
-                "<li><code>{}</code></li>",
-                escape(&format!("{:?}: {}", e.tool, e.message))
+                "<div class=\"finding toolerror\">\n<div class=\"finding-head\">\
+                 <span class=\"badge\">not run</span> <span class=\"tool\">{}</span></div>\n\
+                 <div class=\"message\">{}</div>\n</div>",
+                tool_name(e.tool),
+                escape(e.message.trim())
             );
         }
-        out.push_str("</ul>\n");
     }
     if let Some(c) = &report.patchtest {
         let _ = writeln!(
@@ -585,31 +601,62 @@ fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Re
     out
 }
 
-fn finding_list(record: &SeriesRecord, findings: &[&Finding]) -> String {
-    if findings.is_empty() {
-        return String::new();
-    }
-    let mut out = String::from("<ul class=\"findings\">\n");
+fn finding_list(record: &SeriesRecord, report: &Report, findings: &[&Finding]) -> String {
+    let mut out = String::new();
     for f in findings {
         if already_applied(record, f) {
-            let _ = writeln!(
-                out,
-                "<li class=\"muted\">Did not apply to the base, which already has it.</li>"
+            out.push_str(
+                "<p class=\"muted\">Did not apply to the base, which already has it.</p>\n",
             );
             continue;
         }
+        // Classes of their own: the page's .error and .warn colour text,
+        // which would colour the whole block.
         let class = match f.severity {
-            Severity::Error => "error",
-            Severity::Warning => "warn",
-            Severity::Info => "muted",
+            Severity::Error => "sev-error",
+            Severity::Warning => "sev-warn",
+            Severity::Info => "sev-info",
         };
-        let _ = writeln!(
-            out,
-            "<li class=\"{class}\"><code>{}</code></li>",
-            escape(&line(f))
-        );
+        let badge = format!("{:?}", f.severity).to_lowercase();
+        out.push_str(&finding_block(report, f, &badge, class, true));
     }
-    out.push_str("</ul>\n");
+    out
+}
+
+/// One finding as a block (designs/PHASE2.md §6.1): a header with the
+/// badge, tool, check id and location; the message with its line breaks;
+/// and, with `excerpt`, the recorded lines of the patched file around it.
+fn finding_block(report: &Report, f: &Finding, badge: &str, class: &str, excerpt: bool) -> String {
+    let mut out = format!("<div class=\"finding {class}\">\n<div class=\"finding-head\">");
+    let _ = write!(
+        out,
+        "<span class=\"badge\">{}</span> <span class=\"tool\">{}</span> <code class=\"check\">{}</code>",
+        escape(badge),
+        tool_name(f.tool),
+        escape(&f.check)
+    );
+    if let Some(place) = location(f) {
+        let _ = write!(out, " <span class=\"where\">{}</span>", escape(&place));
+    }
+    out.push_str("</div>\n");
+    let _ = writeln!(
+        out,
+        "<div class=\"message\">{}</div>",
+        escape(f.message.trim())
+    );
+    if let Some(e) = report.excerpt(f).filter(|_| excerpt) {
+        out.push_str("<pre class=\"excerpt\">");
+        for (number, text, here) in numbered(e, f.line) {
+            let class = if here { "line here" } else { "line" };
+            let _ = write!(
+                out,
+                "<span class=\"{class}\"><span class=\"ln\">{number}</span>{}</span>",
+                escape(text)
+            );
+        }
+        out.push_str("</pre>\n");
+    }
+    out.push_str("</div>\n");
     out
 }
 
@@ -698,6 +745,50 @@ mod tests {
         assert!(!html.contains("<script>"), "{html}");
         assert!(!html.contains("<b>"), "{html}");
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn a_finding_is_a_block_with_its_excerpt() {
+        let mut f = apply_failure();
+        f.tool = Tool::Shellcheck;
+        f.check = "SC3037".into();
+        f.severity = Severity::Warning;
+        f.file = Some("a.sh".into());
+        f.line = Some(2);
+        f.message = "echo flags <b>are</b> undefined\nin POSIX sh".into();
+        let mut r = report(vec![f]);
+        r.excerpts.insert(
+            crate::report::excerpt_key("a.sh", 2),
+            crate::report::Excerpt {
+                first: 1,
+                lines: vec!["#!/bin/sh".into(), "echo -e '<script>'".into()],
+            },
+        );
+        let rec = record(Status::Checked, &[]);
+        let html = finding_list(&rec, &r, &r.findings.iter().collect::<Vec<_>>());
+        assert!(
+            html.starts_with("<div class=\"finding sev-warn\">"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"badge\">warning</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"where\">a.sh:2</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("echo flags &lt;b&gt;are&lt;/b&gt; undefined\nin POSIX sh"),
+            "{html}"
+        );
+        assert!(html.contains(
+            "<span class=\"line here\"><span class=\"ln\">2</span>echo -e &#39;&lt;script&gt;&#39;</span>"
+        ), "{html}");
+        assert!(
+            !html.contains("<script>") && !html.contains("<b>"),
+            "{html}"
+        );
     }
 
     #[test]
