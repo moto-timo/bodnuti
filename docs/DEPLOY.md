@@ -193,6 +193,11 @@ git clone https://git.yoctoproject.org/meta-security ~/cache/meta-security
 git clone https://git.yoctoproject.org/pseudo ~/cache/pseudo
 git clone https://git.yoctoproject.org/yocto-autobuilder-helper ~/cache/yocto-autobuilder-helper
 git clone https://git.yoctoproject.org/yocto-autobuilder2 ~/cache/yocto-autobuilder2
+git clone https://git.yoctoproject.org/meta-lts-mixins ~/cache/meta-lts-mixins
+git clone https://git.yoctoproject.org/meta-darwin ~/cache/meta-darwin
+git clone https://git.yoctoproject.org/auto-upgrade-helper ~/cache/auto-upgrade-helper
+git clone https://git.yoctoproject.org/yocto-metrics ~/cache/yocto-metrics
+git clone https://git.yoctoproject.org/yocto-metrics-meta-oe ~/cache/yocto-metrics-meta-oe
 ```
 
 bodnuti writes temporary worktrees into these clones' `.git` and removes
@@ -471,7 +476,7 @@ name = "yocto-patches"
 route = "subject-tag"
 
 [repos]
-openembedded-core = "https://git.openembedded.org/openembedded-core"
+openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"] }
 meta-openembedded = "https://git.openembedded.org/meta-openembedded"
 bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
@@ -483,6 +488,11 @@ meta-security = "https://git.yoctoproject.org/meta-security"
 pseudo = { url = "https://git.yoctoproject.org/pseudo", kind = "c" }
 yocto-autobuilder-helper = { url = "https://git.yoctoproject.org/yocto-autobuilder-helper", kind = "python" }
 yocto-autobuilder2 = { url = "https://git.yoctoproject.org/yocto-autobuilder2", kind = "python" }
+meta-lts-mixins = "https://git.yoctoproject.org/meta-lts-mixins"
+meta-darwin = "https://git.yoctoproject.org/meta-darwin"
+auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper", kind = "python", tags = ["AUH"] }
+yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
+yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 ```
 
 Every `repo` needs a `[repos]` entry, or the configuration is rejected, and
@@ -502,6 +512,19 @@ pseudo (`kind = "c"`) and the two autobuilder repositories (`kind =
 mail checks, shellcheck and cppcheck; the python kind patchtest's mail
 checks, ruff, shellcheck and a JSON parse check (designs/PHASE2.md §5.4).
 meta-security is a layer.
+
+meta-lts-mixins and meta-darwin are layers too; meta-lts-mixins' branches
+carry a topic (`[meta-lts-mixins][scarthgap/go]` checks against
+`scarthgap/go`). yocto-metrics and yocto-metrics-meta-oe hold JSON data,
+which `kind = "python"` checks for valid JSON. `[AUH]` names two
+repositories through `tags`: auto-upgrade-helper and openembedded-core.
+A patch to the tool and an upgrade patch from its bot both carry it; the
+paths each changes decide which repository it is checked in
+(designs/PHASE2.md §3.1.1).
+
+A repository listed here without its clone is reported in the journal as
+`clone missing: git clone <url> <path>`; its series wait until the clone
+exists.
 
 With a django-app repository configured, each poll also keeps trivy's
 vulnerability database in `~/cache/trivy/` current, downloading it again

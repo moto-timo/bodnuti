@@ -191,6 +191,16 @@ has them); test patches that break
 null pointer in pseudo report exactly those. Building pseudo with compiler
 warnings is a later tier.
 
+The backfill's last unrouted series led to four routing refinements
+(`designs/PHASE2.md` §3.1.1): a repository named inside the PATCH tag
+(`[PATCH yocto-autobuilder2]`) routes; a tag may name several repositories,
+the series' paths choosing among them, so `[AUH]` reaches auto-upgrade-helper
+for the tool's own patches and openembedded-core for its bot's upgrades; a
+missing clone is logged as configuration and spends no attempts; and a
+branch with a slash, as in meta-lts-mixins' `scarthgap/go`, keeps its full
+name. meta-lts-mixins, meta-darwin, auto-upgrade-helper and the two
+yocto-metrics repositories are added to the configuration.
+
 Deploying found one more problem, now fixed: lore answers a search with no
 matches with 404, so the quiet lists (yocto-docs, yocto-meta-virtualization)
 failed every poll until an empty result was read as no new messages.
