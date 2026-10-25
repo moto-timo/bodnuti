@@ -96,6 +96,7 @@ fn poll(args: PollArgs) -> Result<()> {
     let config = watch::Config::load(&watch::expand(&args.config))?;
     let _lock = watch::Lock::take(&config.state)?;
     refresh_trivy_db(&config);
+    report_missing_clones(&config);
     let now = lore::now();
     let mut failed = 0;
     for list in &config.lists {
@@ -155,6 +156,32 @@ fn refresh_trivy_db(config: &watch::Config) {
         Ok(false) => {}
         Err(err) => eprintln!("bodnuti: trivy database: {err:#}"),
     }
+}
+
+/// A configured repository without its clone is a configuration problem,
+/// not a failure of its series: say how to fix it, once per poll. Its series
+/// wait, their attempts untouched, until the clone exists.
+fn report_missing_clones(config: &watch::Config) {
+    for (name, repo) in &config.repos {
+        let path = config.cache.join(name);
+        if !path.is_dir() {
+            eprintln!(
+                "bodnuti: clone missing: git clone {} {}",
+                repo.url,
+                path.display()
+            );
+        }
+    }
+}
+
+/// Whether a series has a clone to be checked in: its repository's, or one
+/// of its candidates'.
+fn has_clone(config: &watch::Config, record: &watch::SeriesRecord) -> bool {
+    record
+        .repo
+        .iter()
+        .chain(&record.candidates)
+        .any(|name| config.cache.join(name).is_dir())
 }
 
 fn load_states(
@@ -223,6 +250,7 @@ fn check_ready(
         .series
         .values()
         .filter(|r| r.status == watch::Status::Complete && r.repo.is_some())
+        .filter(|r| has_clone(config, r))
         .map(|r| (r.tracked.last_seen.clone(), r.tracked.root.clone()))
         .collect();
     ready.sort();
@@ -704,6 +732,33 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), raw).unwrap();
         Series::load(&[file.path()]).unwrap().patches.remove(0)
+    }
+
+    #[test]
+    fn a_series_waits_for_a_missing_clone() {
+        let dir = tempfile::tempdir().unwrap();
+        let config: watch::Config = toml::from_str(&format!(
+            "image = \"i\"\nstate = \"{0}/state\"\ncache = \"{0}/cache\"\n\
+             [[list]]\nname = \"yocto-patches\"\nroute = \"subject-tag\"\n\
+             [repos]\nmeta-security = \"u\"\nauto-upgrade-helper = \"u\"\nopenembedded-core = \"u\"\n",
+            dir.path().display()
+        ))
+        .unwrap();
+        let mut record: watch::SeriesRecord = serde_json::from_value(serde_json::json!({
+            "root": "a@x", "subject": "[meta-security][PATCH] x", "total": 1, "seen": [1],
+            "last_seen": "2026-10-24T10:00:00Z", "status": "complete", "repo": "meta-security",
+        }))
+        .unwrap();
+        assert!(!has_clone(&config, &record));
+        std::fs::create_dir_all(dir.path().join("cache/meta-security")).unwrap();
+        assert!(has_clone(&config, &record));
+
+        // One of several candidates is enough.
+        record.repo = Some("auto-upgrade-helper".into());
+        record.candidates = vec!["auto-upgrade-helper".into(), "openembedded-core".into()];
+        assert!(!has_clone(&config, &record));
+        std::fs::create_dir_all(dir.path().join("cache/openembedded-core")).unwrap();
+        assert!(has_clone(&config, &record));
     }
 
     #[test]
