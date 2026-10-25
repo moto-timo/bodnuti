@@ -15,6 +15,10 @@ A fragment is a short Markdown file named `+<name>.<type>.md`, where
 | `doc` | documentation users or operators read |
 | `misc` | CI, packaging, dependencies and other internal changes worth a line |
 
+CI checks that a pull request adds a fragment. One that changes nothing a
+user or operator would notice (tests, refactoring, CI tweaks) carries the
+`no news` label instead; Dependabot's pull requests are exempt.
+
 Write it as a sentence or two in the present tense, about what changes for
 the reader, not how the code does it. A fix to a change not yet released
 belongs in that change's fragment, not a new one.
