@@ -33,25 +33,32 @@ pub struct Entry {
 // ponytail: one page only; poll more often than 200 patches arrive per list.
 pub fn fetch(list: &str, since: &str) -> Result<Vec<Entry>> {
     let url = format!("{LORE}/{list}/?q=s:PATCH+dt:{since}..&x=A");
-    let response = ureq::get(&url)
-        .set("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(60))
-        .call();
-    let body = match response {
-        Ok(r) => r.into_string().context("reading the lore feed")?,
+    // Statuses are read below rather than turned into errors, because a
+    // 404 body says whether the search was empty.
+    let mut response = ureq::get(&url)
+        .header("User-Agent", USER_AGENT)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(60)))
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .with_context(|| format!("fetching {url}"))?;
+    let status = response.status().as_u16();
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .context("reading the lore feed")?;
+    match status {
+        200 => {}
         // lore answers a search with no matches with 404 and an HTML page
         // saying so, not with an empty feed. An unknown inbox is also 404,
         // with a plain "Not Found", and stays an error.
-        Err(ureq::Error::Status(404, r)) => {
-            let page = r.into_string().unwrap_or_default();
-            if no_results(&page) {
-                return Ok(Vec::new());
-            }
-            let first = page.lines().next().unwrap_or("").trim();
-            anyhow::bail!("fetching {url}: status code 404: {first}");
+        404 if no_results(&body) => return Ok(Vec::new()),
+        _ => {
+            let first = body.lines().next().unwrap_or("").trim();
+            anyhow::bail!("fetching {url}: status code {status}: {first}");
         }
-        Err(e) => return Err(e).with_context(|| format!("fetching {url}")),
-    };
+    }
     parse(&body)
 }
 
