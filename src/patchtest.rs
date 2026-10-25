@@ -70,7 +70,10 @@ impl Patchtest {
         let input = work.path().join("patches");
         std::fs::create_dir(&input)?;
         for patch in &series.patches {
-            std::fs::write(input.join(format!("{:04}.patch", patch.index)), &patch.raw)?;
+            std::fs::write(
+                input.join(format!("{:04}.patch", patch.index)),
+                patch.decoded(),
+            )?;
         }
 
         let mut cmd = Command::new(&self.python);

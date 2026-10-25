@@ -31,6 +31,34 @@ impl Patch {
         self.index == 0 && self.total > 0
     }
 
+    /// The message as sent, with a quoted-printable body decoded to 8bit.
+    ///
+    /// Mailing list software often re-encodes patches as quoted-printable.
+    /// git am decodes them, but patchtest parses the raw message and its
+    /// diffs, and reports every patch of such a series as having malformed
+    /// diff lines. Messages in any other encoding are returned unchanged.
+    // ponytail: quoted-printable only; base64-encoded patch mail is rare.
+    pub fn decoded(&self) -> Vec<u8> {
+        let Some(split) = find(&self.raw, b"\n\n") else {
+            return self.raw.clone();
+        };
+        let (head, body) = (&self.raw[..split + 1], &self.raw[split + 2..]);
+        let head_text = String::from_utf8_lossy(head);
+        let cte = head_text.lines().find(|l| {
+            l.to_ascii_lowercase()
+                .starts_with("content-transfer-encoding:")
+        });
+        let Some(cte) = cte.filter(|l| l.to_ascii_lowercase().contains("quoted-printable")) else {
+            return self.raw.clone();
+        };
+        let mut out = head_text
+            .replace(cte, "Content-Transfer-Encoding: 8bit")
+            .into_bytes();
+        out.push(b'\n');
+        out.extend(decode_quoted_printable(body));
+        out
+    }
+
     /// Repository paths the patch changes, after the change.
     pub fn files(&self) -> Vec<String> {
         self.changes().into_iter().map(|(_, new)| new).collect()
@@ -170,6 +198,38 @@ impl Series {
         }
         out
     }
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Decodes a quoted-printable body: `=XX` is a byte, and `=` at the end of a
+/// line joins it to the next one.
+fn decode_quoted_printable(body: &[u8]) -> Vec<u8> {
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+    let mut out = Vec::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        if body[i] != b'=' {
+            out.push(body[i]);
+            i += 1;
+            continue;
+        }
+        match (body.get(i + 1).copied(), body.get(i + 2).copied()) {
+            (Some(b'\n'), _) => i += 2,
+            (Some(b'\r'), Some(b'\n')) => i += 3,
+            (Some(a), Some(b)) if hex(a).is_some() && hex(b).is_some() => {
+                out.push(hex(a).unwrap_or(0) * 16 + hex(b).unwrap_or(0));
+                i += 3;
+            }
+            _ => {
+                out.push(b'=');
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 /// The words of a PATCH tag that are not a branch name.
@@ -445,6 +505,26 @@ mod tests {
         assert!(!is_remote("series.mbx"));
         let file = tempfile::NamedTempFile::new().unwrap();
         assert!(!is_remote(file.path().to_str().unwrap()));
+    }
+
+    #[test]
+    fn decodes_quoted_printable_for_patchtest() {
+        let raw = "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] foo: bar\n\
+                   Content-Type: text/plain; charset=\"utf-8\"\n\
+                   Content-Transfer-Encoding: quoted-printable\n\n\
+                   ---\ndiff --git a/a.bb b/a.bb\n-A =3D \"1\"\n+A =3D \"2 =E2=80=94 long =\nline\"\n";
+        let patch = parse_message(raw.as_bytes().to_vec()).unwrap();
+        let text = String::from_utf8(patch.decoded()).unwrap();
+        assert!(
+            text.contains("Content-Transfer-Encoding: 8bit\n\n---"),
+            "{text}"
+        );
+        assert!(
+            text.contains("-A = \"1\"\n+A = \"2 \u{2014} long line\"\n"),
+            "{text}"
+        );
+        let plain = parse_message(message("[PATCH] x", "A =3D 1").into_bytes()).unwrap();
+        assert_eq!(plain.decoded(), plain.raw);
     }
 
     #[test]
