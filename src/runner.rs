@@ -171,23 +171,25 @@ impl Runner<'_> {
     /// another list, say), the thread is fetched through the series' other
     /// messages in turn (designs/PHASE2.md §5.0).
     fn fetch(&self, dir: &Path, root: &str, members: &[String]) -> Result<PathBuf> {
-        let mbox = dir.join(format!("{root}.mbx"));
+        let name = format!("{root}.mbx");
+        let mbox = dir.join(&name);
         let mut error = String::new();
         for id in std::iter::once(root).chain(members.iter().map(String::as_str)) {
+            // A file left by an earlier attempt must not pass for this one.
+            if mbox.exists() {
+                std::fs::remove_file(&mbox)?;
+            }
+            // The name is given, because b4 would otherwise derive it from
+            // the Message-ID and rewrite some characters, such as `=`.
             let output = self
                 .container()?
                 .arg("-v")
                 .arg(format!("{}:/out", dir.display()))
                 .args(["--entrypoint", "b4", &self.config.image])
-                .args(["mbox", "-o", "/out", id])
+                .args(["mbox", "-o", "/out", "-n", &name, id])
                 .output()
                 .context("starting the container to fetch the series")?;
-            // b4 names the file after the Message-ID it was given.
-            let fetched = dir.join(format!("{id}.mbx"));
-            if output.status.success() && fetched.is_file() {
-                if fetched != mbox {
-                    std::fs::rename(&fetched, &mbox)?;
-                }
+            if output.status.success() && mbox.is_file() {
                 return Ok(mbox);
             }
             if error.is_empty() {
@@ -389,7 +391,7 @@ mod tests {
     /// Stands in for `podman run`: answers `b4 mbox` by writing the test
     /// mbox, and `check` by printing a report with one finding.
     const STUB: &str = r#"#!/bin/sh
-out=""; root=""; check=0; kind=""; prev=""; trivy=""; db=0
+out=""; root=""; check=0; kind=""; prev=""; trivy=""; db=0; name=""
 for a in "$@"; do
   case "$a" in
     *:/out) out="${a%:/out}" ;;
@@ -398,6 +400,7 @@ for a in "$@"; do
     check) check=1 ;;
   esac
   [ "$prev" = --kind ] && kind="$a"
+  [ "$prev" = -n ] && name="$a"
   prev="$a"
   root="$a"
 done
@@ -407,7 +410,7 @@ if [ "$check" = 1 ]; then
   echo "$kind" > "$BODNUTI_TEST_REPORT.kind"
   cat "$BODNUTI_TEST_REPORT"; exit 1
 fi
-cp "$BODNUTI_TEST_MBOX" "$out/$root.mbx"
+cp "$BODNUTI_TEST_MBOX" "$out/$name"
 "#;
 
     const MBOX: &str = "From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] foo: fix\nMessage-Id: <a@x>\n\n---\n\
