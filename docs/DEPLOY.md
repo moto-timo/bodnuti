@@ -195,6 +195,7 @@ git clone https://git.yoctoproject.org/yocto-autobuilder-helper ~/cache/yocto-au
 git clone https://git.yoctoproject.org/yocto-autobuilder2 ~/cache/yocto-autobuilder2
 git clone https://git.yoctoproject.org/meta-lts-mixins ~/cache/meta-lts-mixins
 git clone https://git.yoctoproject.org/meta-darwin ~/cache/meta-darwin
+git clone https://git.yoctoproject.org/meta-rockchip ~/cache/meta-rockchip
 git clone https://git.yoctoproject.org/auto-upgrade-helper ~/cache/auto-upgrade-helper
 git clone https://git.yoctoproject.org/yocto-metrics ~/cache/yocto-metrics
 git clone https://git.yoctoproject.org/yocto-metrics-meta-oe ~/cache/yocto-metrics-meta-oe
@@ -523,6 +524,7 @@ yocto-autobuilder-helper = { url = "https://git.yoctoproject.org/yocto-autobuild
 yocto-autobuilder2 = { url = "https://git.yoctoproject.org/yocto-autobuilder2", kind = "python" }
 meta-lts-mixins = "https://git.yoctoproject.org/meta-lts-mixins"
 meta-darwin = "https://git.yoctoproject.org/meta-darwin"
+meta-rockchip = "https://git.yoctoproject.org/meta-rockchip"
 auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper", kind = "python", tags = ["AUH"] }
 yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
@@ -546,7 +548,7 @@ mail checks, shellcheck and cppcheck; the python kind patchtest's mail
 checks, ruff, shellcheck and a JSON parse check (designs/PHASE2.md §5.4).
 meta-security is a layer.
 
-meta-lts-mixins and meta-darwin are layers too; meta-lts-mixins' branches
+meta-lts-mixins, meta-darwin and meta-rockchip are layers too; meta-lts-mixins' branches
 carry a topic (`[meta-lts-mixins][scarthgap/go]` checks against
 `scarthgap/go`). yocto-metrics and yocto-metrics-meta-oe hold JSON data,
 which `kind = "python"` checks for valid JSON. `[AUH]` names two
