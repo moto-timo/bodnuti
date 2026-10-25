@@ -1,5 +1,5 @@
 //! What sort of repository a series targets, which selects the checkers
-//! (designs/PHASE2.md §5.2).
+//! (designs/PHASE2.md §5.2, §5.4).
 
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +14,9 @@ pub enum Kind {
     /// A Django web application such as layerindex-web: patchtest's mail
     /// checks, ruff, djLint, shellcheck and trivy on requirements pins.
     DjangoApp,
+    /// Python tools such as yocto-autobuilder-helper and yocto-autobuilder2:
+    /// patchtest's mail checks, ruff, shellcheck and a JSON parse check.
+    Python,
 }
 
 impl Kind {
@@ -28,6 +31,7 @@ impl Kind {
         match self {
             Kind::Layer => "layer",
             Kind::DjangoApp => "django-app",
+            Kind::Python => "python",
         }
     }
 }

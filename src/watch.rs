@@ -521,6 +521,11 @@ mod tests {
         assert_eq!(c.repos["openembedded-core"].kind, Kind::Layer);
         let web = &c.repos["layerindex-web"];
         assert_eq!(web.kind, Kind::DjangoApp);
+        let helper: Config = toml::from_str(&format!(
+            "{CONFIG}h = {{ url = \"u\", kind = \"python\" }}\n"
+        ))
+        .unwrap();
+        assert_eq!(helper.repos["h"].kind, Kind::Python);
         assert_eq!(web.url, "https://git.yoctoproject.org/layerindex-web");
         for bad in [
             "x = { url = \"u\", kind = \"rails-app\" }",

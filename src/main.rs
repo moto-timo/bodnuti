@@ -5,6 +5,7 @@ mod djlint;
 mod docs;
 mod finding;
 mod git;
+mod json;
 mod kind;
 mod oelint;
 mod patchtest;
@@ -618,6 +619,7 @@ fn check(args: CheckArgs) -> Result<Report> {
     let checkers: Vec<&dyn Checker> = match args.kind {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
         Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint, &pins],
+        Kind::Python => vec![&shellcheck, &ruff, &json::Json],
     };
     let linted = lint(&checkers, &workspace, &series, &mut tool_errors)?;
     findings.extend(linted.findings);
