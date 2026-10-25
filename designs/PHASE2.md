@@ -227,7 +227,7 @@ Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
 decision by the layerindex-web and error-report-web maintainer (who is
 also bodnuti's), after tiers 1 and 2 have run for a while.
 
-Tiers 1 and 2 are designed in §5.2 and §5.3, and built.
+Tiers 1 and 2 are designed in §5.2 and §5.3, and built; tier 3 in §5.5.
 
 ## 4. State
 
@@ -495,6 +495,47 @@ not read.
 
 **Not in tier 2.** Unpinned or range requirements, `pyproject.toml` and lock
 files, which neither application uses; licence checks.
+
+### 5.5 django-app checks, tier 3: Django's own checks
+
+The design for tier 3 of §3.2: `manage.py check` (Django's system checks:
+models, fields, relations, settings) and `makemigrations --check --dry-run`
+(a model change without its migration), before and after the series, so
+only what the series adds is reported.
+
+**Measured** on layerindex-web and error-report-web (master, 25 October
+2026): both checks run offline in about a second each, against an
+in-memory sqlite database, and both are clean. On error-report-web, a probe
+adding a model field without a migration gives "Migrations for 'Post': +
+Add field ... to build", and one adding a relation to a missing model gives
+`fields.E300` and `fields.E307`.
+
+**Dependencies.** Each application gets a venv in the image,
+`/opt/django/<repository>/`, installed from a copy of its
+`requirements.txt` kept in bodnuti (`django/<repository>.txt`), so the
+pins are reviewed and Dependabot updates them. Database client libraries
+(`mysqlclient`) are left out: the checks use sqlite. The venvs are about 74
+MB (layerindex-web) and 36 MB (error-report-web).
+
+**Settings.** bodnuti does not use the application's database settings. It
+reads the settings module from `manage.py`'s `DJANGO_SETTINGS_MODULE`
+default (`settings`, `project.settings`), and runs Django with a module of
+its own that imports it and then replaces `DATABASES` with in-memory sqlite
+and sets a `SECRET_KEY` when the application expects one from the
+environment.
+
+**Findings.** Each system check message is a finding, its id the check's
+(`django.fields.E300`), an error for `E` and `C` levels and a warning for
+`W`; `makemigrations` reporting changes is one `django.migrations` error
+listing them. A venv missing, or settings that fail to import, is a tool
+error. The checks are project-wide, so findings are not limited to touched
+files; before and after the series decide.
+
+**Limits.** These commands import the series' settings, models and apps,
+which run code from the series: the same trust as the yocto-docs Sphinx
+build, in the same offline, read-only container. The venv follows the
+copies in bodnuti, not each series: a series that changes the
+application's requirements is checked against the previous ones.
 
 ### 5.4 Other repositories on yocto-patches
 
