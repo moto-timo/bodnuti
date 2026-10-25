@@ -14,6 +14,7 @@ pub enum Tool {
     /// Checks bodnuti implements itself.
     Bodnuti,
     Docs,
+    Ruff,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

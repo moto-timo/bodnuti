@@ -9,6 +9,7 @@ mod oelint;
 mod patchtest;
 mod publish;
 mod report;
+mod ruff;
 mod runner;
 mod shell;
 mod srcuri;
@@ -290,6 +291,10 @@ struct CheckArgs {
     /// Default: oelint-adv beside the bodnuti executable, else on PATH.
     #[arg(long, env = "BODNUTI_OELINT")]
     oelint: Option<String>,
+    /// The ruff program to run, for --kind django-app.
+    /// Default: ruff beside the bodnuti executable, else on PATH.
+    #[arg(long, env = "BODNUTI_RUFF")]
+    ruff: Option<String>,
     /// An openembedded-core checkout providing patchtest. Default: the
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
@@ -532,9 +537,12 @@ fn check(args: CheckArgs) -> Result<Report> {
     let docs = docs::Docs {
         python: python.clone(),
     };
+    let ruff = ruff::Ruff {
+        program: args.ruff.unwrap_or_else(|| sibling("ruff")),
+    };
     let checkers: Vec<&dyn Checker> = match args.kind {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
-        Kind::DjangoApp => vec![&shellcheck],
+        Kind::DjangoApp => vec![&shellcheck, &ruff],
     };
     let (applied, mut lint_findings) = lint(&checkers, &workspace, &series, &mut tool_errors)?;
     if args.kind.is_layer() {
