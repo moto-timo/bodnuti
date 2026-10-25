@@ -207,9 +207,11 @@ window held about eight sashiko reviews.
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
 - Check layerindex-web and error-report-web, the two Django applications on
-  yocto-patches, with their own checker set (patchtest's mail checks and a
-  Python linter) instead of the layer checks; until then they are unrouted
-  (`designs/PHASE2.md` §3.2).
+  yocto-patches, as a django-app repository kind instead of with the layer
+  checks: static checks (ruff with Django and security rules, djLint,
+  patchtest's mail checks) and a vulnerability scan of changed requirements
+  pins, with Django's own `check` and `makemigrations --check` decided
+  later. Until then they are unrouted (`designs/PHASE2.md` §3.2).
 - Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
