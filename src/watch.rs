@@ -415,9 +415,18 @@ fn repo_from_tags(subject: &str, repos: &BTreeMap<String, Repo>) -> Option<Strin
 impl ListState {
     /// Chooses the repository for every complete series that has none yet.
     /// A series no configured repository can take becomes `Unrouted`.
+    ///
+    /// Series left unrouted because no subject tag named a repository are
+    /// tried again on every poll, so adding a repository to `[repos]` picks
+    /// up its earlier series. That costs only a comparison of tags. Series
+    /// unrouted by the path check (§3.1) have a repository and are not
+    /// retried: that would fetch them again for the same result.
     pub fn route(&mut self, list: &ListConfig, repos: &BTreeMap<String, Repo>) {
         for record in self.series.values_mut() {
-            if record.status != Status::Complete || record.repo.is_some() {
+            let unrouted_by_tag = record.status == Status::Unrouted;
+            if !matches!(record.status, Status::Complete | Status::Unrouted)
+                || record.repo.is_some()
+            {
                 continue;
             }
             let repo = match list.route {
@@ -425,7 +434,13 @@ impl ListState {
                 Route::SubjectTag => repo_from_tags(&record.tracked.subject, repos),
             };
             match repo {
-                Some(repo) => record.repo = Some(repo),
+                Some(repo) => {
+                    record.repo = Some(repo);
+                    if unrouted_by_tag {
+                        record.status = Status::Complete;
+                        record.reason = None;
+                    }
+                }
                 None => {
                     record.status = Status::Unrouted;
                     record.reason = Some(format!(
@@ -652,6 +667,29 @@ mod tests {
         let c_rec = &patches.series["c@x"];
         assert_eq!(c_rec.status, Status::Unrouted);
         assert!(c_rec.reason.as_deref().unwrap().contains("tags: PATCH"));
+
+        // A repository added later picks up the series its tag names.
+        let mut repos = c.repos.clone();
+        repos.insert(
+            "mystery".into(),
+            Repo {
+                url: "u".into(),
+                kind: Kind::Layer,
+            },
+        );
+        patches.series.get_mut("c@x").unwrap().tracked.subject =
+            "[mystery][PATCH] mystery: change".into();
+        // Unrouted by the path check: it has a repository, and stays.
+        let a_rec = patches.series.get_mut("a@x").unwrap();
+        a_rec.status = Status::Unrouted;
+        a_rec.reason = Some("the series changes paths that do not exist".into());
+        patches.route(&c.lists[1], &repos);
+        let c_rec = &patches.series["c@x"];
+        assert_eq!(
+            (c_rec.status, c_rec.repo.as_deref(), c_rec.reason.as_deref()),
+            (Status::Complete, Some("mystery"), None)
+        );
+        assert_eq!(patches.series["a@x"].status, Status::Unrouted);
 
         let mut core = ListState::default();
         core.ingest(

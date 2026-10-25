@@ -133,7 +133,9 @@ seven of about 160 with no repository tag.
    against the wrong tree.
 3. **No tag, or a repository that is not configured,** is `unrouted` with
    the reason. The index lists unrouted series, so a missing clone is visible
-   rather than silent.
+   rather than silent. Each poll tries these series' tags again, so adding
+   a repository to `[repos]` picks up its earlier series; series unrouted
+   by the path check are not retried.
 
 ### 3.2 Repositories that are not layers
 
