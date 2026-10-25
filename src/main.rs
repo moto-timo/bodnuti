@@ -1,6 +1,7 @@
 //! bodnuti: automated patch review for the Yocto Project and OpenEmbedded.
 
 mod applied;
+mod cppcheck;
 mod djlint;
 mod docs;
 mod finding;
@@ -341,6 +342,9 @@ struct CheckArgs {
     /// trivy's cache directory with the vulnerability database, read only.
     #[arg(long, env = "BODNUTI_TRIVY_DB")]
     trivy_db: Option<PathBuf>,
+    /// The cppcheck program, for --kind c.
+    #[arg(long, env = "BODNUTI_CPPCHECK", default_value = "cppcheck")]
+    cppcheck: String,
     /// An openembedded-core checkout providing patchtest. Default: the
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
@@ -616,10 +620,14 @@ fn check(args: CheckArgs) -> Result<Report> {
         program: args.trivy,
         db: args.trivy_db,
     };
+    let cppcheck = cppcheck::Cppcheck {
+        program: args.cppcheck,
+    };
     let checkers: Vec<&dyn Checker> = match args.kind {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
         Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint, &pins],
         Kind::Python => vec![&shellcheck, &ruff, &json::Json],
+        Kind::C => vec![&shellcheck, &cppcheck],
     };
     let linted = lint(&checkers, &workspace, &series, &mut tool_errors)?;
     findings.extend(linted.findings);

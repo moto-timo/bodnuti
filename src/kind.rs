@@ -17,6 +17,9 @@ pub enum Kind {
     /// Python tools such as yocto-autobuilder-helper and yocto-autobuilder2:
     /// patchtest's mail checks, ruff, shellcheck and a JSON parse check.
     Python,
+    /// C projects such as pseudo: patchtest's mail checks, shellcheck and
+    /// cppcheck.
+    C,
 }
 
 impl Kind {
@@ -32,6 +35,7 @@ impl Kind {
             Kind::Layer => "layer",
             Kind::DjangoApp => "django-app",
             Kind::Python => "python",
+            Kind::C => "c",
         }
     }
 }

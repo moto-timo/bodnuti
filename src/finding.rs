@@ -18,6 +18,7 @@ pub enum Tool {
     Djlint,
     Trivy,
     Json,
+    Cppcheck,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
