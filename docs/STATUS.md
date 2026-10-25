@@ -3,7 +3,7 @@
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
-first day of the bodnuti phase 2 deployment.
+first day of the bodnuti phase 2 deployment and the first security scans.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -138,6 +138,29 @@ That run found four problems, all fixed:
 - quoted-printable mail caused false patchtest failures;
 - a v2 posted in the v1 thread mixed the two revisions.
 
+## bodnuti security scans
+
+bodnuti reads untrusted mail, so its dependencies and image are scanned:
+
+- `make audit` runs cargo-audit on `Cargo.lock`, trivy on `Cargo.lock` and
+  `requirements.txt` (the image's Python pins, moved out of the
+  Containerfile so scanners can read them), and gitleaks on the git
+  history.
+- `make audit-image` scans a built image with trivy, failing on HIGH or
+  CRITICAL findings that have a fix. `DEPLOY.md` runs it before an image
+  ships.
+- Dependabot checks the Cargo and pip pins weekly.
+
+The first scans on 25 October 2026 found one real problem, now fixed:
+quick-xml 0.37.5, which parses the lore feed, had two high-severity
+denial-of-service advisories (RUSTSEC-2026-0194 and RUSTSEC-2026-0195). It
+is now on 0.41. The other results:
+
+- no other Rust or Python dependency findings;
+- no secrets in the bodnuti or bodnuti.dev history;
+- 75 HIGH, 0 CRITICAL findings in the image's Debian trixie packages, none
+  with a Debian fix yet. Rebuilding the image picks the fixes up.
+
 ## What it costs
 
 The OE and Yocto lists carry about 5,100 patches a month (sampled from
@@ -166,6 +189,9 @@ window held about eight sashiko reviews.
   yocto-patches, with their own checker set (patchtest's mail checks and a
   Python linter) instead of the layer checks; until then they are unrouted
   (`designs/PHASE2.md` §3.2).
+- Rebuild the worker's image and binary to deploy the quick-xml upgrade.
+- Fuzz the parsers that read mail and the lore feed (`cargo fuzz`), and
+  decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
