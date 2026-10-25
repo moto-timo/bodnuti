@@ -489,6 +489,12 @@ them with patchtest's mail checks, ruff, djLint and shellcheck instead of
 the layer checks (designs/PHASE2.md §5.2). They need an image built after
 these checkers were added; an older image rejects `--kind`.
 
+With a django-app repository configured, each poll also keeps trivy's
+vulnerability database in `~/cache/trivy/` current, downloading it again
+once it is a day old (about 1.6 GB, some 20 seconds, over the outbound 443
+rule). Checks of the applications mount it read-only to scan the
+requirements pins a series changes.
+
 Run it once by hand:
 
 ```

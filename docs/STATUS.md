@@ -132,7 +132,15 @@ layer checks (`designs/PHASE2.md` §3.2, §5.2):
 - ruff with a fixed rule set: the classic defaults, the Django rules and the
   security rules, less member order, assert and plain subprocess calls;
 - djLint limited to template bugs (warnings) and accessibility (info),
-  without formatting.
+  without formatting;
+- trivy on the `requirements*.txt` files a series changes, offline against
+  a database the watcher downloads daily: advisories the series adds are
+  findings (CRITICAL and HIGH are errors), and advisories it removes are
+  listed as fixes, which do not count as findings.
+
+On the layerindex-web series "requirements.txt: fix djangorestframework and
+GitPython vulnerabilities", trivy confirms the series fixes 45 advisories
+(GitPython, djangorestframework and Pillow) and adds none.
 
 On a test patch to layerindex-web, each checker reported exactly what it
 added: an undefined name and a `shell=True` call (ruff), a template tag
@@ -228,12 +236,10 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Design tier 2 of the Django application checks, a vulnerability scan of
-  the requirements pins a series changes. Django's own `check` and
-  `makemigrations --check` (tier 3) are decided after tiers 1 and 2 have
-  run for a while (`designs/PHASE2.md` §3.2).
-- Quiet the worker's journal: podman logs each check's JSON report and its
-  container events there (`--log-driver=none`, `--events-backend=none`).
+- Deploy tier 2 of the Django application checks and the quieter podman
+  runner (a rebuilt image and binary); Django's own `check` and `makemigrations --check` (tier 3) are
+  decided after tiers 1 and 2 have run for a while (`designs/PHASE2.md`
+  §3.2).
 - Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).

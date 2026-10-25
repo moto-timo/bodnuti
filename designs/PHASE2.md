@@ -200,7 +200,7 @@ Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
 decision by the layerindex-web and error-report-web maintainer (who is
 also bodnuti's), after tiers 1 and 2 have run for a while.
 
-Tier 1 is designed in §5.2 and built. Tier 2 is designed in §5.3.
+Tiers 1 and 2 are designed in §5.2 and §5.3, and built.
 
 ## 4. State
 
