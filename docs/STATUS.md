@@ -4,7 +4,8 @@ Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
 first day of the bodnuti phase 2 deployment, the first security scans, the
-addition of CI, the Django application checks and release notes.
+addition of CI, the Django application checks and the 0.1.0 release. The
+bodnuti repository is public.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -167,7 +168,14 @@ the tool, check id and location, the message with its line breaks, and the
 lines of the patched file around it, numbered, with the finding's line
 highlighted. The check records those lines in the report, since only it has
 the patched tree. Fixes and tool errors take the same form, and
-`report.txt` has the same blocks in plain text.
+`report.txt` has the same blocks in plain text. The index lists one series
+per line, as sashiko.dev's does: every column but the subject has a fixed
+width, long names are cut short, and the page is up to 90rem wide.
+
+Matching a landed patch by subject and author now uses the author git am
+records, from an in-body `From:` line when the sender is not the author: a
+meta-lts-mixins backport of an OE-Core fix, sent by someone else, matched
+only once it did.
 
 ### Other repositories on yocto-patches
 
@@ -263,14 +271,26 @@ fixes. The two action updates were merged. The toml 1.1, quick-xml 0.42
 and ureq 3 updates needed code or feature changes and were done by hand,
 and a proposed bump of the rust-version toolchain was declined.
 
-## bodnuti release notes
+## bodnuti releases
 
 Release notes are kept with towncrier: each change a user or operator would
 notice adds a fragment in `changes/` (`changes/README.md`), and a release
-collects them into `NEWS.md`. Nothing is released yet; the history so far
-is in 39 fragments for 0.1.0 (29 features, 4 security, 3 documentation, 3
-other), fixes to unreleased features folded into the feature they fix.
-`uvx towncrier build --draft --version 0.1.0` shows them.
+collects them into `NEWS.md`.
+
+bodnuti 0.1.0 is tagged (`v0.1.0`, 25 October 2026); its notes collect the
+whole history in 40 entries (30 features, 4 security, 3 documentation, 3
+other), fixes to unreleased features folded into the feature they fix. A
+Release workflow builds from a `v*` tag: it checks the tag against
+`Cargo.toml` and `NEWS.md`, builds x86_64 and aarch64 wheels and the amd64
+and arm64 image, pushes the image to `ghcr.io/moto-timo/bodnuti`, and
+creates the GitHub release with the wheels and the version's notes. Its
+trial run caught the aarch64 wheel failing on manylinux2014's compiler,
+fixed by building it for manylinux_2_28.
+
+bodnuti is licensed under MIT or Apache-2.0, at your option, and
+`SECURITY.md` asks for vulnerabilities to be reported through GitHub's
+private vulnerability reporting, enabled since the repository went public.
+Both came after 0.1.0 and ship in the next release.
 
 A CI check, the News workflow, fails a pull request that adds no fragment,
 unless it carries the `no news` label; Dependabot's are exempt.
@@ -296,8 +316,8 @@ window held about eight sashiko reviews.
 
 ## Next steps
 
-- Release 0.1.0: build `NEWS.md` from the fragments, tag the release, and
-  publish the wheel and image built from the tag.
+- Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
+  when the repository goes public), and release 0.1.1 with the license.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
