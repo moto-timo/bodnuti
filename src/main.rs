@@ -242,9 +242,18 @@ struct CheckArgs {
 }
 
 /// The oelint-adv release for a base like `refs/remotes/origin/scarthgap`.
+///
+/// Yocto codenames are single lowercase words (`scarthgap`, `blacksail`).
+/// Anything else, such as a commit hash given with `--base`, a tag, or a
+/// branch like `scarthgap-next`, is not a release oelint-adv knows, so it
+/// gets `latest`.
 fn release_for(base: &str) -> String {
     match base.rsplit('/').next() {
-        Some(name) if !matches!(name, "master" | "main" | "HEAD") && !name.contains('~') => {
+        Some(name)
+            if !matches!(name, "master" | "main")
+                && !name.is_empty()
+                && name.bytes().all(|b| b.is_ascii_lowercase()) =>
+        {
             name.to_string()
         }
         _ => "latest".to_string(),
@@ -568,5 +577,12 @@ mod tests {
         assert_eq!(release_for("origin/master"), "latest");
         assert_eq!(release_for("HEAD"), "latest");
         assert_eq!(release_for("upstream/master~2"), "latest");
+        assert_eq!(release_for("ae5cafacec8e"), "latest");
+        assert_eq!(release_for("388cd4770e04~1"), "latest");
+        assert_eq!(
+            release_for("refs/remotes/upstream/scarthgap-next"),
+            "latest"
+        );
+        assert_eq!(release_for("refs/heads/kirkstone"), "kirkstone");
     }
 }
