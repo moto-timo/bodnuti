@@ -81,3 +81,15 @@ in yocto-docs' `documentation/Pipfile` plus sphinx-lint, in one venv. Point
 bodnuti at it with `--python`, `--oelint` and `--b4` (or `BODNUTI_PYTHON`,
 `BODNUTI_OELINT`, `BODNUTI_B4`). shellcheck runs from its container image by default; set
 `--shellcheck shellcheck` to use a local binary.
+
+## License
+
+bodnuti is licensed under either of the [MIT license](LICENSE-MIT) or the
+[Apache License, Version 2.0](LICENSE-APACHE), at your option. Unless you
+say otherwise, a contribution you submit for inclusion is licensed the same
+way, without further terms.
+
+The container image also carries the tools bodnuti runs, each under its own
+license: among them shellcheck and cppcheck (GPL-3.0), trivy (Apache-2.0),
+oelint-adv (BSD-2-Clause), b4 (GPL-2.0), and the Debian packages of the
+base image.

@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.89"
 publish = false
 description = "Automated patch review for the Yocto Project and OpenEmbedded"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "1"
