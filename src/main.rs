@@ -251,8 +251,49 @@ fn release_for(base: &str) -> String {
     }
 }
 
+/// A recipe file's directory, name and extension: `dir/foo_1.2.bb` gives
+/// `("dir", "foo", "bb")`. Includes and other files give `None`.
+fn recipe_key(path: &str) -> Option<(&str, &str, &str)> {
+    let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
+    let (stem, ext) = file.rsplit_once('.')?;
+    if !matches!(ext, "bb" | "bbappend") {
+        return None;
+    }
+    let (name, _version) = stem.rsplit_once('_')?;
+    Some((dir, name, ext))
+}
+
+/// Recipe upgrades that git shows as a delete and an add rather than a
+/// rename, because the recipe changed too much. A deleted `foo_1.0.bb` pairs
+/// with an added `foo_2.0.bb` in the same directory, when the series deletes
+/// and adds exactly one such file; anything less clear is left unpaired.
+fn recipe_upgrades(series: &Series) -> Vec<(String, String)> {
+    let deleted: Vec<String> = series
+        .patches
+        .iter()
+        .flat_map(|p| p.deleted_files())
+        .collect();
+    let added: Vec<String> = series
+        .patches
+        .iter()
+        .flat_map(|p| p.added_files())
+        .collect();
+    let mut pairs = Vec::new();
+    for old in &deleted {
+        let Some(key) = recipe_key(old) else { continue };
+        let same = |p: &&String| recipe_key(p) == Some(key);
+        let olds: Vec<&String> = deleted.iter().filter(same).collect();
+        let news: Vec<&String> = added.iter().filter(same).collect();
+        if let ([_], [new]) = (olds.as_slice(), news.as_slice()) {
+            pairs.push((old.clone(), (*new).clone()));
+        }
+    }
+    pairs
+}
+
 /// Maps each base path the series touches to its path after the series,
-/// following renames across patches (`a` renamed to `b`, then `b` to `c`).
+/// following renames across patches (`a` renamed to `b`, then `b` to `c`),
+/// and recipe upgrades git did not detect as renames.
 fn head_paths(series: &Series) -> HashMap<String, String> {
     let mut head_of: HashMap<String, String> = HashMap::new();
     for patch in &series.patches {
@@ -264,6 +305,9 @@ fn head_paths(series: &Series) -> HashMap<String, String> {
                 .unwrap_or(old);
             head_of.insert(origin, new);
         }
+    }
+    for (old, new) in recipe_upgrades(series) {
+        head_of.insert(old, new);
     }
     head_of
 }
@@ -467,6 +511,55 @@ mod tests {
         );
         assert_eq!(head_of.get("foo.inc").map(String::as_str), Some("foo.inc"));
         assert_eq!(head_of.len(), 2);
+    }
+
+    #[test]
+    fn pairs_a_rewritten_recipe_upgrade() {
+        let mut p = patch(
+            "diff --git a/r/ck/ck_0.4.6.bb b/r/ck/ck_0.4.6.bb\ndeleted file mode 100644\n\
+             diff --git a/r/ck/ck_2.0.0.bb b/r/ck/ck_2.0.0.bb\nnew file mode 100644\n\
+             diff --git a/r/ck/ck/old.patch b/r/ck/ck/old.patch\ndeleted file mode 100644\n\
+             diff --git a/r/other/other_1.0.bb b/r/other/other_1.0.bb\nnew file mode 100644\n",
+        );
+        p.index = 1;
+        let series = Series {
+            cover: None,
+            patches: vec![p],
+        };
+        assert_eq!(
+            recipe_upgrades(&series),
+            vec![(
+                "r/ck/ck_0.4.6.bb".to_string(),
+                "r/ck/ck_2.0.0.bb".to_string()
+            )]
+        );
+        assert_eq!(
+            head_paths(&series)
+                .get("r/ck/ck_0.4.6.bb")
+                .map(String::as_str),
+            Some("r/ck/ck_2.0.0.bb")
+        );
+    }
+
+    #[test]
+    fn ambiguous_recipe_changes_stay_unpaired() {
+        // Two versions added for one removed: which one replaced it is not
+        // clear, so neither is paired.
+        let p = patch(
+            "diff --git a/d/foo_1.bb b/d/foo_1.bb\ndeleted file mode 100644\n\
+             diff --git a/d/foo_2.bb b/d/foo_2.bb\nnew file mode 100644\n\
+             diff --git a/d/foo_3.bb b/d/foo_3.bb\nnew file mode 100644\n",
+        );
+        let series = Series {
+            cover: None,
+            patches: vec![p],
+        };
+        assert!(recipe_upgrades(&series).is_empty());
+        assert_eq!(
+            recipe_key("d/foo-bar_1.2.3.bb"),
+            Some(("d", "foo-bar", "bb"))
+        );
+        assert_eq!(recipe_key("d/foo.inc"), None);
     }
 
     #[test]

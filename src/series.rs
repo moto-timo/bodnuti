@@ -39,13 +39,24 @@ impl Patch {
     /// Paths the patch creates (`new file mode`), which exist in no tree
     /// before it.
     pub fn added_files(&self) -> Vec<String> {
+        self.files_with_mode("new file mode")
+    }
+
+    /// Paths the patch removes (`deleted file mode`).
+    pub fn deleted_files(&self) -> Vec<String> {
+        self.files_with_mode("deleted file mode")
+    }
+
+    /// Paths whose extended header (between `diff --git` and the first hunk)
+    /// has a line starting with `mode`.
+    fn files_with_mode(&self, mode: &str) -> Vec<String> {
         let text = String::from_utf8_lossy(&self.raw);
         let mut out = Vec::new();
         let mut current: Option<String> = None;
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix("diff --git a/") {
                 current = rest.split_once(" b/").map(|(_, b)| b.to_string());
-            } else if line.starts_with("new file mode")
+            } else if line.starts_with(mode)
                 && let Some(path) = current.take()
             {
                 out.push(path);
