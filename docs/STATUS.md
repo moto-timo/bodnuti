@@ -140,7 +140,16 @@ layer checks (`designs/PHASE2.md` §3.2, §5.2):
 
 On the layerindex-web series "requirements.txt: fix djangorestframework and
 GitPython vulnerabilities", trivy confirms the series fixes 45 advisories
-(GitPython, djangorestframework and Pillow) and adds none.
+(GitPython, djangorestframework and Pillow) and adds none. The worker runs
+tier 2 since 25 October 2026: the first poll downloaded the database in
+about 11 seconds, and the three layerindex-web series were checked again
+with it.
+
+The worker's checks also stopped flooding its journal: podman no longer
+logs each container's events and output there, only systemd's one line per
+container. The containers' memory, CPU and process limits are enforced
+(the `memory`, `cpu` and `pids` cgroup controllers are delegated to the
+`bodnuti` user).
 
 On a test patch to layerindex-web, each checker reported exactly what it
 added: an undefined name and a `shell=True` call (ruff), a template tag
@@ -236,10 +245,9 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Deploy tier 2 of the Django application checks and the quieter podman
-  runner (a rebuilt image and binary); Django's own `check` and `makemigrations --check` (tier 3) are
-  decided after tiers 1 and 2 have run for a while (`designs/PHASE2.md`
-  §3.2).
+- Decide on tier 3 of the Django application checks, Django's own `check`
+  and `makemigrations --check`, after tiers 1 and 2 have run for a while
+  (`designs/PHASE2.md` §3.2).
 - Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
