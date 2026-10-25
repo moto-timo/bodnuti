@@ -318,7 +318,7 @@ host `10.1.0.3`) and that the web host's sshd listens on 2222, as in step 1.
    the Caddyfile makes sure nothing slipped through can run:
 
    ```
-   header /reports/* Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'"
+   header /reports/* Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
    ```
 
    then `sudo systemctl reload caddy`.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="bodnuti">
+  <!-- indigo cloth, white running stitches: after Met 1979.409 sashiko kimono -->
+  <rect width="64" height="64" rx="12" fill="#1c2f5e"/>
+  <g fill="none" stroke="#f3eee2" stroke-width="4" stroke-linecap="round" stroke-dasharray="5 4">
+    <path d="M25 12V52"/>
+    <path d="M25 29A16 11.5 0 0 1 25 52"/>
+  </g>
+</svg>

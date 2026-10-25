@@ -5,6 +5,7 @@
 FROM docker.io/library/rust:1.90-slim-trixie AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
+COPY assets ./assets
 COPY src ./src
 COPY tests ./tests
 RUN cargo build --release --locked

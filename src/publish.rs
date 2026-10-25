@@ -202,6 +202,7 @@ pub fn render(config: &Config, states: &BTreeMap<String, ListState>, now: u64) -
         std::fs::remove_dir_all(&tmp)?;
     }
     let generated = timestamp(&lore::utc(now));
+    write(&tmp.join("logo.svg"), LOGO)?;
     write(
         &tmp.join("index.html"),
         &index_page(&rows, None, &generated),
@@ -320,6 +321,10 @@ fn commit_url(config: &Config, repo: Option<&str>, commit: &str) -> Option<Strin
         .then(|| format!("{url}/commit/?id={commit}"))
 }
 
+/// The bodnuti.dev logo, shipped with the site so the pages need nothing
+/// from outside it, and work when opened from `state/site/`.
+const LOGO: &str = include_str!("../assets/logo.svg");
+
 const STYLE: &str = r#"
   :root { --bg: #fafaf7; --fg: #1d1d1f; --muted: #6b6b70; --accent: #1f4e8c;
           --ok: #2d7a3a; --warn: #9a6a00; --error: #b3261e; --line: #e2e2dc; }
@@ -332,7 +337,7 @@ const STYLE: &str = r#"
          font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 2rem 1rem; }
   main { max-width: 64rem; margin: 0 auto; }
   h1 { font: 600 1.8rem/1.1 ui-monospace, "SF Mono", Menlo, monospace; margin: 0 0 .25rem; }
-  h1 a { color: inherit; text-decoration: none; }
+  h1 a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: .5rem; }
   h2 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; overflow-wrap: anywhere; }
   h3 { font-size: 1rem; font-weight: 500; margin: 1.25rem 0 .4rem; overflow-wrap: anywhere; }
   .stitch { border: 0; border-top: 3px dashed var(--accent); margin: 1rem 0 1.5rem; width: 6rem; }
@@ -358,8 +363,9 @@ fn page(title: &str, root: &str, body: &str, generated: &str) -> String {
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-         <title>{title}</title>\n<style>{STYLE}</style>\n</head>\n<body>\n<main>\n\
-         <h1><a href=\"{root}\">bodnuti</a></h1>\n\
+         <title>{title}</title>\n<link rel=\"icon\" href=\"{root}logo.svg\" type=\"image/svg+xml\">\n\
+         <style>{STYLE}</style>\n</head>\n<body>\n<main>\n\
+         <h1><a href=\"{root}\"><img src=\"{root}logo.svg\" alt=\"\" width=\"40\" height=\"40\"> bodnuti</a></h1>\n\
          <p class=\"tag\">Deterministic checks of Yocto Project &amp; OpenEmbedded patches.</p>\n\
          <hr class=\"stitch\">\n{body}\
          <footer>Generated {generated} UTC. \
@@ -776,6 +782,7 @@ mod tests {
         let now = lore::parse_time("2026-10-24T00:00:00Z").unwrap();
         let site = render(&config, &states, now).unwrap();
         assert!(site.join("index.html").exists());
+        assert!(site.join("logo.svg").exists());
         assert!(site.join("openembedded-core/index.html").exists());
         assert!(site.join("openembedded-core/new@x/index.html").exists());
         assert!(!site.join("openembedded-core/old@x").exists());
