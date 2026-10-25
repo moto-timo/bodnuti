@@ -175,6 +175,8 @@ is now on 0.42. The other results:
 - 75 HIGH, 0 CRITICAL findings in the image's Debian trixie packages, none
   with a Debian fix yet. Rebuilding the image picks the fixes up.
 
+The worker runs these fixes and upgrades since 25 October 2026.
+
 Dependabot's first six pull requests were version updates, not security
 fixes. The two action updates were merged. The toml 1.1, quick-xml 0.42
 and ureq 3 updates needed code or feature changes and were done by hand,
@@ -208,8 +210,6 @@ window held about eight sashiko reviews.
   yocto-patches, with their own checker set (patchtest's mail checks and a
   Python linter) instead of the layer checks; until then they are unrouted
   (`designs/PHASE2.md` §3.2).
-- Rebuild the worker's image and binary to deploy the quick-xml, toml and
-  ureq upgrades.
 - Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
