@@ -200,8 +200,7 @@ Tiers 1 and 2 are built with the repository kind. Tier 3 waits for a
 decision by the layerindex-web and error-report-web maintainer (who is
 also bodnuti's), after tiers 1 and 2 have run for a while.
 
-Tier 1 is designed in §5.2 and built. Tier 2 gets a design section,
-settling the vulnerability database handling, before implementation.
+Tier 1 is designed in §5.2 and built. Tier 2 is designed in §5.3.
 
 ## 4. State
 
@@ -358,8 +357,61 @@ the check id. ruff's JSON output gives file, line and message; djLint's
 pinned in `requirements.txt` (ruff 0.17.2, djLint 1.47.0) and so in the
 image.
 
-**Not in tier 1.** Dependency pin scanning (tier 2) and Django's own checks
-(tier 3).
+**Not in tier 1.** Dependency pin scanning (tier 2, §5.3) and Django's own
+checks (tier 3).
+
+### 5.3 django-app checks, tier 2: dependency pins
+
+The design for tier 2 of §3.2: when a series changes a `requirements*.txt`
+file, report the known vulnerabilities its pins add, and the ones it fixes.
+
+**Scanner.** trivy, already used for bodnuti's own scans (`make audit`).
+It reads `requirements.txt` pins (`name==version`) and matches them against
+its vulnerability database, which covers the GitHub and OSV advisories for
+PyPI. The image gets a pinned trivy binary, copied from
+`docker.io/aquasec/trivy:<version>` like shellcheck from its image. Lines
+that are not exact pins (ranges, `-i` index URLs, `-r` includes) are
+ignored by trivy, so only exact pins are checked.
+
+**Database without network.** The database is about 1.6 GB on disk and
+downloads in seconds. The check container has no network, so:
+
+1. Once a day, the watcher refreshes `cache/trivy/` with
+   `trivy --download-db-only --cache-dir /trivy` in a container with network
+   (like the b4 fetch), when `cache/trivy/db/metadata.json` is older than 24
+   hours. A failed refresh keeps the old database and is logged; checks go
+   on with it.
+2. Checks mount `cache/trivy/` read-only and scan with `--cache-dir /trivy
+   --cache-backend memory --skip-db-update --skip-java-db-update
+   --offline-scan`, which writes nothing and makes no request. Tested on
+   layerindex-web's master `requirements.txt` with a read-only database: 45
+   advisories, among them five CRITICAL in Pillow 12.3.0, fixed in 13.0.0.
+
+**Before and after.** Each touched `requirements*.txt` is scanned at the
+base and after the series. As with every checker, the advisories the series
+adds are findings. A finding's message names the package and pinned
+version, so moving a pin to another version that is still affected reports
+the advisory again:
+
+- tool `trivy`, check id the advisory (`CVE-...` or `GHSA-...`), file the
+  requirements file;
+- severity: CRITICAL and HIGH are errors, MEDIUM a warning, LOW and unknown
+  info;
+- message: `Pillow 12.3.0: <advisory title> (fixed in 13.0.0)`.
+
+**Fixed advisories.** The advisories the series removes are what a "fix
+vulnerabilities" series claims, so they are reported too, but not as
+findings: a fix is not a problem, and must not turn a clean result into
+"N findings". The report gains a `fixed` list (package, old and new
+version, advisory ids), shown on the series page as "Fixes" and in the
+text report. A series that only fixes is clean.
+
+**Scope.** django-app repositories only, where requirements files are the
+dependency manifests. Layers pin Python packages in recipes, which this does
+not read.
+
+**Not in tier 2.** Unpinned or range requirements, `pyproject.toml` and lock
+files, which neither application uses; licence checks.
 
 ## 6. Publishing
 
