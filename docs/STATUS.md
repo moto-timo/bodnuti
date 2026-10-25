@@ -3,8 +3,8 @@
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
-first day of the bodnuti phase 2 deployment, the first security scans and
-the addition of CI.
+first day of the bodnuti phase 2 deployment, the first security scans, the
+addition of CI and the Django application checks.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -108,7 +108,8 @@ Running on the Hetzner arm64 worker since 25 October 2026. A systemd user
 timer polls six lists five minutes after each run ends, then publishes:
 openembedded-core, openembedded-devel, bitbake-devel, yocto-docs,
 yocto-meta-virtualization and yocto-patches (routed by subject tag,
-including `[meta-yocto]`). The report pages carry the bodnuti logo and
+including `[meta-yocto]`, `[layerindex-web]` and `[error-report-web]`). The
+report pages carry the bodnuti logo and
 favicon, served from the reports directory under a Content-Security-Policy
 that allows only same-site images and inline styles.
 
@@ -119,6 +120,27 @@ On the first day of the deployment, all six lists polled cleanly:
 - 3 yocto-patches series unrouted, all `[layerindex-web]`, as planned
   (`designs/PHASE2.md` §3.2);
 - each poll takes about a second when there is nothing new to check.
+
+### Django applications
+
+layerindex-web and error-report-web, the Django applications behind
+layers.openembedded.org and errors.yoctoproject.org, send their patches to
+yocto-patches. A `[repos]` entry with `kind = "django-app"` checks them
+with patchtest's mail checks, ruff, djLint and shellcheck instead of the
+layer checks (`designs/PHASE2.md` §3.2, §5.2):
+
+- ruff with a fixed rule set: the classic defaults, the Django rules and the
+  security rules, less member order, assert and plain subprocess calls;
+- djLint limited to template bugs (warnings) and accessibility (info),
+  without formatting.
+
+On a test patch to layerindex-web, each checker reported exactly what it
+added: an undefined name and a `shell=True` call (ruff), a template tag
+inside an HTML comment and an image without `alt` (djLint). A series whose
+tags named no configured repository is now tried again on every poll, so
+adding the two applications to `[repos]` checked the three layerindex-web
+series the first day had left unrouted. All three are clean: patchtest's
+mail checks 63 pass, 0 fail, and no ruff or djLint findings.
 
 Deploying found one more problem, now fixed: lore answers a search with no
 matches with 404, so the quiet lists (yocto-docs, yocto-meta-virtualization)
@@ -206,13 +228,12 @@ window held about eight sashiko reviews.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
-- Deploy the django-app checks for layerindex-web and error-report-web
-  (tier 1: patchtest's mail checks, ruff with Django and security rules,
-  djLint, shellcheck): rebuild the image, clone both applications and add
-  them to `[repos]` with `kind = "django-app"`. Then design tier 2, a
-  vulnerability scan of changed requirements pins; Django's own `check`
-  and `makemigrations --check` (tier 3) are decided later
-  (`designs/PHASE2.md` §3.2, §5.2).
+- Design tier 2 of the Django application checks, a vulnerability scan of
+  the requirements pins a series changes. Django's own `check` and
+  `makemigrations --check` (tier 3) are decided after tiers 1 and 2 have
+  run for a while (`designs/PHASE2.md` §3.2).
+- Quiet the worker's journal: podman logs each check's JSON report and its
+  container events there (`--log-driver=none`, `--events-backend=none`).
 - Decide on a license policy for `cargo deny`.
 - Suppress the noisiest oelint rules (`oelint.vars.dependsordered`, the
   info-level `suggestedvar` rules).
