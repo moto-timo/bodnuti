@@ -1,5 +1,6 @@
 //! bodnuti: automated patch review for the Yocto Project and OpenEmbedded.
 
+mod applied;
 mod docs;
 mod finding;
 mod git;
@@ -101,9 +102,36 @@ fn poll(args: PollArgs) -> Result<()> {
             failed += 1;
         }
     }
+    if let Err(err) = scan_applied(&config) {
+        eprintln!("bodnuti: matching applied patches: {err:#}");
+        failed += 1;
+    }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());
     }
+    Ok(())
+}
+
+/// Marks checked patches that have landed upstream, across all lists.
+fn scan_applied(config: &watch::Config) -> Result<()> {
+    let mut states = std::collections::BTreeMap::new();
+    for list in &config.lists {
+        states.insert(
+            list.name.clone(),
+            watch::ListState::load(&config.state, &list.name)?,
+        );
+    }
+    let summary = applied::scan(config, &mut states)?;
+    for (name, state) in &states {
+        state.save(&config.state, name)?;
+    }
+    println!(
+        "upstream: {} patches applied ({} by patch-id, {} probably), {} series fully applied",
+        summary.exact + summary.probable,
+        summary.exact,
+        summary.probable,
+        summary.series_applied
+    );
     Ok(())
 }
 

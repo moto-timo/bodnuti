@@ -174,6 +174,18 @@ pub enum Status {
     Duplicate,
     /// Fetching or checking failed `MAX_ATTEMPTS` times; `reason` says why.
     Failed,
+    /// Every patch has landed upstream; `applied` says where.
+    Applied,
+}
+
+/// Where a checked patch landed upstream.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Landed {
+    pub commit: String,
+    pub branch: String,
+    /// The patch-id matched. When false, only the subject and author
+    /// matched: the maintainer probably edited the patch before applying it.
+    pub exact: bool,
 }
 
 /// What a check found, kept with the series for the index.
@@ -217,6 +229,9 @@ pub struct SeriesRecord {
     /// `scarthgap`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// Patch index to where it landed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub applied: BTreeMap<u32, Landed>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -295,6 +310,7 @@ impl ListState {
                             attempts: 0,
                             result: None,
                             branch: None,
+                            applied: BTreeMap::new(),
                         },
                     );
                 }

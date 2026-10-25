@@ -64,6 +64,27 @@ impl Patch {
         self.changes().into_iter().map(|(_, new)| new).collect()
     }
 
+    /// The subject without its leading `[...]` tags: what `git log
+    /// --format=%s` shows once the patch is applied.
+    pub fn summary(&self) -> &str {
+        let mut rest = self.subject.trim_start();
+        while let Some(after) = rest.strip_prefix('[') {
+            let Some(end) = after.find(']') else { break };
+            rest = after[end + 1..].trim_start();
+        }
+        rest.trim()
+    }
+
+    /// The address in the patch's From header, lowercased.
+    pub fn author_email(&self) -> Option<String> {
+        let from = header(&String::from_utf8_lossy(&self.raw), "From")?;
+        let email = match (from.rfind('<'), from.rfind('>')) {
+            (Some(start), Some(end)) if start < end => &from[start + 1..end],
+            _ => from.as_str(),
+        };
+        Some(email.trim().to_ascii_lowercase())
+    }
+
     /// Paths the patch creates (`new file mode`), which exist in no tree
     /// before it.
     pub fn added_files(&self) -> Vec<String> {
@@ -555,6 +576,15 @@ mod tests {
         );
         let plain = parse_message(message("[PATCH] x", "A =3D 1").into_bytes()).unwrap();
         assert_eq!(plain.decoded(), plain.raw);
+    }
+
+    #[test]
+    fn reads_summary_and_author() {
+        let raw = "From x Mon Sep 17 00:00:00 2001\nFrom: Ann Dev <Ann@Example.org>\n\
+                   Subject: [OE-core][scarthgap][PATCH v2 1/2] glib-2.0: patch CVE-2026-1\n\nx\n";
+        let patch = parse_message(raw.as_bytes().to_vec()).unwrap();
+        assert_eq!(patch.summary(), "glib-2.0: patch CVE-2026-1");
+        assert_eq!(patch.author_email().as_deref(), Some("ann@example.org"));
     }
 
     #[test]
