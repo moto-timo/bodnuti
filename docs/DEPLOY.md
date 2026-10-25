@@ -401,6 +401,98 @@ retain_months = 6
 with `rsync -a --delete`. Render once with `bodnuti publish --local` and look
 at `~/state/site/index.html` before the first copy.
 
+## 9. The watcher
+
+`bodnuti poll` finds new series on lore, fetches and checks each one in the
+image, and records the results under `~/state`; `bodnuti publish` renders and
+copies them (§8). Both run on the host as `bodnuti`, which needs `git` (for
+patch-ids) and `rsync`:
+
+```
+sudo apt install git rsync
+```
+
+The image must be current: the watcher runs `bodnuti check --json` inside it.
+After loading a new image (§4), copy its binary to the host, as `bodnuti`:
+
+```
+mkdir -p ~/.local/bin
+podman create --name bx localhost/bodnuti
+podman cp bx:/usr/local/bin/bodnuti ~/.local/bin/bodnuti
+podman rm bx
+```
+
+The image and the VM are both Debian trixie, so the binary runs on the host.
+
+`~/.config/bodnuti/watch.toml` (designs/PHASE2.md §2). Start with one list
+and add others once its reports look right:
+
+```toml
+image = "localhost/bodnuti"
+state = "~/state"
+cache = "~/cache"
+settle_minutes = 15
+initial_hours = 24
+retain_months = 6
+publish_to = "bodnuti-web:./"
+
+[[list]]
+name = "openembedded-core"
+repo = "openembedded-core"
+
+[repos]
+openembedded-core = "https://git.openembedded.org/openembedded-core"
+meta-openembedded = "https://git.openembedded.org/meta-openembedded"
+bitbake = "https://git.openembedded.org/bitbake"
+yocto-docs = "https://git.yoctoproject.org/yocto-docs"
+```
+
+Run it once by hand:
+
+```
+~/.local/bin/bodnuti poll --dry-run openembedded-core   # lore is reachable
+~/.local/bin/bodnuti poll
+~/.local/bin/bodnuti publish --local                    # look at ~/state/site/
+~/.local/bin/bodnuti publish
+```
+
+Then run both from a timer. `~/.config/systemd/user/bodnuti-poll.service`:
+
+```
+[Unit]
+Description=Poll lore, check new series, publish reports
+
+[Service]
+Type=oneshot
+# "-": a failed list must not stop publishing the others.
+ExecStart=-%h/.local/bin/bodnuti poll
+ExecStart=%h/.local/bin/bodnuti publish
+```
+
+`~/.config/systemd/user/bodnuti-poll.timer`:
+
+```
+[Unit]
+Description=Poll lore every 5 minutes after the previous run ends
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target
+```
+
+```
+systemctl --user daemon-reload
+systemctl --user enable --now bodnuti-poll.timer
+journalctl --user -u bodnuti-poll -f
+```
+
+`OnUnitInactiveSec` counts from the end of the previous run, so a long run
+of checks never overlaps the next. Keep `bodnuti-fetch.timer` (§7) enabled:
+matching applied patches reads `origin/<branch>` in the clones.
+
 ## Not yet verified
 
 - The image on x86. On arm64 the two benchmark checks above pass on a
