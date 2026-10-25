@@ -92,7 +92,7 @@ impl Report {
 }
 
 /// `ERROR   oelint      path:line  message (check)`
-fn line(f: &Finding) -> String {
+pub fn line(f: &Finding) -> String {
     let severity = format!("{:?}", f.severity).to_uppercase();
     let tool = format!("{:?}", f.tool).to_lowercase();
     let place = match (&f.file, f.line) {

@@ -7,6 +7,7 @@ mod git;
 mod lore;
 mod oelint;
 mod patchtest;
+mod publish;
 mod report;
 mod runner;
 mod series;
@@ -44,6 +45,15 @@ enum Command {
     Check(CheckArgs),
     /// Find new patch series on lore lists.
     Poll(PollArgs),
+    /// Render the watcher's reports as static HTML.
+    Publish(PublishArgs),
+}
+
+#[derive(Args)]
+struct PublishArgs {
+    /// The watcher configuration.
+    #[arg(long, default_value = "~/.config/bodnuti/watch.toml")]
+    config: PathBuf,
 }
 
 #[derive(Args)]
@@ -113,7 +123,9 @@ fn poll(args: PollArgs) -> Result<()> {
 }
 
 /// Marks checked patches that have landed upstream, across all lists.
-fn scan_applied(config: &watch::Config) -> Result<()> {
+fn load_states(
+    config: &watch::Config,
+) -> Result<std::collections::BTreeMap<String, watch::ListState>> {
     let mut states = std::collections::BTreeMap::new();
     for list in &config.lists {
         states.insert(
@@ -121,6 +133,11 @@ fn scan_applied(config: &watch::Config) -> Result<()> {
             watch::ListState::load(&config.state, &list.name)?,
         );
     }
+    Ok(states)
+}
+
+fn scan_applied(config: &watch::Config) -> Result<()> {
+    let mut states = load_states(config)?;
     let summary = applied::scan(config, &mut states)?;
     for (name, state) in &states {
         state.save(&config.state, name)?;
@@ -132,6 +149,16 @@ fn scan_applied(config: &watch::Config) -> Result<()> {
         summary.probable,
         summary.series_applied
     );
+    Ok(())
+}
+
+/// Renders the site under the lock, so it never shows a half-written
+/// state.
+fn publish(args: PublishArgs) -> Result<()> {
+    let config = watch::Config::load(&watch::expand(&args.config))?;
+    let _lock = watch::Lock::take(&config.state)?;
+    let site = publish::render(&config, &load_states(&config)?, lore::now())?;
+    println!("site: {}", site.display());
     Ok(())
 }
 
@@ -507,6 +534,15 @@ fn check(args: CheckArgs) -> Result<Report> {
 fn main() -> ExitCode {
     let args = match Cli::parse().command {
         Command::Check(args) => args,
+        Command::Publish(args) => {
+            return match publish(args) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("bodnuti: {err:#}");
+                    ExitCode::from(2)
+                }
+            };
+        }
         Command::Poll(args) => {
             return match poll(args) {
                 Ok(()) => ExitCode::SUCCESS,

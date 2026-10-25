@@ -89,6 +89,17 @@ impl Patch {
         Some(email.trim().to_ascii_lowercase())
     }
 
+    /// The display name in the patch's From header, or its address when it
+    /// has no name.
+    pub fn author(&self) -> Option<&str> {
+        let from = self.from.as_deref()?.trim();
+        let name = match from.rfind('<') {
+            Some(start) => from[..start].trim().trim_matches('"').trim(),
+            None => "",
+        };
+        Some(if name.is_empty() { from } else { name })
+    }
+
     /// Paths the patch creates (`new file mode`), which exist in no tree
     /// before it.
     pub fn added_files(&self) -> Vec<String> {
@@ -591,6 +602,11 @@ mod tests {
         let patch = parse_message(raw.as_bytes().to_vec()).unwrap();
         assert_eq!(patch.summary(), "glib-2.0: patch CVE-2026-1");
         assert_eq!(patch.author_email().as_deref(), Some("ann@example.org"));
+        assert_eq!(patch.author(), Some("Ann Dev"));
+        let quoted = parse_message(b"From: \"Bo\" <bo@x>\nSubject: [PATCH] x\n\nx\n".to_vec());
+        assert_eq!(quoted.unwrap().author(), Some("Bo"));
+        let bare = parse_message(b"From: bo@x\nSubject: [PATCH] x\n\nx\n".to_vec());
+        assert_eq!(bare.unwrap().author(), Some("bo@x"));
     }
 
     #[test]

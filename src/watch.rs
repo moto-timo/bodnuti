@@ -50,6 +50,9 @@ pub struct Config {
     /// Clone name under `cache/` to its upstream URL.
     #[serde(default)]
     pub repos: BTreeMap<String, String>,
+    /// How far back the published site goes. Older series stay in `state/`.
+    #[serde(default = "default_retain")]
+    pub retain_months: u64,
 }
 
 fn default_runner() -> Vec<String> {
@@ -83,6 +86,9 @@ fn default_settle() -> u64 {
 }
 fn default_initial() -> u64 {
     24
+}
+fn default_retain() -> u64 {
+    6
 }
 
 #[derive(Debug, Deserialize)]
