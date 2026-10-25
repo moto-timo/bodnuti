@@ -199,14 +199,19 @@ B="podman run --rm --userns=keep-id:uid=1000,gid=1000 \
    --cap-drop=ALL --security-opt no-new-privileges \
    --pids-limit 512 --memory 2g --cpus 2"
 
-# fetch: network on, only the inbox mounted
-$B -v ~/inbox:/out --entrypoint b4 bodnuti mbox -o /out '<Message-ID>'
+ID='<Message-ID>'
+
+# fetch: network on, only the inbox mounted; writes ~/inbox/$ID.mbx
+$B -v ~/inbox:/out --entrypoint b4 bodnuti mbox -o /out "$ID"
 
 # check: no network
-M=$(basename ~/inbox/*.mbx)
 $B --network none -v ~/cache/openembedded-core:/repo -v ~/inbox:/in:ro \
-   bodnuti check --repo /repo /in/$M
+   bodnuti check --repo /repo "/in/$ID.mbx"
 ```
+
+`b4 mbox -o DIR` saves the whole thread as `DIR/<Message-ID>.mbx`, keeping
+the original subjects (and so tags such as `[scarthgap]`); bodnuti drops the
+replies. Any Message-ID in the thread works.
 
 Expand file name globs against the host path (`~/inbox/...`) and pass only
 the name. A glob written as `/in/...` is expanded by the host shell, where
@@ -292,6 +297,5 @@ this section describes where its output goes.
 
 ## Not yet verified
 
-- The name of the file `b4 mbox -o` writes; step 6 assumes `*.mbx`.
 - The image on x86. On arm64 the two benchmark checks above pass on a
   Hetzner worker in rootless Podman, read-only and with `--network none`.
