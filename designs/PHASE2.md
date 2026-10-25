@@ -597,6 +597,23 @@ numbered excerpt with `>` on the finding's line, a blank line between
 blocks. The index is unchanged. Reports written before `excerpts` existed
 render without excerpts.
 
+### 6.2 The front page
+
+bodnuti.dev's front page is a static page in the bodnuti.dev repository:
+what bodnuti checks, the watched lists, and links to the reports, the
+repository, its releases and `SECURITY.md`. A live block on it comes from
+`summary.html`, which `bodnuti publish` writes beside the reports: per list,
+the series of the last seven days, how many have findings and how many have
+landed, and the five latest series, with links under `/reports/`.
+
+Caddy inserts the fragment with its `templates` directive, on the front
+page only, using `readFile`, which inserts a file as it is. `include` would
+render the file as a template, and the fragment holds mail subjects: a
+subject with `{{ … }}` in it would run as a template action. As a second
+guard, bodnuti's escaping turns `{` and `}` into character references
+everywhere. Without a `summary.html` (before the first publish) the page
+says so.
+
 ## 7. Testing
 
 - Unit tests for the Atom parser (on a captured feed), series grouping

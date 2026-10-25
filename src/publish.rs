@@ -209,6 +209,11 @@ pub fn render(config: &Config, states: &BTreeMap<String, ListState>, now: u64) -
     }
     let generated = timestamp(&lore::utc(now));
     write(&tmp.join("logo.svg"), LOGO)?;
+    let lists: Vec<&str> = states.keys().map(String::as_str).collect();
+    write(
+        &tmp.join("summary.html"),
+        &summary(&rows, &lists, now, &generated),
+    )?;
     write(
         &tmp.join("index.html"),
         &index_page(&rows, None, &generated),
@@ -272,6 +277,71 @@ fn write(path: &Path, text: &str) -> Result<()> {
     std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
 }
 
+/// Where the site is served on bodnuti.dev, for the summary's links.
+const SITE_PATH: &str = "/reports/";
+
+/// How far back the summary looks, in days.
+const SUMMARY_DAYS: u64 = 7;
+
+/// How many of the latest series the summary lists.
+const SUMMARY_LATEST: usize = 5;
+
+/// `summary.html`, a fragment for bodnuti.dev's front page, which Caddy
+/// inserts as it is with `readFile` (designs/PHASE2.md §6.2): per list, the
+/// series of the last week, how many have findings and how many landed, and
+/// the latest series. `rows` are newest first.
+fn summary(rows: &[Row], lists: &[&str], now: u64, generated: &str) -> String {
+    let since = now.saturating_sub(SUMMARY_DAYS * 86_400);
+    let recent: Vec<&Row> = rows
+        .iter()
+        .filter(|r| lore::parse_time(&r.record.tracked.last_seen).unwrap_or(0) >= since)
+        .collect();
+    let mut out = String::from("<section class=\"bodnuti-summary\">\n");
+    let _ = writeln!(
+        out,
+        "<table>\n<tr><th>List</th><th>Series, last {SUMMARY_DAYS} days</th>\
+         <th>With findings</th><th>Landed</th></tr>"
+    );
+    for list in lists {
+        let own: Vec<&&Row> = recent.iter().filter(|r| r.list == *list).collect();
+        let findings = own
+            .iter()
+            .filter(|r| matches!(r.outcome(), Outcome::Findings { .. }))
+            .count();
+        let landed = own.iter().filter(|r| !r.record.applied.is_empty()).count();
+        let name = escape(list);
+        let _ = writeln!(
+            out,
+            "<tr><td><a href=\"{SITE_PATH}{name}/\">{name}</a></td><td>{}</td>\
+             <td>{findings}</td><td>{landed}</td></tr>",
+            own.len()
+        );
+    }
+    out.push_str("</table>\n<ul class=\"latest\">\n");
+    for row in rows.iter().take(SUMMARY_LATEST) {
+        let subject = escape(&row.record.tracked.subject);
+        let subject = match row.page() {
+            Some(page) => format!("<a href=\"{SITE_PATH}{}\">{subject}</a>", escape(&page)),
+            None => subject,
+        };
+        let outcome = row.outcome();
+        let _ = writeln!(
+            out,
+            "<li><span class=\"when\">{}</span> {subject} \
+             <span class=\"result {}\">{}</span></li>",
+            timestamp(&row.record.tracked.last_seen),
+            outcome.class(),
+            outcome.label()
+        );
+    }
+    let _ = writeln!(
+        out,
+        "</ul>\n<p class=\"updated\">Updated {generated} UTC. \
+         <a href=\"{SITE_PATH}\">All series</a>.</p>\n</section>"
+    );
+    out
+}
+
 /// Escapes text for HTML element content and quoted attribute values.
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -282,6 +352,10 @@ pub fn escape(text: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
+            // Braces too: the summary goes into bodnuti.dev's front page
+            // through a Caddy template, and mail must never read as one.
+            '{' => out.push_str("&#123;"),
+            '}' => out.push_str("&#125;"),
             c => out.push(c),
         }
     }
@@ -747,6 +821,10 @@ mod tests {
             escape("<a href=\"x\">&'"),
             "&lt;a href=&quot;x&quot;&gt;&amp;&#39;"
         );
+        assert_eq!(
+            escape("{{env \"HOME\"}}"),
+            "&#123;&#123;env &quot;HOME&quot;&#125;&#125;"
+        );
         let rec = record(Status::Checked, &[]);
         let row = Row {
             list: "openembedded-core",
@@ -905,6 +983,22 @@ mod tests {
         let site = render(&config, &states, now).unwrap();
         assert!(site.join("index.html").exists());
         assert!(site.join("logo.svg").exists());
+        let summary = std::fs::read_to_string(site.join("summary.html")).unwrap();
+        assert!(
+            summary.starts_with("<section class=\"bodnuti-summary\">"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains(
+                "<td><a href=\"/reports/openembedded-core/\">openembedded-core</a></td><td>1</td>"
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("href=\"/reports/openembedded-core/new@x/\""),
+            "{summary}"
+        );
+        assert!(!summary.contains("<script>"), "{summary}");
         assert!(site.join("openembedded-core/index.html").exists());
         assert!(site.join("openembedded-core/new@x/index.html").exists());
         assert!(!site.join("openembedded-core/old@x").exists());
