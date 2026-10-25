@@ -337,7 +337,27 @@ fn lint(
         .iter()
         .map(|c| c.lint(&tree, &base_files))
         .collect();
-    let applied = workspace.apply(series)?;
+    // A series that does not apply is a result for its author, not a failure
+    // of bodnuti: report it, and skip the checks that need the patched tree.
+    let applied = match workspace.apply(series) {
+        Ok(applied) => applied,
+        Err(err) => {
+            let not_applied = err.downcast::<workspace::NotApplied>()?;
+            let finding = Finding {
+                tool: Tool::Bodnuti,
+                check: "bodnuti.apply".into(),
+                severity: finding::Severity::Error,
+                patch: Some(not_applied.index),
+                file: None,
+                line: None,
+                message: format!(
+                    "does not apply to {}: {}",
+                    not_applied.base, not_applied.reason
+                ),
+            };
+            return Ok((Vec::new(), vec![finding]));
+        }
+    };
     let after: Vec<_> = checkers.iter().map(|c| c.lint(&tree, &files)).collect();
 
     let mut findings = Vec::new();

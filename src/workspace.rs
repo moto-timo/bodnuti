@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
@@ -74,13 +74,13 @@ impl Workspace {
                 .output()?;
             if !output.status.success() {
                 let _ = git::run(&tree, &["am", "--abort"]);
-                bail!(
-                    "patch {}/{} does not apply to {}: {}",
-                    patch.index,
-                    patch.total,
-                    &self.base[..12],
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
+                return Err(NotApplied {
+                    index: patch.index,
+                    total: patch.total,
+                    base: self.base[..12].to_string(),
+                    reason: git_error(&String::from_utf8_lossy(&output.stderr)),
+                }
+                .into());
             }
             let commit = git::run(&tree, &["rev-parse", "HEAD"])?;
             applied.push(Applied {
@@ -90,6 +90,44 @@ impl Workspace {
         }
         Ok(applied)
     }
+}
+
+/// A patch of the series that `git am --3way` could not apply. Not a tool
+/// failure: the series targets another base, needs a rebase, or is already
+/// applied.
+#[derive(Debug)]
+pub struct NotApplied {
+    pub index: u32,
+    pub total: u32,
+    pub base: String,
+    pub reason: String,
+}
+
+impl std::fmt::Display for NotApplied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "patch {}/{} does not apply to {}: {}",
+            self.index, self.total, self.base, self.reason
+        )
+    }
+}
+
+impl std::error::Error for NotApplied {}
+
+/// git am's own `error:` line, without the hints it prints after it.
+fn git_error(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix("error: "))
+        .or(lines.first().copied())
+        .unwrap_or("git am failed")
+        .to_string()
 }
 
 impl Drop for Workspace {
@@ -238,6 +276,15 @@ mod tests {
             err.to_string().contains("patch 1/1 does not apply"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn keeps_git_ams_error_line_not_its_hints() {
+        let stderr = "warning: squelched 22 whitespace errors\n\
+                      error: Failed to merge in the changes.\n\
+                      hint: Use 'git am --show-current-patch=diff' to see the failed patch\n";
+        assert_eq!(git_error(stderr), "Failed to merge in the changes.");
+        assert_eq!(git_error("fatal: bad\n"), "fatal: bad");
     }
 
     #[test]
