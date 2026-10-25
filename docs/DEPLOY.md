@@ -408,10 +408,10 @@ at `~/state/site/index.html` before the first copy.
 `bodnuti poll` finds new series on lore, fetches and checks each one in the
 image, and records the results under `~/state`; `bodnuti publish` renders and
 copies them (§8). Both run on the host as `bodnuti`, which needs `git` (for
-patch-ids) and `rsync`:
+patch-ids) and `rsync`; `jq` is for reading the state files by hand:
 
 ```
-sudo apt install git rsync
+sudo apt install git rsync jq
 ```
 
 The image must be current: the watcher runs `bodnuti check --json` inside it.
@@ -521,7 +521,15 @@ journalctl --user -u bodnuti-poll -f
 ```
 
 `OnUnitInactiveSec` counts from the end of the previous run, so a long run
-of checks never overlaps the next. Keep `bodnuti-fetch.timer` (§7) enabled:
+of checks never overlaps the next.
+
+To see why series were not checked, for example on yocto-patches:
+
+```
+jq -r '.series[] | select(.status=="unrouted" or .status=="failed")
+       | "\(.status)  \(.subject)  ->  \(.reason)"' \
+   ~/state/lists/yocto-patches.json
+``` Keep `bodnuti-fetch.timer` (§7) enabled:
 matching applied patches reads `origin/<branch>` in the clones.
 
 ## Not yet verified
