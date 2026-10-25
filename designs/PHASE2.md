@@ -269,6 +269,29 @@ on the next poll, up to three times.
 Checks run one at a time. At 15 to 45 seconds each, one worker clears a day's
 traffic in under an hour; a parallel queue can come later if bursts need it.
 
+### 5.0 Threads that are not series
+
+The first backfill (two weeks, all lists) found two kinds of thread the
+check cannot take as they are. Both used to fail three times and end as
+`failed`.
+
+**No patches.** A pull request is a cover letter alone (`[PATCH 00/99]
+Wrynose pull request`, BitBake's `[PATCH 0/1] Pull request (cover letter
+only)`), and some series are sent with their patches outside the cover
+letter's thread, so each patch is a series of its own and the cover letter
+has none. The fetched mbox then has no patches. That is a fact about the
+thread, not a failure: it is recorded with its own status, `no-patches`,
+with that reason, and shown on the index as "no patches". It is not
+retried.
+
+**Root not on lore.** A patch whose parent the watcher never saw is named
+after that parent (§3), which is usually the cover letter, but can be a
+message lore does not have, such as an `In-Reply-To` pointing at mail on
+another list. `b4 mbox <root>` then fails with 404. The watcher knows
+every Message-ID it saw in the series, so when fetching the root fails, it
+fetches the thread through each of those in turn, and saves the first that
+works as the series' mbox.
+
 ### 5.1 Matching applied patches
 
 After the clones are fetched (the hourly timer from `DEPLOY.md`), each poll
