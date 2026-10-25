@@ -79,9 +79,31 @@ impl Patch {
         rest.trim()
     }
 
-    /// The address in the patch's From header, lowercased.
+    /// Who wrote the patch: the in-body `From:` line that git format-patch
+    /// writes when the sender is not the author, as for a backport, else
+    /// the From header. git am takes the author from the same place, so
+    /// this is the author of the commit the patch becomes.
+    fn author_from(&self) -> Option<&str> {
+        self.in_body_from().or(self.from.as_deref())
+    }
+
+    /// A `From:` line opening the body, if there is one.
+    fn in_body_from(&self) -> Option<&str> {
+        let text = std::str::from_utf8(&self.raw).ok()?;
+        let body = text
+            .split_once("\n\n")
+            .or_else(|| text.split_once("\r\n\r\n"))?
+            .1;
+        let first = body.lines().next()?;
+        first
+            .strip_prefix("From:")
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    }
+
+    /// The address of the patch's author (see `author_from`), lowercased.
     pub fn author_email(&self) -> Option<String> {
-        let from = self.from.as_deref()?;
+        let from = self.author_from()?;
         let email = match (from.rfind('<'), from.rfind('>')) {
             (Some(start), Some(end)) if start < end => &from[start + 1..end],
             _ => from,
@@ -92,7 +114,7 @@ impl Patch {
     /// The display name in the patch's From header, or its address when it
     /// has no name.
     pub fn author(&self) -> Option<&str> {
-        let from = self.from.as_deref()?.trim();
+        let from = self.author_from()?.trim();
         let name = match from.rfind('<') {
             Some(start) => from[..start].trim().trim_matches('"').trim(),
             None => "",
@@ -638,6 +660,15 @@ mod tests {
         assert_eq!(patch.summary(), "glib-2.0: patch CVE-2026-1");
         assert_eq!(patch.author_email().as_deref(), Some("ann@example.org"));
         assert_eq!(patch.author(), Some("Ann Dev"));
+        // A backport sent by someone else names its author in the body.
+        let raw = "From: Ann Dev <ann@example.org>\nSubject: [wrynose][PATCH] go: fix\n\n\
+                   From: Khem Raj <raj.khem@gmail.com>\n\nBody.\n";
+        let backport = parse_message(raw.as_bytes().to_vec()).unwrap();
+        assert_eq!(
+            backport.author_email().as_deref(),
+            Some("raj.khem@gmail.com")
+        );
+        assert_eq!(backport.author(), Some("Khem Raj"));
         let quoted = parse_message(b"From: \"Bo\" <bo@x>\nSubject: [PATCH] x\n\nx\n".to_vec());
         assert_eq!(quoted.unwrap().author(), Some("Bo"));
         let bare = parse_message(b"From: bo@x\nSubject: [PATCH] x\n\nx\n".to_vec());
