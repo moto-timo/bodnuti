@@ -514,8 +514,13 @@ Add field ... to build", and one adding a relation to a missing model gives
 `/opt/django/<repository>/`, installed from a copy of its
 `requirements.txt` kept in bodnuti (`django/<repository>.txt`), so the
 pins are reviewed and Dependabot updates them. Database client libraries
-(`mysqlclient`) are left out: the checks use sqlite. The venvs are about 74
-MB (layerindex-web) and 36 MB (error-report-web).
+(`mysqlclient`) are left out: the checks use sqlite. In the image the venvs
+take about 143 MB (layerindex-web) and 69 MB (error-report-web). The copies
+are the applications' pins on purpose, vulnerable ones included, so
+bodnuti's own scans (`make audit`, `make audit-image`) skip them and
+Dependabot does not update them: tier 2 reports the applications'
+advisories on their own series. They are refreshed from the applications'
+master branches by hand.
 
 **Settings.** bodnuti does not use the application's database settings. It
 reads the settings module from `manage.py`'s `DJANGO_SETTINGS_MODULE`

@@ -31,6 +31,16 @@ RUN python3 -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
  && rm /tmp/requirements.txt
 
+# A venv per Django application, with its dependencies as the application
+# pins them, for Django's own checks (designs/PHASE2.md section 5.5).
+COPY django /tmp/django
+RUN for dir in /tmp/django/*/; do \
+      app=$(basename "$dir"); \
+      python3 -m venv "/opt/django/$app" \
+      && "/opt/django/$app/bin/pip" install --no-cache-dir -r "$dir/requirements.txt" || exit 1; \
+    done \
+ && rm -rf /tmp/django
+
 COPY --from=shellcheck /bin/shellcheck /usr/local/bin/shellcheck
 COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY --from=build /src/target/release/bodnuti /usr/local/bin/bodnuti

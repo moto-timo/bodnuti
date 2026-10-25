@@ -12,14 +12,18 @@ IMAGE ?= localhost/bodnuti
 # history for committed secrets. Each tool exits non-zero on a finding.
 audit:
 	cargo deny check
-	trivy fs --quiet --scanners vuln --exit-code 1 --skip-dirs target .
+	trivy fs --quiet --scanners vuln --exit-code 1 --skip-dirs target --skip-dirs django .
 	gitleaks git --no-banner .
+
+# The Django applications' pins (django/, /opt/django) are theirs on purpose
+# and their advisories theirs: tier 2 reports them on the applications'
+# series (designs/PHASE2.md section 5.3), so they are not scanned here.
 
 # The built image: Debian packages, the Python venv and the binary. Only
 # findings with a fix are reported; the rest wait for Debian, and a rebuild
 # picks up the fixes when they land.
 audit-image:
-	trivy image --quiet --scanners vuln --ignore-unfixed \
+	trivy image --quiet --scanners vuln --ignore-unfixed --skip-dirs /opt/django \
 		--severity HIGH,CRITICAL --exit-code 1 $(IMAGE)
 
 FUZZ_SECONDS ?= 60

@@ -1,0 +1,1 @@
+**kinds:** Django applications also get Django's own checks, `manage.py check` and `makemigrations --check`, run offline against sqlite with the image's venv for each application; a model change without its migration is an error.

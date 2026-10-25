@@ -1,0 +1,5 @@
+# error-report-web's requirements.txt (git.yoctoproject.org/error-report-web, master),
+# for its venv in the image (designs/PHASE2.md section 5.5). Database
+# clients are left out: bodnuti runs Django's checks against sqlite.
+Django>=5.2.18,<5.3
+python-Levenshtein==0.27.4

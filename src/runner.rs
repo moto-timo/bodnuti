@@ -336,6 +336,18 @@ impl Runner<'_> {
         let output = cmd
             .args([&self.config.image, "check", "--json", "--repo", "/repo"])
             .args(["--kind", kind.as_str()])
+            // The image's venv for the application (designs/PHASE2.md §5.5).
+            .args(
+                (kind == Kind::DjangoApp)
+                    .then(|| {
+                        [
+                            "--django-python".to_string(),
+                            format!("/opt/django/{repo}/bin/python"),
+                        ]
+                    })
+                    .into_iter()
+                    .flatten(),
+            )
             .args(base.map(|b| ["--base", b]).into_iter().flatten())
             .arg(format!("/in/{root}.mbx"))
             .output()
