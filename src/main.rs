@@ -10,6 +10,7 @@ mod oelint;
 mod patchtest;
 mod pins;
 mod publish;
+mod pull;
 mod report;
 mod ruff;
 mod runner;

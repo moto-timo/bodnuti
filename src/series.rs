@@ -205,6 +205,22 @@ impl Series {
         Series::from_messages(split_mbox(mbox))
     }
 
+    /// The text of every message in mbox data that is not a reply, decoded,
+    /// for a thread that has no patches, such as a pull request.
+    pub fn letters(mbox: &[u8]) -> Vec<String> {
+        split_mbox(mbox)
+            .into_iter()
+            .filter_map(|raw| parse_message(raw).ok())
+            .filter(|m| {
+                let s = m.subject.trim_start().to_ascii_lowercase();
+                !["re:", "aw:", "fwd:", "fw:"]
+                    .iter()
+                    .any(|p| s.starts_with(p))
+            })
+            .map(|m| String::from_utf8_lossy(&m.decoded()).into_owned())
+            .collect()
+    }
+
     fn from_messages(messages: Vec<Vec<u8>>) -> Result<Series> {
         let mut cover = None;
         let mut patches = Vec::new();

@@ -16,6 +16,9 @@ use crate::applied;
 use crate::git;
 use crate::kind::Kind;
 use crate::report::Report;
+use bodnuti::request_pull::{self, Invalid, PullRequest};
+
+use crate::pull;
 use crate::series::{NoPatches, Series};
 use crate::watch::{CheckResult, Config, Route, SeriesRecord, Status};
 use crate::workspace::resolve_base;
@@ -109,21 +112,28 @@ impl Runner<'_> {
         std::fs::create_dir_all(&dir)?;
 
         let mbox = self.fetch(&dir, &root, members)?;
-        let series = match Series::load(&[&mbox]) {
+        let (series, base, branch, pull) = match Series::load(&[&mbox]) {
             Err(err) if err.downcast_ref::<NoPatches>().is_some() => {
-                record.status = Status::NoPatches;
-                record.reason = Some(
-                    "the thread has no patches: a pull request, or a cover letter whose \
-                     patches were sent outside its thread"
-                        .into(),
-                );
-                return Ok(());
+                match self.pull_request(&repo, &mbox, &root)? {
+                    Ok((series, pr)) => {
+                        let branch = pull::branch(&repo, &pr);
+                        (series, pr.base.clone(), branch, Some(pr))
+                    }
+                    Err(reason) => {
+                        record.status = Status::NoPatches;
+                        record.reason = Some(reason);
+                        return Ok(());
+                    }
+                }
             }
-            loaded => loaded?,
+            loaded => {
+                let series = loaded?;
+                let base = resolve_base(&repo, &series, None);
+                let branch = branch_name(&base);
+                (series, base, branch, None)
+            }
         };
         let ids = patch_ids(&series)?;
-        let base = resolve_base(&repo, &series, None);
-        let branch = branch_name(&base);
         record.branch = Some(branch.clone());
         if let Some(earlier) = self.all_known(&ids, list, &root, &branch)? {
             record.status = Status::Duplicate;
@@ -156,14 +166,69 @@ impl Runner<'_> {
             }
         }
 
-        let report = self.check(&dir, &repo_name, &root)?;
+        let check_base = pull.as_ref().map(|pr| pr.base.as_str());
+        let report = self.check(&dir, &repo_name, &root, check_base)?;
         std::fs::write(dir.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
         std::fs::write(dir.join("report.txt"), report.text())?;
         record.result = Some(CheckResult::of(&report));
         record.status = Status::Checked;
-        record.reason = None;
+        record.reason = pull.map(|pr| {
+            format!(
+                "pull request: {} {}, {}..{}",
+                pr.url,
+                pr.branch,
+                &pr.base[..12],
+                &pr.head[..12]
+            )
+        });
         self.remember(&ids, list, &root, &branch)?;
         Ok(())
+    }
+
+    /// For a thread without patches, the commits of the pull request its
+    /// cover letter names (designs/PHASE2.md §5.0), written over the
+    /// thread's mbox, which is kept as `<root>.thread.mbx`. `Err` gives the
+    /// reason a thread is not checked: it is no pull request, or one that
+    /// cannot be fetched from mail-supplied details or is too large. A
+    /// failed fetch is an error, retried.
+    fn pull_request(
+        &self,
+        repo: &Path,
+        mbox: &Path,
+        root: &str,
+    ) -> Result<std::result::Result<(Series, PullRequest), String>> {
+        let mut invalid = None;
+        let pr = Series::letters(&std::fs::read(mbox)?)
+            .iter()
+            .find_map(|text| match request_pull::parse(text) {
+                Ok(pr) => Some(pr),
+                Err(Invalid::NotAPullRequest) => None,
+                Err(err) => {
+                    invalid.get_or_insert_with(|| err.to_string());
+                    None
+                }
+            });
+        let Some(pr) = pr else {
+            return Ok(Err(match invalid {
+                Some(why) => format!("the thread has no patches, and {why}"),
+                None => "the thread has no patches: a cover letter whose patches were \
+                         sent outside its thread, or a pull request without git \
+                         request-pull details"
+                    .into(),
+            }));
+        };
+        let local = pull::fetch(repo, &pr, root)?;
+        let data = pull::mbox(repo, &pr);
+        pull::delete(repo, &local);
+        let Some(data) = data? else {
+            return Ok(Err(format!(
+                "a pull request of more than {} commits, not checked",
+                pull::MAX_COMMITS
+            )));
+        };
+        std::fs::rename(mbox, mbox.with_extension("thread.mbx"))?;
+        std::fs::write(mbox, &data)?;
+        Ok(Ok((Series::parse(&data)?, pr)))
     }
 
     /// `b4 mbox` in the image, saving the thread as `<root>.mbx` in the
@@ -200,7 +265,9 @@ impl Runner<'_> {
     }
 
     /// `bodnuti check --json` in the image, without network.
-    fn check(&self, dir: &Path, repo: &str, root: &str) -> Result<Report> {
+    /// `base` overrides the base the check would choose from subject tags,
+    /// for a pull request, which names its own.
+    fn check(&self, dir: &Path, repo: &str, root: &str, base: Option<&str>) -> Result<Report> {
         let mut cmd = self.container()?;
         cmd.args(["--network", "none", "-v"])
             .arg(format!("{}:/repo", self.config.cache.join(repo).display()))
@@ -222,6 +289,7 @@ impl Runner<'_> {
         let output = cmd
             .args([&self.config.image, "check", "--json", "--repo", "/repo"])
             .args(["--kind", kind.as_str()])
+            .args(base.map(|b| ["--base", b]).into_iter().flatten())
             .arg(format!("/in/{root}.mbx"))
             .output()
             .context("starting the container to check the series")?;
