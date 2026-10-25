@@ -8,6 +8,7 @@ mod git;
 mod kind;
 mod oelint;
 mod patchtest;
+mod pins;
 mod publish;
 mod report;
 mod ruff;
@@ -300,6 +301,13 @@ struct CheckArgs {
     /// Default: djlint beside the bodnuti executable, else on PATH.
     #[arg(long, env = "BODNUTI_DJLINT")]
     djlint: Option<String>,
+    /// The trivy program, for --kind django-app requirements files.
+    /// Default: trivy on PATH.
+    #[arg(long, env = "BODNUTI_TRIVY", default_value = "trivy")]
+    trivy: String,
+    /// trivy's cache directory with the vulnerability database, read only.
+    #[arg(long, env = "BODNUTI_TRIVY_DB")]
+    trivy_db: Option<PathBuf>,
     /// An openembedded-core checkout providing patchtest. Default: the
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
@@ -571,9 +579,13 @@ fn check(args: CheckArgs) -> Result<Report> {
     let djlint = djlint::Djlint {
         program: args.djlint.unwrap_or_else(|| sibling("djlint")),
     };
+    let pins = pins::Pins {
+        program: args.trivy,
+        db: args.trivy_db,
+    };
     let checkers: Vec<&dyn Checker> = match args.kind {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
-        Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint],
+        Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint, &pins],
     };
     let linted = lint(&checkers, &workspace, &series, &mut tool_errors)?;
     findings.extend(linted.findings);

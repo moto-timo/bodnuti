@@ -16,6 +16,7 @@ pub enum Tool {
     Docs,
     Ruff,
     Djlint,
+    Trivy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
