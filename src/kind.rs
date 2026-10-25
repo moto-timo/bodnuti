@@ -12,7 +12,8 @@ pub enum Kind {
     #[default]
     Layer,
     /// A Django web application such as layerindex-web: patchtest's mail
-    /// checks, ruff, djLint, shellcheck and trivy on requirements pins.
+    /// checks, ruff, djLint, shellcheck, trivy on requirements pins, and
+    /// Django's own checks.
     DjangoApp,
     /// Python tools such as yocto-autobuilder-helper and yocto-autobuilder2:
     /// patchtest's mail checks, ruff, shellcheck and a JSON parse check.

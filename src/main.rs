@@ -2,6 +2,7 @@
 
 mod applied;
 mod cppcheck;
+mod django;
 mod djlint;
 mod docs;
 mod finding;
@@ -370,6 +371,11 @@ struct CheckArgs {
     /// trivy's cache directory with the vulnerability database, read only.
     #[arg(long, env = "BODNUTI_TRIVY_DB")]
     trivy_db: Option<PathBuf>,
+    /// The Python of a venv with the Django application's dependencies, for
+    /// --kind django-app (the image has one per application in
+    /// /opt/django/<repository>).
+    #[arg(long, env = "BODNUTI_DJANGO_PYTHON")]
+    django_python: Option<PathBuf>,
     /// The cppcheck program, for --kind c.
     #[arg(long, env = "BODNUTI_CPPCHECK", default_value = "cppcheck")]
     cppcheck: String,
@@ -648,12 +654,15 @@ fn check(args: CheckArgs) -> Result<Report> {
         program: args.trivy,
         db: args.trivy_db,
     };
+    let django = django::Django {
+        python: args.django_python,
+    };
     let cppcheck = cppcheck::Cppcheck {
         program: args.cppcheck,
     };
     let checkers: Vec<&dyn Checker> = match args.kind {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
-        Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint, &pins],
+        Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint, &pins, &django],
         Kind::Python => vec![&shellcheck, &ruff, &json::Json],
         Kind::C => vec![&shellcheck, &cppcheck],
     };
