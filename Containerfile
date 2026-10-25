@@ -34,9 +34,12 @@ ENV PATH=/opt/venv/bin:$PATH \
     BODNUTI_SHELLCHECK=shellcheck \
     BODNUTI_PYTHON=/opt/venv/bin/python \
     BODNUTI_OELINT=/opt/venv/bin/oelint-adv \
-    BODNUTI_B4=/opt/venv/bin/b4
+    BODNUTI_B4=/opt/venv/bin/b4 \
+    XDG_CACHE_HOME=/tmp/.cache
 
-# Patches are untrusted input; nothing here needs root.
+# Patches are untrusted input; nothing here needs root. XDG_CACHE_HOME
+# points b4's cache at /tmp, so the image also runs with --read-only and a
+# tmpfs on /tmp.
 RUN useradd --create-home bodnuti \
  && git config --system --add safe.directory '*'
 USER bodnuti
