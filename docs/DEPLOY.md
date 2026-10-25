@@ -203,9 +203,31 @@ B="podman run --rm --userns=keep-id:uid=1000,gid=1000 \
 $B -v ~/inbox:/out --entrypoint b4 bodnuti mbox -o /out '<Message-ID>'
 
 # check: no network
+M=$(basename ~/inbox/*.mbx)
 $B --network none -v ~/cache/openembedded-core:/repo -v ~/inbox:/in:ro \
-   bodnuti check --repo /repo /in/<the .mbx file b4 wrote>
+   bodnuti check --repo /repo /in/$M
 ```
+
+Expand file name globs against the host path (`~/inbox/...`) and pass only
+the name. A glob written as `/in/...` is expanded by the host shell, where
+`/in` does not exist, and reaches bodnuti as a literal `*`.
+
+To check that a worker catches known defects, run it on two commits from the
+benchmark corpus, with no network:
+
+```
+for c in 388cd4770e04 c12e013453689697a8680f1c7de3e625a0ff28ec; do
+  rm -rf ~/inbox/test && mkdir -p ~/inbox/test
+  git -C ~/cache/openembedded-core format-patch -q -1 $c -o ~/inbox/test
+  P=$(basename ~/inbox/test/0001-*.patch)
+  $B --network none -v ~/cache/openembedded-core:/repo -v ~/inbox:/in:ro \
+     bodnuti check --repo /repo --base $c~1 /in/test/$P
+done
+```
+
+The first reports two `oelint.vars.inconspaces` errors in
+`ptest-packagelists.inc`; the second reports `SC3037` (`echo -e`) in
+`uboot-sign.bbclass`. Both exit 1.
 
 - `--userns=keep-id:uid=1000,gid=1000` maps the host `bodnuti` user to the
   image's `bodnuti` user (uid 1000), so files in `~/cache` stay owned by the
@@ -270,8 +292,6 @@ this section describes where its output goes.
 
 ## Not yet verified
 
-- The name of the file `b4 mbox -o` writes. Check it before scripting step 6.
-- A full check on the VM. The image has been built for arm64, loaded into
-  rootless Podman and started on the worker. bodnuti check has been run in
-  Docker on Apple Silicon, but not yet on the VM.
-- The image on x86.
+- The name of the file `b4 mbox -o` writes; step 6 assumes `*.mbx`.
+- The image on x86. On arm64 the two benchmark checks above pass on a
+  Hetzner worker in rootless Podman, read-only and with `--network none`.
