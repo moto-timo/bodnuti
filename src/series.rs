@@ -22,6 +22,10 @@ pub struct Patch {
     /// 1-based position in the series; 0 for a cover letter.
     pub index: u32,
     pub total: u32,
+    /// The From header as sent, for the published pages. Reports written
+    /// before it was recorded do not have it.
+    #[serde(default)]
+    pub from: Option<String>,
     #[serde(skip)]
     pub raw: Vec<u8>,
 }
@@ -77,10 +81,10 @@ impl Patch {
 
     /// The address in the patch's From header, lowercased.
     pub fn author_email(&self) -> Option<String> {
-        let from = header(&String::from_utf8_lossy(&self.raw), "From")?;
+        let from = self.from.as_deref()?;
         let email = match (from.rfind('<'), from.rfind('>')) {
             (Some(start), Some(end)) if start < end => &from[start + 1..end],
-            _ => from.as_str(),
+            _ => from,
         };
         Some(email.trim().to_ascii_lowercase())
     }
@@ -330,6 +334,7 @@ fn parse_message(raw: Vec<u8>) -> Result<Patch> {
         .map(|id| id.trim_matches(|c| c == '<' || c == '>').to_string());
     let tags = subject_tags(&subject);
     let (version, index, total) = counters(&tags);
+    let from = header(&text, "From");
     Ok(Patch {
         subject,
         message_id,
@@ -337,6 +342,7 @@ fn parse_message(raw: Vec<u8>) -> Result<Patch> {
         version,
         index,
         total,
+        from,
         raw,
     })
 }
