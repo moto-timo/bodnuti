@@ -277,7 +277,10 @@ Release notes are kept with towncrier: each change a user or operator would
 notice adds a fragment in `changes/` (`changes/README.md`), and a release
 collects them into `NEWS.md`.
 
-bodnuti 0.1.0 is tagged (`v0.1.0`, 25 October 2026); its notes collect the
+bodnuti 0.1.0 is released (`v0.1.0`, 25 October 2026:
+<https://github.com/moto-timo/bodnuti/releases/tag/v0.1.0>, with x86_64 and
+aarch64 wheels, and `ghcr.io/moto-timo/bodnuti:0.1.0` for amd64 and arm64).
+Its notes collect the
 whole history in 40 entries (30 features, 4 security, 3 documentation, 3
 other), fixes to unreleased features folded into the feature they fix. A
 Release workflow builds from a `v*` tag: it checks the tag against
@@ -290,7 +293,17 @@ fixed by building it for manylinux_2_28.
 bodnuti is licensed under MIT or Apache-2.0, at your option, and
 `SECURITY.md` asks for vulnerabilities to be reported through GitHub's
 private vulnerability reporting, enabled since the repository went public.
-Both came after 0.1.0 and ship in the next release.
+Both came after 0.1.0 and ship in the next release, 0.2.0 (new features
+are waiting, so a minor version): `main` carries `0.2.0-dev` until then,
+and `changes/README.md` lists the release steps.
+
+bodnuti.dev's front page replaces the placeholder: what bodnuti checks, the
+watched lists, links to the reports, source, releases and security policy,
+and a live "This week" block, per list the last seven days' series, those
+with findings and those landed, and the latest series. `bodnuti publish`
+writes it as `reports/summary.html`, and Caddy inserts it as it is
+(`readFile`, never as a template, since it holds mail subjects;
+`designs/PHASE2.md` §6.2).
 
 A CI check, the News workflow, fails a pull request that adds no fragment,
 unless it carries the `no news` label; Dependabot's are exempt.
@@ -317,7 +330,11 @@ window held about eight sashiko reviews.
 ## Next steps
 
 - Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
-  when the repository goes public), and release 0.1.1 with the license.
+  when the repository goes public), and let the worker pull it instead of
+  loading a copied image.
+- Deploy the front page: the new `index.html` and `Caddyfile` on the web
+  host, and a worker binary that writes `summary.html`.
+- Release 0.2.0, the first with the license.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
