@@ -42,6 +42,7 @@ state = "~/state"
 cache = "~/cache"          # layer clones, as in DEPLOY.md
 poll_minutes = 5
 settle_minutes = 15         # wait this long after a series' last message
+retain_months = 6           # how far back the published site goes
 
 [[list]]
 name = "openembedded-core"  # lore inbox name
@@ -62,11 +63,26 @@ repo = "yocto-docs"
 [[list]]
 name = "yocto-meta-virtualization"
 repo = "meta-virtualization"
+
+[[list]]
+name = "yocto-patches"
+route = "subject-tag"       # §3.1; no fixed repo
+
+# Clones under cache/, with the upstream each is fetched from. A list's repo,
+# or a subject tag on yocto-patches, must name one of these.
+[repos]
+openembedded-core = "https://git.openembedded.org/openembedded-core"
+meta-openembedded = "https://git.openembedded.org/meta-openembedded"
+bitbake = "https://git.openembedded.org/bitbake"
+yocto-docs = "https://git.yoctoproject.org/yocto-docs"
+meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
+meta-yocto = "https://git.yoctoproject.org/meta-yocto"
+layerindex-web = "https://git.yoctoproject.org/layerindex-web"
+pseudo = "https://git.yoctoproject.org/pseudo"
+yocto-autobuilder-helper = "https://git.yoctoproject.org/yocto-autobuilder-helper"
 ```
 
-patchtest always comes from `cache/openembedded-core`. `yocto-patches`
-carries several repositories, so it is left out until there is a rule for
-choosing one (§8).
+patchtest always comes from `cache/openembedded-core`.
 
 ## 3. Discovery
 
@@ -97,6 +113,27 @@ letter identifies a series, so entries are kept or dropped by subject:
 The root of a message is found by following `in-reply-to` through entries
 already seen. A `vN` resend is a new series: it has a new root.
 
+### 3.1 Routing yocto-patches
+
+yocto-patches carries patches for about twenty repositories. Their subject
+tags name the repository (`[layerindex-web]`, `[pseudo]`,
+`[yocto-autobuilder-helper]`), sometimes followed by a branch tag
+(`[meta-lts-mixins][scarthgap/go]`). A sample of three months' subjects found
+seven of about 160 with no repository tag.
+
+1. **Tag.** The first subject tag that names a configured repository (the
+   `[repos]` table) selects it. Remaining tags go to `bodnuti check` as usual,
+   so a branch tag still selects the base.
+2. **Paths.** Before checking, every path the series modifies or deletes
+   must exist at the base commit of the selected repository
+   (`git cat-file -e <base>:<path>`). Added files are not checked: they do
+   not exist yet in any repository. A series whose paths do not match is
+   recorded as `unrouted` with the mismatching paths, rather than checked
+   against the wrong tree.
+3. **No tag, or a repository that is not configured,** is `unrouted` with
+   the reason. The index lists unrouted series, so a missing clone is visible
+   rather than silent.
+
 ## 4. State
 
 Files, not SQLite. The volume is about 170 patches a day, every record is
@@ -123,9 +160,12 @@ come from untrusted mail. A Message-ID that fails is logged and skipped.
 Series status moves forward only:
 
 ```
-seen -> complete -> fetched -> checked
-                         \-> failed (with the reason)
+seen -> complete -> fetched -> checked -> applied
+                \-> unrouted   \-> failed (with the reason)
 ```
+
+`applied` is set per patch, and on the series once every patch is applied
+(§5.1).
 
 A series is **complete** when all N patches of `k/N` have been seen, or when
 `settle_minutes` have passed since its last message (some series are sent
@@ -153,12 +193,37 @@ on the next poll, up to three times.
 Checks run one at a time. At 15 to 45 seconds each, one worker clears a day's
 traffic in under an hour; a parallel queue can come later if bursts need it.
 
+### 5.1 Matching applied patches
+
+After the clones are fetched (the hourly timer from `DEPLOY.md`), each poll
+scans the upstream commits that arrived since the previous scan, on master
+and on every branch a checked series targeted:
+
+```
+git rev-list --no-merges <last-scanned>..origin/<branch>
+git show <commit> | git patch-id --stable      # for each new commit
+```
+
+A commit whose patch-id is in `state/patch-ids/` marks that patch as applied,
+with the commit, branch and date. `state/upstream/<repo>/<branch>` holds the
+last commit scanned. The first scan of a branch starts at the commit that
+was the tip when the first series for it was seen, so history is not
+rescanned.
+
+A maintainer often edits a patch before applying it: rewording the commit
+message does not change its patch-id, but changing the diff does. Such a
+commit is not matched by patch-id. As a fallback, a commit whose subject and
+author equal those of a checked, unapplied patch is marked **probably
+applied**, and shown as such. patch-id matches are exact; subject matches are
+labelled as guesses.
+
 ## 6. Publishing
 
 `bodnuti publish` renders, from `state/`:
 
-- `index.html`: the most recent series across all lists, newest first, with
-  list, subject, author, result (clean, findings, not checked) and a link;
+- `index.html`: the series of the last `retain_months` months across all
+  lists, newest first, with list, subject, author, result (clean, findings,
+  not checked, unrouted), applied state and a link;
 - `<list>/index.html`: the same for one list;
 - `<list>/<root-msgid>/index.html`: the text report, the series' patches and
   links to lore.
@@ -173,7 +238,8 @@ rsync -a --delete state/site/ bodnuti-web:reports/
 
 over the restricted deploy key from `DEPLOY.md` (`rrsync` on the web host).
 Pages are regenerated in full each time; at a few thousand series this takes
-well under a second.
+well under a second. Series older than `retain_months` drop off the site at
+the next publish (`--delete`), but stay in `state/`.
 
 ## 7. Testing
 
@@ -186,12 +252,13 @@ well under a second.
 - A first live run on the worker with `publish` writing locally only, before
   the rsync key is set up.
 
-## 8. Open questions
+## 8. Decisions
 
-1. `yocto-patches` carries meta-yocto, poky helpers and other repositories.
-   Route by subject tag (`[meta-yocto]`), by the paths a patch touches, or
-   leave the list out?
-2. Retention: keep every report forever (small: a few kilobytes each), or
-   only the last N months on the published site?
-3. Should the index mark a series that a maintainer has already applied?
-   That needs matching upstream commits to patch-ids, and is probably phase 2b.
+Settled with the maintainer after the first draft:
+
+1. yocto-patches is routed by subject tag, then checked against the paths
+   the series touches (§3.1).
+2. The published site keeps the last `retain_months` months; `state/` keeps
+   everything.
+3. Applied patches are matched to upstream commits by patch-id now, with a
+   labelled subject fallback (§5.1), rather than in a later phase.
