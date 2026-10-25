@@ -1,5 +1,5 @@
-//! ruff on the Python files a series touches, in Django applications
-//! (designs/PHASE2.md §5.2).
+//! ruff on the Python files a series touches, in Django applications and
+//! other Python repositories (designs/PHASE2.md §5.2, §5.4).
 //!
 //! bodnuti chooses the rules, so every application is checked the same way
 //! whatever its `ruff.toml` selects; the rest of the project's configuration
@@ -39,6 +39,29 @@ struct Location {
     row: u32,
 }
 
+/// A Python source: a `.py` file, BuildBot's `master.cfg`, or a script
+/// whose first line is a `python` shebang, as most of
+/// yocto-autobuilder-helper's are. ruff checks any file it is given by name.
+fn is_python(tree: &Path, file: &str) -> bool {
+    let path = tree.join(file);
+    if !path.is_file() {
+        return false;
+    }
+    let name = file.rsplit('/').next().unwrap_or(file);
+    if file.ends_with(".py") || name == "master.cfg" {
+        return true;
+    }
+    if name.contains('.') {
+        return false;
+    }
+    let mut first = [0u8; 128];
+    let n = std::fs::File::open(&path)
+        .and_then(|mut f| std::io::Read::read(&mut f, &mut first))
+        .unwrap_or(0);
+    let line = first[..n].split(|&b| b == b'\n').next().unwrap_or(&[]);
+    line.starts_with(b"#!") && String::from_utf8_lossy(line).contains("python")
+}
+
 impl Checker for Ruff {
     fn tool(&self) -> Tool {
         Tool::Ruff
@@ -46,10 +69,7 @@ impl Checker for Ruff {
 
     fn lint(&self, tree: &Path, files: &[String]) -> Result<Vec<Finding>> {
         let tree = &tree.canonicalize()?;
-        let python: Vec<&String> = files
-            .iter()
-            .filter(|f| f.ends_with(".py") && tree.join(f).is_file())
-            .collect();
+        let python: Vec<&String> = files.iter().filter(|f| is_python(tree, f)).collect();
         if python.is_empty() {
             return Ok(Vec::new());
         }
@@ -151,7 +171,36 @@ mod tests {
             program: "/nonexistent/ruff".into(),
         };
         // Nothing to check, so ruff is not run at all.
-        let files = vec!["README.md".to_string(), "gone.py".to_string()];
+        std::fs::write(dir.path().join("run.sh"), "#!/bin/sh\n").unwrap();
+        let files = vec!["README.md".into(), "gone.py".into(), "run.sh".into()];
         assert!(ruff.lint(dir.path(), &files).unwrap().is_empty());
+    }
+
+    #[test]
+    fn finds_python_by_name_or_shebang() {
+        let dir = tempfile::tempdir().unwrap();
+        let tree = dir.path();
+        for (name, text) in [
+            ("a.py", ""),
+            ("master.cfg", "x = 1\n"),
+            ("run-config", "#!/usr/bin/env python3\nimport os\n"),
+            ("run.sh", "#!/bin/sh\n"),
+            ("other.cfg", "#!/usr/bin/env python3\n"),
+            ("README", "python\n"),
+        ] {
+            std::fs::write(tree.join(name), text).unwrap();
+        }
+        let python: Vec<&str> = [
+            "a.py",
+            "master.cfg",
+            "run-config",
+            "run.sh",
+            "other.cfg",
+            "README",
+        ]
+        .into_iter()
+        .filter(|f| is_python(tree, f))
+        .collect();
+        assert_eq!(python, ["a.py", "master.cfg", "run-config"]);
     }
 }
