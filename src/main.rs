@@ -1,6 +1,7 @@
 //! bodnuti: automated patch review for the Yocto Project and OpenEmbedded.
 
 mod applied;
+mod djlint;
 mod docs;
 mod finding;
 mod git;
@@ -43,7 +44,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Check a patch series given as mbox files.
-    Check(CheckArgs),
+    Check(Box<CheckArgs>),
     /// Find new patch series on lore lists.
     Poll(PollArgs),
     /// Render the watcher's reports as static HTML and copy them to the
@@ -295,6 +296,10 @@ struct CheckArgs {
     /// Default: ruff beside the bodnuti executable, else on PATH.
     #[arg(long, env = "BODNUTI_RUFF")]
     ruff: Option<String>,
+    /// The djLint program to run, for --kind django-app.
+    /// Default: djlint beside the bodnuti executable, else on PATH.
+    #[arg(long, env = "BODNUTI_DJLINT")]
+    djlint: Option<String>,
     /// An openembedded-core checkout providing patchtest. Default: the
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
@@ -540,9 +545,12 @@ fn check(args: CheckArgs) -> Result<Report> {
     let ruff = ruff::Ruff {
         program: args.ruff.unwrap_or_else(|| sibling("ruff")),
     };
+    let djlint = djlint::Djlint {
+        program: args.djlint.unwrap_or_else(|| sibling("djlint")),
+    };
     let checkers: Vec<&dyn Checker> = match args.kind {
         Kind::Layer => vec![&oelint, &shellcheck, &docs],
-        Kind::DjangoApp => vec![&shellcheck, &ruff],
+        Kind::DjangoApp => vec![&shellcheck, &ruff, &djlint],
     };
     let (applied, mut lint_findings) = lint(&checkers, &workspace, &series, &mut tool_errors)?;
     if args.kind.is_layer() {
@@ -565,7 +573,7 @@ fn check(args: CheckArgs) -> Result<Report> {
 
 fn main() -> ExitCode {
     let args = match Cli::parse().command {
-        Command::Check(args) => args,
+        Command::Check(args) => *args,
         Command::Publish(args) => {
             return match publish(args) {
                 Ok(()) => ExitCode::SUCCESS,

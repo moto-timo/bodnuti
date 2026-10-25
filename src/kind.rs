@@ -12,7 +12,7 @@ pub enum Kind {
     #[default]
     Layer,
     /// A Django web application such as layerindex-web: patchtest's mail
-    /// checks, ruff and shellcheck.
+    /// checks, ruff, djLint and shellcheck.
     DjangoApp,
 }
 

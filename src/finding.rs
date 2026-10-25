@@ -15,6 +15,7 @@ pub enum Tool {
     Bodnuti,
     Docs,
     Ruff,
+    Djlint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
