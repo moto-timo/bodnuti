@@ -799,6 +799,7 @@ mod tests {
             tool_errors: vec![],
             patchtest: None,
             fixed: vec![],
+            style: vec![],
             excerpts: Default::default(),
         }
     }

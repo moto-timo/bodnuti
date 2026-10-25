@@ -26,6 +26,11 @@ pub struct Report {
     /// that only fixes is clean. Reports written before it have none.
     #[serde(default)]
     pub fixed: Vec<Finding>,
+    /// New findings of style checks (designs/PHASE2.md §6.1.1): shown on
+    /// request and not counted, so a series with only these is clean.
+    /// Reports written before it count them among the findings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub style: Vec<Finding>,
     /// The lines of the patched file around each finding that has a file
     /// and line, keyed by `excerpt_key`. Only the check has the patched
     /// tree, so the pages read them from here (designs/PHASE2.md §6.1).
@@ -130,6 +135,12 @@ impl Report {
                 out.push_str(&self.text_block(f, &severity_label(f.severity), true));
             }
         }
+        if !self.style.is_empty() {
+            let _ = writeln!(out, "\nstyle");
+            for f in &self.style {
+                out.push_str(&self.text_block(f, &severity_label(f.severity), true));
+            }
+        }
         if !self.fixed.is_empty() {
             let _ = writeln!(out, "\nfixes");
             for f in &self.fixed {
@@ -157,9 +168,14 @@ impl Report {
             );
         }
         let count = |s: Severity| self.findings.iter().filter(|f| f.severity == s).count();
+        let style = if self.style.is_empty() {
+            String::new()
+        } else {
+            format!(" ({} style, not counted)", self.style.len())
+        };
         let _ = writeln!(
             out,
-            "{} findings: {} errors, {} warnings, {} info",
+            "{} findings: {} errors, {} warnings, {} info{style}",
             self.findings.len(),
             count(Severity::Error),
             count(Severity::Warning),
@@ -264,6 +280,7 @@ mod tests {
                 skip: 2,
             }),
             fixed: Vec::new(),
+            style: Vec::new(),
             excerpts: BTreeMap::new(),
         }
     }
@@ -321,6 +338,25 @@ mod tests {
                 "      first line\n      second line\n      424 | a\n      425 | b\n    \
                  > 426 | echo -e x\n      427 | d\n"
             ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn style_findings_are_listed_but_not_counted() {
+        let mut r = report(Vec::new(), Vec::new());
+        let mut f = finding(Severity::Warning);
+        f.tool = Tool::Oelint;
+        f.check = "oelint.vars.dependsordered".into();
+        r.style.push(f);
+        assert_eq!(r.exit_code(), 0);
+        let text = r.text();
+        assert!(
+            text.contains("\nstyle\n\n  WARNING oelint oelint.vars.dependsordered"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("0 findings: 0 errors, 0 warnings, 0 info (1 style, not counted)\n"),
             "{text}"
         );
     }

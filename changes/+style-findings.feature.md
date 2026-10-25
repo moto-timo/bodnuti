@@ -1,0 +1,1 @@
+**check:** oelint-adv layout rules (spacing, ordering, suggested variables) are reported as style, kept apart from findings and not counted in the result or the exit status; the style rules OE-Core does not follow, once suppressed, are reported this way too.

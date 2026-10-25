@@ -20,36 +20,53 @@ pub struct Oelint {
     pub release: String,
 }
 
-/// oelint-adv checks that OpenEmbedded-Core does not hold patches to, or
-/// that do not work here. Each matches a check id or a prefix of one.
-///
-/// Chosen by running bodnuti on 25 consecutive merged OE-Core master
-/// commits (October 2026). Every finding there was something maintainers
-/// accepted, so a rule that fired was noise:
-/// - variable ordering, FILES and SECTION overrides, multi-line indentation
-///   and out-of-context variables are oelint-adv style that OE-Core does not
-///   follow;
+/// oelint-adv checks whose result is not about the series. Each matches a
+/// check id or a prefix of one.
 /// - `homepageping` fetches HOMEPAGE over the network, so its result varies
 ///   between runs and always fails without network access;
 /// - `bbclass.underscores` fires on the stub recipe that lints a `.inc`
 ///   file, not on anything in the patch.
-const SUPPRESSED: &[&str] = &[
+const SUPPRESSED: &[&str] = &["oelint.vars.homepageping", "oelint.bbclass.underscores"];
+
+/// oelint-adv checks about layout rather than correctness: their findings
+/// are kept apart as style, shown on request and not counted
+/// (designs/PHASE2.md §6.1.1). Variable ordering, FILES and SECTION
+/// overrides, multi-line indentation and out-of-context variables are
+/// oelint-adv style that OE-Core does not follow (25 merged OE-Core
+/// commits, October 2026); the rest made up about 470 of the 919 findings
+/// on the first 397 published series.
+const STYLE: &[&str] = &[
     "oelint.var.order",
     "oelint.var.filesoverride",
     "oelint.var.override",
     "oelint.vars.multilineident",
     "oelint.vars.outofcontext",
-    "oelint.vars.homepageping",
-    "oelint.bbclass.underscores",
+    "oelint.vars.notneededspace",
+    "oelint.var.suggestedvar",
+    "oelint.vars.dependsordered",
+    "oelint.tabs.notabs",
+    "oelint.var.bbclassextend",
+    "oelint.task.docstrings",
+    "oelint.newline.consecutive",
 ];
 
-fn suppressed(check: &str) -> bool {
-    SUPPRESSED.iter().any(|s| {
+/// Whether `check` is one of `ids` or below one of them.
+fn matches(ids: &[&str], check: &str) -> bool {
+    ids.iter().any(|s| {
         check == *s
             || check
                 .strip_prefix(s)
                 .is_some_and(|rest| rest.starts_with('.'))
     })
+}
+
+fn suppressed(check: &str) -> bool {
+    matches(SUPPRESSED, check)
+}
+
+/// Whether an oelint-adv check is a style check.
+pub fn is_style(check: &str) -> bool {
+    matches(STYLE, check)
 }
 
 /// Whether oelint-adv understands the file.
@@ -215,11 +232,14 @@ mod tests {
     }
 
     #[test]
-    fn suppression_matches_whole_id_segments() {
-        assert!(suppressed("oelint.var.order.LICENSE"));
+    fn suppression_and_style_match_whole_id_segments() {
         assert!(suppressed("oelint.vars.homepageping"));
-        assert!(!suppressed("oelint.var.orderly"));
-        assert!(!suppressed("oelint.vars.inconspaces"));
+        assert!(!suppressed("oelint.var.order.LICENSE"));
+        assert!(is_style("oelint.var.order.LICENSE"));
+        assert!(is_style("oelint.var.suggestedvar.BUGTRACKER"));
+        assert!(!is_style("oelint.var.orderly"));
+        assert!(!is_style("oelint.vars.inconspaces"));
+        assert!(!is_style("oelint.vars.spacesassignment"));
     }
 
     #[test]

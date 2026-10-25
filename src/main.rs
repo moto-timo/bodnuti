@@ -665,7 +665,15 @@ fn check(args: CheckArgs) -> Result<Report> {
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))
     });
-    let excerpts = report::excerpts(&workspace.path(), &findings);
+    // Style findings are kept apart and not counted (designs/PHASE2.md
+    // §6.1.1).
+    let (style, findings): (Vec<Finding>, Vec<Finding>) = findings
+        .into_iter()
+        .partition(|f| f.tool == Tool::Oelint && oelint::is_style(&f.check));
+    let excerpts = report::excerpts(
+        &workspace.path(),
+        &findings.iter().chain(&style).cloned().collect::<Vec<_>>(),
+    );
 
     Ok(Report {
         series,
@@ -675,6 +683,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         tool_errors,
         patchtest: patchtest_counts,
         fixed: linted.fixed,
+        style,
         excerpts,
     })
 }
