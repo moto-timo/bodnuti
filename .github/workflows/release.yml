@@ -39,7 +39,13 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            manylinux: auto
+          # manylinux2014's cross compiler is too old for ring's aarch64
+          # assembly ("ARM assembler must define __ARM_ARCH").
+          - target: aarch64
+            manylinux: "2_28"
     steps:
       - uses: actions/checkout@v7
       - uses: PyO3/maturin-action@v1
@@ -47,7 +53,7 @@ jobs:
           command: build
           target: ${{ matrix.target }}
           args: --release --locked --out dist
-          manylinux: auto
+          manylinux: ${{ matrix.manylinux }}
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.target }}
