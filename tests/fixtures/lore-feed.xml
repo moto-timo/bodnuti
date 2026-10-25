@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<feed
+xmlns="http://www.w3.org/2005/Atom"
+xmlns:thr="http://purl.org/syndication/thread/1.0"><title>s:PATCH dt:20261023011657.. - search results</title><link
+rel="alternate"
+type="text/html"
+href="https://lore.kernel.org/openembedded-core/?q=s:PATCH+dt:20261023011657.."/><link
+rel="self"
+href="https://lore.kernel.org/openembedded-core/?q=s:PATCH+dt:20261023011657..&amp;x=A"/><id>urn:uuid:2424e612-ed7e-484c-ed2e-28eac7e25fcd</id><updated>2026-10-24T17:31:26Z</updated><entry><author><name>Mathieu Dubois-Briand</name><email>mathieu.dubois-briand@bootlin.com</email></author><title>Re: [OE-core] [PATCH] elfutils: Fix backtrace ptests on musl</title><updated>2026-10-24T17:31:26Z</updated><link
+href="https://lore.kernel.org/openembedded-core/DMD8X3RTVWMC.Z82034UND8KZ@bootlin.com/"/><id>urn:uuid:5a5d8006-5314-c418-6e87-186939bca0c3</id><thr:in-reply-to
+ref="urn:uuid:8bb09200-c49c-5356-00f6-713cd16c9ead"
+href="https://lore.kernel.org/openembedded-core/20261022154937.1328672-1-khem.raj@oss.qualcomm.com/"/></entry><entry><author><name>Khem Raj</name><email>raj.khem@gmail.com</email></author><title>[PATCH 3/3] piglit: Fix build with glibc 2.43+ and clang</title><updated>2026-10-24T16:10:40Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024161033.4140130-3-raj.khem@gmail.com/"/><id>urn:uuid:f540f041-5511-7a2b-c7bb-28e89a04130a</id><thr:in-reply-to
+ref="urn:uuid:5a5cddeb-d781-3136-7abe-cd205aa40741"
+href="https://lore.kernel.org/openembedded-core/20261024161033.4140130-1-raj.khem@gmail.com/"/></entry><entry><author><name>Khem Raj</name><email>raj.khem@gmail.com</email></author><title>[PATCH 2/3] pulseaudio: Drop x11 requirement for consolekit RDEPENDS</title><updated>2026-10-24T16:10:38Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024161033.4140130-2-raj.khem@gmail.com/"/><id>urn:uuid:92e57b1b-300e-72a7-b1ad-fae609f1ef5c</id><thr:in-reply-to
+ref="urn:uuid:5a5cddeb-d781-3136-7abe-cd205aa40741"
+href="https://lore.kernel.org/openembedded-core/20261024161033.4140130-1-raj.khem@gmail.com/"/></entry><entry><author><name>Khem Raj</name><email>raj.khem@gmail.com</email></author><title>[PATCH 1/3] consolekit: Upgrade to ConsoleKit2 2.0.0</title><updated>2026-10-24T16:10:37Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024161033.4140130-1-raj.khem@gmail.com/"/><id>urn:uuid:5a5cddeb-d781-3136-7abe-cd205aa40741</id></entry><entry><author><name>adrian.freihofer</name><email>adrian.freihofer@gmail.com</email></author><title>Re: [OE-core] [PATCH v2 4/4] oe.fitimage: Add custom configurations and harden multi-kernel handling</title><updated>2026-10-24T13:42:31Z</updated><link
+href="https://lore.kernel.org/openembedded-core/bdbadf27d2725b36bca30617b65d0279ec60bef2.camel@gmail.com/"/><id>urn:uuid:253f0c57-875f-003f-8baa-6184442cd31a</id><thr:in-reply-to
+ref="urn:uuid:ea5ef705-7f80-347c-b9ab-16c576cf5b37"
+href="https://lore.kernel.org/openembedded-core/20261020133551.90185-5-vgharaee@gmail.com/"/></entry><entry><author><name>adrian.freihofer</name><email>adrian.freihofer@gmail.com</email></author><title>Re: [OE-core] [PATCH v2 3/4] oe.selftest: Add tests for multi-kernel FIT config</title><updated>2026-10-24T13:42:21Z</updated><link
+href="https://lore.kernel.org/openembedded-core/5097c2a18810969fb0ed518b77d43c9a4d7a8556.camel@gmail.com/"/><id>urn:uuid:fb379171-4faa-63ae-0e3e-d82790c95dee</id><thr:in-reply-to
+ref="urn:uuid:18f4a16c-83fd-90d2-6fb3-e2f9483552f9"
+href="https://lore.kernel.org/openembedded-core/20261020133551.90185-4-vgharaee@gmail.com/"/></entry><entry><author><name>adrian.freihofer</name><email>adrian.freihofer@gmail.com</email></author><title>Re: [OE-core] [PATCH v2 1/4] oe.fitimage: Support multiple kernel nodes and configuration selection</title><updated>2026-10-24T13:41:59Z</updated><link
+href="https://lore.kernel.org/openembedded-core/10919e24720fb0a8a04fbfbf155ee67b631a7cab.camel@gmail.com/"/><id>urn:uuid:4bd7cfad-229b-ad6d-4c09-0d76ac19f58d</id><thr:in-reply-to
+ref="urn:uuid:9a8bc007-6449-b5f2-62e5-a23f413195f1"
+href="https://lore.kernel.org/openembedded-core/20261020133551.90185-2-vgharaee@gmail.com/"/></entry><entry><author><name>Mathieu Dubois-Briand</name><email>mathieu.dubois-briand@bootlin.com</email></author><title>[PATCH RFC 3/3] oeqa/sstatetests: Add tests for sstate log replay</title><updated>2026-10-24T12:34:30Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-3-fc591ec473a7@bootlin.com/"/><id>urn:uuid:17582631-3055-76ae-3a45-5404c2c85c88</id><thr:in-reply-to
+ref="urn:uuid:862a2ebe-830d-c6f2-83c0-08ef22779ee4"
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-0-fc591ec473a7@bootlin.com/"/></entry><entry><author><name>Mathieu Dubois-Briand</name><email>mathieu.dubois-briand@bootlin.com</email></author><title>[PATCH RFC 2/3] sstate: Replay the records of tasks covered by setscene</title><updated>2026-10-24T12:34:29Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-2-fc591ec473a7@bootlin.com/"/><id>urn:uuid:62c89830-e4f4-9dd2-ac7f-5484be5acbef</id><thr:in-reply-to
+ref="urn:uuid:862a2ebe-830d-c6f2-83c0-08ef22779ee4"
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-0-fc591ec473a7@bootlin.com/"/></entry><entry><author><name>Mathieu Dubois-Briand</name><email>mathieu.dubois-briand@bootlin.com</email></author><title>[PATCH RFC 0/3] sstate: Replay warnings and errors when restoring from sstate</title><updated>2026-10-24T12:34:28Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-0-fc591ec473a7@bootlin.com/"/><id>urn:uuid:862a2ebe-830d-c6f2-83c0-08ef22779ee4</id></entry><entry><author><name>Mathieu Dubois-Briand</name><email>mathieu.dubois-briand@bootlin.com</email></author><title>[PATCH RFC 1/3] sstate: Replay warnings and errors when restoring from sstate</title><updated>2026-10-24T12:34:28Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-1-fc591ec473a7@bootlin.com/"/><id>urn:uuid:8397c9aa-a9df-59c1-9c8a-a9bc88aa4430</id><thr:in-reply-to
+ref="urn:uuid:862a2ebe-830d-c6f2-83c0-08ef22779ee4"
+href="https://lore.kernel.org/openembedded-core/20261024-mathieu-debug-replay-v4-v1-0-fc591ec473a7@bootlin.com/"/></entry><entry><author><name>Paul Barker</name><email>paul@pbarker.dev</email></author><title
+type="html">[PATCH blacksail] python3-pip: upgrade 26.2.1 -&gt; 26.2.2</title><updated>2026-10-24T08:59:27Z</updated><link
+href="https://lore.kernel.org/openembedded-core/20261024-pip-blacksail-v1-1-ec58699d0556@pbarker.dev/"/><id>urn:uuid:b0b8dca4-f7c5-14e9-558c-fd351b702c2f</id></entry></feed>

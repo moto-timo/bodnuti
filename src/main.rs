@@ -3,12 +3,14 @@
 mod docs;
 mod finding;
 mod git;
+mod lore;
 mod oelint;
 mod patchtest;
 mod report;
 mod series;
 mod shell;
 mod srcuri;
+mod track;
 mod workspace;
 
 use std::collections::HashMap;
@@ -37,6 +39,62 @@ struct Cli {
 enum Command {
     /// Check a patch series given as mbox files.
     Check(CheckArgs),
+    /// Find new patch series on lore lists.
+    Poll(PollArgs),
+}
+
+#[derive(Args)]
+struct PollArgs {
+    /// Print the series found instead of checking them. Required for now:
+    /// state and checking are not implemented yet.
+    #[arg(long)]
+    dry_run: bool,
+    /// How far back to look, in hours.
+    #[arg(long, default_value_t = 24)]
+    hours: u64,
+    /// lore inbox names, e.g. openembedded-core.
+    #[arg(required = true)]
+    lists: Vec<String>,
+}
+
+/// Lists the series on each list since `hours` ago.
+fn poll(args: PollArgs) -> Result<()> {
+    if !args.dry_run {
+        anyhow::bail!("only --dry-run is implemented");
+    }
+    let since = lore::hours_ago(args.hours);
+    for list in &args.lists {
+        let entries = lore::fetch(list, &since)?;
+        let (safe, unsafe_ids): (Vec<_>, Vec<_>) = entries
+            .into_iter()
+            .partition(|e| lore::safe_id(&e.message_id));
+        for e in &unsafe_ids {
+            eprintln!(
+                "bodnuti: skipping a message with an unusable Message-ID: {:?}",
+                e.message_id
+            );
+        }
+        let mut tracker = track::Tracker::default();
+        tracker.ingest(&safe);
+        println!(
+            "{list}: {} messages, {} series",
+            safe.len(),
+            tracker.series.len()
+        );
+        let mut series: Vec<_> = tracker.series.values().collect();
+        series.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        for s in series {
+            let state = if s.complete() { "complete" } else { "partial " };
+            println!(
+                "  {state} {}/{}  {}  <{}>",
+                s.seen.len(),
+                s.total,
+                s.subject,
+                s.root
+            );
+        }
+    }
+    Ok(())
 }
 
 #[derive(Args)]
@@ -247,7 +305,18 @@ fn check(args: CheckArgs) -> Result<Report> {
 }
 
 fn main() -> ExitCode {
-    let Command::Check(args) = Cli::parse().command;
+    let args = match Cli::parse().command {
+        Command::Check(args) => args,
+        Command::Poll(args) => {
+            return match poll(args) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("bodnuti: {err:#}");
+                    ExitCode::from(2)
+                }
+            };
+        }
+    };
     let json = args.json;
     let report = match check(args) {
         Ok(report) => report,

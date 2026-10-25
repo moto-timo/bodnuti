@@ -223,7 +223,7 @@ fn header(text: &str, name: &str) -> Option<String> {
 }
 
 /// Collects the leading `[...]` groups of a subject.
-fn subject_tags(subject: &str) -> Vec<String> {
+pub(crate) fn subject_tags(subject: &str) -> Vec<String> {
     let mut tags = Vec::new();
     let mut rest = subject.trim_start();
     while let Some(after) = rest.strip_prefix('[') {
@@ -235,7 +235,7 @@ fn subject_tags(subject: &str) -> Vec<String> {
 }
 
 /// Reads `vN` and `n/m` from the PATCH tag; a lone patch is `1/1`.
-fn counters(tags: &[String]) -> (u32, u32, u32) {
+pub(crate) fn counters(tags: &[String]) -> (u32, u32, u32) {
     let (mut version, mut index, mut total) = (1, 1, 1);
     for tag in tags
         .iter()
