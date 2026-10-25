@@ -284,6 +284,39 @@ thread, not a failure: it is recorded with its own status, `no-patches`,
 with that reason, and shown on the index as "no patches". It is not
 retried.
 
+**Pull requests.** Most cover letters without patches are `git
+request-pull` output, which names everything needed to get the patches:
+
+```
+The following changes since commit 47d7dbdd10890bbd429bc0cccbe14435c37e5af1:
+are available in the Git repository at:
+  https://git.openembedded.org/meta-openembedded-contrib anujm/wrynose
+for you to fetch changes up to f28a144aa0a0ae05ca2ee91e1aef6aa05f6a12db:
+```
+
+Such a series is checked like any other:
+
+1. The cover letter (not a reply quoting it) is parsed for the base and
+   head commits, the repository URL and the branch. All four come from
+   mail, so they are validated: both commits are full 40-digit object
+   names, the URL is `https://` on `git.openembedded.org` or
+   `git.yoctoproject.org` with no other characters than a path needs, and
+   the branch is a plain ref name. A pull request that fails validation is
+   `no-patches`, with the reason.
+2. On the host, with network, `git fetch --no-tags <url>
+   refs/heads/<branch>` into a ref of bodnuti's own in the target clone
+   (`refs/bodnuti/pull/<root>`), over https only, and the head must be on
+   the fetched branch; a branch that has since moved on is fine, one that
+   no longer has the head is a failure, retried.
+3. `git format-patch base..head` becomes the series' mbox. The check uses
+   the pull request's base commit rather than one chosen from subject tags,
+   and the branch is the upstream branch that contains the base.
+4. The usual steps follow: a pull request whose every patch was already
+   checked as posted is a duplicate, applied matching works by patch-id,
+   and only patches that are new or changed cost a check.
+
+The ref is deleted after the mbox is written.
+
 **Root not on lore.** A patch whose parent the watcher never saw is named
 after that parent (§3), which is usually the cover letter, but can be a
 message lore does not have, such as an `In-Reply-To` pointing at mail on
