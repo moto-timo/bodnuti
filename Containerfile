@@ -13,6 +13,11 @@ RUN cargo build --release --locked
 # shellcheck ships as a static binary in its own image.
 FROM docker.io/koalaman/shellcheck:v0.10.0 AS shellcheck
 
+# So does trivy, which scans Django applications' requirements pins. Its
+# database is not in the image: the watcher downloads it daily and mounts it
+# read-only at /trivy.
+FROM docker.io/aquasec/trivy:0.76.1 AS trivy
+
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git python3 python3-venv ca-certificates \
@@ -26,6 +31,7 @@ RUN python3 -m venv /opt/venv \
  && rm /tmp/requirements.txt
 
 COPY --from=shellcheck /bin/shellcheck /usr/local/bin/shellcheck
+COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
 COPY --from=build /src/target/release/bodnuti /usr/local/bin/bodnuti
 
 ENV PATH=/opt/venv/bin:$PATH \
@@ -35,6 +41,8 @@ ENV PATH=/opt/venv/bin:$PATH \
     BODNUTI_B4=/opt/venv/bin/b4 \
     BODNUTI_RUFF=/opt/venv/bin/ruff \
     BODNUTI_DJLINT=/opt/venv/bin/djlint \
+    BODNUTI_TRIVY=trivy \
+    BODNUTI_TRIVY_DB=/trivy \
     XDG_CACHE_HOME=/tmp/.cache
 
 # Patches are untrusted input; nothing here needs root. XDG_CACHE_HOME

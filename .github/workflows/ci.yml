@@ -76,7 +76,7 @@ jobs:
         run: |
           docker run --rm bodnuti:ci --version
           docker run --rm --entrypoint sh bodnuti:ci -c \
-            'oelint-adv --version && b4 --version && sphinx-build --version && shellcheck --version && ruff --version && djlint --version'
+            'oelint-adv --version && b4 --version && sphinx-build --version && shellcheck --version && ruff --version && djlint --version && trivy --version'
       - run: .github/install-scanners.sh
       - run: make audit-image IMAGE=bodnuti:ci
 
