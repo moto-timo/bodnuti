@@ -213,10 +213,10 @@ fn header(text: &str, name: &str) -> Option<String> {
             }
             break;
         }
-        if let Some((key, rest)) = line.split_once(':') {
-            if key.eq_ignore_ascii_case(name) {
-                value = Some(rest.trim().to_string());
-            }
+        if let Some((key, rest)) = line.split_once(':')
+            && key.eq_ignore_ascii_case(name)
+        {
+            value = Some(rest.trim().to_string());
         }
     }
     value
@@ -244,10 +244,10 @@ pub(crate) fn counters(tags: &[String]) -> (u32, u32, u32) {
         for word in tag.split_whitespace() {
             if let Some(v) = word.strip_prefix(['v', 'V']).and_then(|v| v.parse().ok()) {
                 version = v;
-            } else if let Some((n, m)) = word.split_once('/') {
-                if let (Ok(n), Ok(m)) = (n.parse(), m.parse()) {
-                    (index, total) = (n, m);
-                }
+            } else if let Some((n, m)) = word.split_once('/')
+                && let (Ok(n), Ok(m)) = (n.parse(), m.parse())
+            {
+                (index, total) = (n, m);
             }
         }
     }

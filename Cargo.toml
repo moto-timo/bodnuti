@@ -2,7 +2,7 @@
 name = "bodnuti"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 publish = false
 description = "Automated patch review for the Yocto Project and OpenEmbedded"
 

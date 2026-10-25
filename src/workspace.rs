@@ -120,10 +120,9 @@ pub fn resolve_base(repo: &Path, series: &Series, explicit: Option<&str>) -> Str
                 &pattern_heads,
                 &pattern_remotes,
             ],
-        ) {
-            if !found.is_empty() {
-                return found;
-            }
+        ) && !found.is_empty()
+        {
+            return found;
         }
     }
     git::run(repo, &["rev-parse", "--abbrev-ref", "origin/HEAD"]).unwrap_or_else(|_| "HEAD".into())
