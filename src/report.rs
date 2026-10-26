@@ -425,6 +425,7 @@ mod tests {
             branch: "master-next".into(),
             target: "master".into(),
             target_base: "533d0a63ac2a".into(),
+            fork: "4f1a2b3c4d5e".into(),
             reason: "patch 6/8: Failed to merge in the changes.".into(),
         });
         let text = r.text();
@@ -432,7 +433,7 @@ mod tests {
             text.contains(
                 "base: 0123456789ab (master-next)\n      does not apply to master \
                  533d0a63ac2a: patch 6/8: Failed to merge in the changes; checked on \
-                 master-next"
+                 master-next (forked from master 4f1a2b3c4d5e)"
             ),
             "{text}"
         );

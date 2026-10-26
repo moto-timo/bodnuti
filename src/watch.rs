@@ -76,9 +76,47 @@ pub struct Repo {
     /// Subject tags besides the repository's name that route to it, such
     /// as `AUH` for auto-upgrade-helper (designs/PHASE2.md §3.1.1).
     pub tags: Vec<String>,
-    /// The branch the maintainers stage patches on before the default
-    /// branch, such as `master-next` (designs/PHASE2.md §5.6).
-    pub staging: Option<String>,
+    /// Where the maintainers stage patches before each branch
+    /// (designs/PHASE2.md §5.6).
+    pub staging: Option<Staging>,
+}
+
+/// The remote a clone fetches a [`Staging::Remote`] repository's staging
+/// branches from.
+pub const STAGING_REMOTE: &str = "staging";
+
+/// Where a repository's maintainers stage the patches they take before they
+/// reach each branch (designs/PHASE2.md §5.6):
+///
+/// ```toml
+/// staging = "{branch}-next"
+/// staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut" } }
+/// ```
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum Staging {
+    /// A branch of the repository itself, `{branch}` standing for the
+    /// branch it stages.
+    Pattern(String),
+    /// Branches of another repository, such as a contrib one, by the
+    /// branch each stages. The clone fetches them as remote `staging`.
+    Remote {
+        url: String,
+        branches: BTreeMap<String, String>,
+    },
+}
+
+impl Staging {
+    /// The ref of the staging branch for `branch` in the clone, if there is
+    /// one.
+    pub fn ref_for(&self, branch: &str) -> Option<String> {
+        match self {
+            Staging::Pattern(p) => Some(format!("origin/{}", p.replace("{branch}", branch))),
+            Staging::Remote { branches, .. } => branches
+                .get(branch)
+                .map(|b| format!("{STAGING_REMOTE}/{b}")),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -97,7 +135,7 @@ struct RepoTable {
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default)]
-    staging: Option<String>,
+    staging: Option<Staging>,
 }
 
 impl From<RepoSpec> for Repo {
@@ -561,6 +599,28 @@ mod tests {
         [repos]
         openembedded-core = "https://git.openembedded.org/openembedded-core"
     "#;
+
+    #[test]
+    fn reads_where_a_repository_stages_its_branches() {
+        let config: Config = toml::from_str(&format!(
+            "{CONFIG}meta-openembedded = {{ url = \"u\", staging = {{ url = \"c\", branches = \
+             {{ master = \"yoe/mut\", scarthgap = \"anujm/scarthgap\" }} }} }}\n\
+             bitbake = {{ url = \"u\", staging = \"{{branch}}-next\" }}\n"
+        ))
+        .unwrap();
+        let moe = config.repos["meta-openembedded"].staging.as_ref().unwrap();
+        assert_eq!(moe.ref_for("master").as_deref(), Some("staging/yoe/mut"));
+        assert_eq!(
+            moe.ref_for("scarthgap").as_deref(),
+            Some("staging/anujm/scarthgap")
+        );
+        assert_eq!(moe.ref_for("wrynose"), None);
+        let oe = config.repos["bitbake"].staging.as_ref().unwrap();
+        assert_eq!(
+            oe.ref_for("scarthgap").as_deref(),
+            Some("origin/scarthgap-next")
+        );
+    }
 
     #[test]
     fn a_tag_alias_can_name_several_repositories() {

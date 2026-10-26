@@ -272,7 +272,7 @@ Description=Update bodnuti layer clones
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'for r in %h/cache/*; do git -C "$r" fetch --quiet --prune origin; done'
+ExecStart=/bin/sh -c 'for r in %h/cache/*; do git -C "$r" fetch --quiet --prune --all; done'
 ```
 
 and `~/.config/systemd/user/bodnuti-fetch.timer`:
@@ -510,8 +510,8 @@ name = "yocto-patches"
 route = "subject-tag"
 
 [repos]
-openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"] }
-meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = "{branch}-next" }
+openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = { url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next" } } }
+meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut", scarthgap = "anujm/scarthgap", wrynose = "anujm/wrynose" } } }
 bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
@@ -530,14 +530,34 @@ yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "py
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 ```
 
-`staging` names the branch the maintainers stage patches on before each
-branch, `{branch}` standing for that branch: a series that does not apply
-to `master` is checked on `origin/master-next`, one for `scarthgap` on
-`origin/scarthgap-next`, just before the series if the staging branch
-already carries it (`designs/PHASE2.md` §5.6). A staging branch that is
-missing, or already part of its branch, stages nothing. `bodnuti-fetch.timer` fetches
-every branch of each upstream, so `master-next` is as current as
-`master`.
+`staging` names where the maintainers stage the patches they take before
+each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on
+`mathieu/master-next` in openembedded-core-contrib; meta-openembedded's
+`master` on `yoe/mut` (the YOE distro's master under test) and its stable
+branches on their maintainer's branch in meta-openembedded-contrib. A
+series that does not apply to its branch is checked on that branch's
+staging branch, just before the series if the staging branch already
+carries it. A staging branch that is missing, or already part of its
+branch, stages nothing. A pattern such as `staging = "{branch}-next"`
+names staging branches in the repository itself instead.
+
+Staging branches are rebased at any time; each check records the commit
+of the target branch the staging branch was forked from, which stays.
+
+The clone fetches the staging branches as remote `staging`, only the
+branches named, since the contrib repositories have hundreds:
+
+```sh
+git -C ~/cache/openembedded-core remote add -t mathieu/master-next \
+    staging https://git.openembedded.org/openembedded-core-contrib
+git -C ~/cache/meta-openembedded remote add -t yoe/mut -t anujm/scarthgap \
+    -t anujm/wrynose staging https://git.openembedded.org/meta-openembedded-contrib
+```
+
+A branch added to `branches` later is added to the remote too, with
+`git remote set-branches --add staging <branch>`. `bodnuti-fetch.timer`
+fetches every remote (`--all`) and force-updates rebased branches, so the
+staging branches are as current as their targets.
 
 Every `repo` needs a `[repos]` entry, or the configuration is rejected, and
 a clone under `~/cache/` (§5), or its series fail to check. lore has no meta-yocto inbox: its patches

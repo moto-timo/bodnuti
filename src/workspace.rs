@@ -179,6 +179,11 @@ pub struct Staged {
     pub target: String,
     /// That branch's commit the series does not apply to.
     pub target_base: String,
+    /// Where the staging branch left the target branch. Staging branches
+    /// are rebased at any time, so the commit checked on may vanish; this
+    /// is the target branch's, and stays.
+    #[serde(default)]
+    pub fork: String,
     /// Why it does not: the patch, and git am's error.
     pub reason: String,
 }
@@ -187,11 +192,14 @@ impl Staged {
     /// Why the series was checked on the staging branch, in one line.
     pub fn note(&self) -> String {
         format!(
-            "does not apply to {} {}: {}; checked on {}, which carries the patches it builds on",
+            "does not apply to {} {}: {}; checked on {} (forked from {} {}), which carries the \
+             patches it builds on",
             self.target,
             self.target_base,
             self.reason.trim_end_matches('.'),
-            self.branch
+            self.branch,
+            self.target,
+            self.fork
         )
     }
 }
@@ -199,10 +207,10 @@ impl Staged {
 /// The base on a staging branch to check `series` on, when it targets the
 /// branch `base` and does not apply there (designs/PHASE2.md §5.6): the
 /// staging branch just before the series, if it already carries some of
-/// it, else its tip. `staging` names the staging branch, with `{branch}`
-/// standing for the target branch (`origin/{branch}-next` stages `master`
-/// on `master-next` and `scarthgap` on `scarthgap-next`); without
-/// `{branch}`, it stages the default branch only.
+/// it, else its tip. `staging` names the staging branch, `{branch}`
+/// standing for the target branch: `origin/{branch}-next` stages `master`
+/// on `master-next` and `scarthgap` on `scarthgap-next`, and
+/// `staging/yoe/mut` stages whichever branch the series targets.
 ///
 /// None when `base` is not a branch, when the series applies there, when
 /// the clone has no such staging branch or it stages nothing (it is
@@ -220,13 +228,7 @@ pub fn staged_base(
     if !(target.starts_with("refs/remotes/") || target.starts_with("refs/heads/")) {
         return Ok(None);
     }
-    let staging = if staging.contains("{branch}") {
-        staging.replace("{branch}", &branch_label(&target))
-    } else if full("origin/HEAD") == target {
-        staging.to_string()
-    } else {
-        return Ok(None);
-    };
+    let staging = staging.replace("{branch}", &branch_label(&target));
     let Some(failed) = not_applied(repo, base, series)? else {
         return Ok(None);
     };
@@ -251,10 +253,12 @@ pub fn staged_base(
     if not_applied(repo, &on, series)?.is_some() {
         return Ok(None);
     }
+    let fork = git::run(repo, &["merge-base", &on, base])?;
     let staged = Staged {
         branch: branch_label(&staging),
         target: branch_label(&target),
         target_base: failed.base.clone(),
+        fork: fork[..fork.len().min(12)].to_string(),
         reason: format!("patch {}/{}: {}", failed.index, failed.total, failed.reason),
     };
     Ok(Some((on, staged)))
@@ -329,13 +333,14 @@ fn patch_id_lines(input: &[u8]) -> Result<Vec<(String, String)>> {
         .collect())
 }
 
-/// A branch without its remote: `origin/master-next`,
+/// A branch without its remote: `origin/master-next`, `staging/yoe/mut`,
 /// `refs/remotes/origin/master` and `refs/heads/master` give the branch.
 fn branch_label(name: &str) -> String {
     name.strip_prefix("refs/remotes/")
         .and_then(|r| r.split_once('/').map(|(_, b)| b))
         .or_else(|| name.strip_prefix("refs/heads/"))
         .or_else(|| name.strip_prefix("origin/"))
+        .or_else(|| name.strip_prefix("staging/"))
         .unwrap_or(name)
         .to_string()
 }
@@ -526,6 +531,9 @@ mod tests {
         assert_eq!(on, staged);
         assert_eq!(how.branch, "master-next");
         assert_eq!(how.target, "main");
+        // Traceable to main after any rebase of master-next.
+        let main = git::run(repo, &["rev-parse", "origin/main"]).unwrap();
+        assert_eq!(how.fork, main[..12]);
         assert!(how.reason.starts_with("patch 1/1: "), "{}", how.reason);
         assert!(how.note().starts_with("does not apply to main "));
         // A staging branch without the series: its tip.
@@ -573,7 +581,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        // Not the default branch: a series for another branch is not moved.
+        // A series that applies to its branch stays there.
         assert!(
             staged_base(repo, "origin/next-early", "origin/master-next", &s)
                 .unwrap()

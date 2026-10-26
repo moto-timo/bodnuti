@@ -353,8 +353,7 @@ struct CheckArgs {
     /// master-next and scarthgap on scarthgap-next. A series that does not
     /// apply to its branch is checked on the staging branch, at the commit
     /// before the series if it already carries it (designs/PHASE2.md
-    /// §5.6). Without {branch}, the default branch only. Not used with
-    /// --base.
+    /// §5.6). Not used with --base.
     #[arg(long)]
     staging: Option<String>,
     /// oelint-adv release. Default: the base branch name when the base is a

@@ -592,29 +592,50 @@ accurate for `master`, but tells the author and the reviewer nothing they
 can act on, and every checker that needs the patched tree is skipped, for
 the whole series.
 
-**The fallback.** A repository can name its staging branches, by the
-maintainers' convention of `<branch>-next`:
+**The fallback.** A repository names where its maintainers stage each
+branch. The main staging branches are in the contrib repositories, under
+names of their own: OE-Core's `master` on `mathieu/master-next` in
+openembedded-core-contrib; meta-openembedded's `master` on `yoe/mut` (the
+YOE distro's master under test), `scarthgap` on `anujm/scarthgap` and
+`wrynose` on `anujm/wrynose`, its maintainer's, in
+meta-openembedded-contrib:
 
 ```toml
 [repos.meta-openembedded]
 url = "https://git.openembedded.org/meta-openembedded"
-staging = "{branch}-next"
+staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut", scarthgap = "anujm/scarthgap", wrynose = "anujm/wrynose" } }
 ```
+
+The clone fetches the named branches only, as remote `staging`. A
+pattern names staging branches in the repository itself instead, by the
+older `<branch>-next` convention: `staging = "{branch}-next"`.
 
 When a series does not apply to the branch it targets (`master`, or a
 stable branch a subject tag names, §5), the check tries once more on that
-branch's staging branch (`master-next`, `scarthgap-next`), and checks the
-series there if it applies. A name without `{branch}` stages the default
-branch only.
+branch's staging branch, and checks the series there if it applies. A
+branch without a staging branch gets no fallback.
 
-A staging branch can be abandoned: meta-openembedded keeps
-`scarthgap-next` and `kirkstone-next`, last updated in 2025 and since
-merged, 869 and 810 commits behind their branches, and has no
-`wrynose-next` or `blacksail-next` at all. A staging branch that is an
-ancestor of its branch stages nothing, so it gives no fallback, and
-neither does a missing one. Of the six stable-branch series among the 44
-openembedded-devel series that ended in `bodnuti.apply`, none moves:
-their branches have no live staging branch.
+A staging branch can stage nothing: meta-openembedded's own
+`scarthgap-next` and `kirkstone-next`, last updated in 2025, are merged
+and 869 and 810 commits behind their branches, and `anujm/wrynose` had
+nothing beyond `wrynose` when measured. A staging branch that is an
+ancestor of its branch gives no fallback, and neither does a missing one.
+
+**Rebased at any time.** Staging branches are ephemeral: they are force
+rebased whenever the maintainer takes or drops a patch, but each is always
+a stack on top of its branch as it was when forked. The check works on the
+branch as fetched at check time (the fetch force-updates it), and
+`<branch>..<staging>` lists only the staged commits, wherever it forked.
+The commit checked on may vanish with the next rebase, so the report also
+records where the staging branch left the target branch (`fork`), a commit
+of the target branch, which stays.
+
+Measured on the 44 openembedded-devel series that ended in
+`bodnuti.apply`, re-checked on 26 October with these staging branches:
+three move and apply, the tbb series on `yoe/mut` (eight of eight
+patches) and two scarthgap CVE fixes for nodejs on `anujm/scarthgap`. Of
+the other 41, 31 had since landed on `master`, so a re-check cannot tell
+what the fallback would have done when they were sent.
 
 **Which commit on the staging branch.** A staging branch often carries the
 series under check itself, as the tbb patch was on `master-next` by the
@@ -648,8 +669,8 @@ fails.
 under it says why:
 
 ```
-base: 961cbb788414 (master-next)
-      does not apply to master 533d0a63ac2a: patch 6/8: Failed to merge in the changes; checked on master-next, which carries the patches it builds on
+base: 961cbb788414 (yoe/mut)
+      does not apply to master 533d0a63ac2a: patch 6/8: Failed to merge in the changes; checked on yoe/mut (forked from master 533d0a63ac2a), which carries the patches it builds on
 ```
 
 The series page shows the same as the base and a "Staging" line. It is a

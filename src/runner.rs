@@ -175,7 +175,21 @@ impl Runner<'_> {
         }
 
         let check_base = pull.as_ref().map(|pr| pr.base.as_str());
-        let report = self.check(&dir, &repo_name, &root, check_base)?;
+        // A series that does not apply to its branch is checked on the
+        // branch's staging branch (designs/PHASE2.md §5.6); a pull request
+        // names its own base.
+        let staging = pull
+            .is_none()
+            .then(|| {
+                self.config
+                    .repos
+                    .get(&repo_name)?
+                    .staging
+                    .as_ref()?
+                    .ref_for(&branch)
+            })
+            .flatten();
+        let report = self.check(&dir, &repo_name, &root, check_base, staging.as_deref())?;
         std::fs::write(dir.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
         std::fs::write(dir.join("report.txt"), report.text())?;
         record.result = Some(CheckResult::of(&report));
@@ -314,7 +328,14 @@ impl Runner<'_> {
     /// `bodnuti check --json` in the image, without network.
     /// `base` overrides the base the check would choose from subject tags,
     /// for a pull request, which names its own.
-    fn check(&self, dir: &Path, repo: &str, root: &str, base: Option<&str>) -> Result<Report> {
+    fn check(
+        &self,
+        dir: &Path,
+        repo: &str,
+        root: &str,
+        base: Option<&str>,
+        staging: Option<&str>,
+    ) -> Result<Report> {
         let mut cmd = self.container()?;
         cmd.args(["--network", "none", "-v"])
             .arg(format!("{}:/repo", self.config.cache.join(repo).display()))
@@ -349,17 +370,7 @@ impl Runner<'_> {
                     .flatten(),
             )
             .args(base.map(|b| ["--base", b]).into_iter().flatten())
-            // A series that does not apply to the default branch is checked
-            // on the repository's staging branch (designs/PHASE2.md §5.6).
-            .args(
-                self.config
-                    .repos
-                    .get(repo)
-                    .and_then(|r| r.staging.as_ref())
-                    .map(|s| ["--staging".to_string(), format!("origin/{s}")])
-                    .into_iter()
-                    .flatten(),
-            )
+            .args(staging.map(|s| ["--staging", s]).into_iter().flatten())
             .arg(format!("/in/{root}.mbx"))
             .output()
             .context("starting the container to check the series")?;
