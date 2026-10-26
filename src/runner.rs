@@ -187,12 +187,53 @@ impl Runner<'_> {
             }
         }
 
-        let check_base = pull.as_ref().map(|pr| pr.base.as_str());
+        // A series checked after its patches landed, as a re-check or a
+        // backfill does, would be checked against a tree that already has
+        // them: they fail to apply, or every finding in a renamed recipe
+        // looks new. All landed: it is applied, and not checked. Some: it
+        // is checked against the branch just before the first of them.
+        let last_seen = crate::lore::parse_time(&record.tracked.last_seen).unwrap_or(0);
+        let since = last_seen.saturating_sub(applied::LANDED_BEFORE_CHECK_WINDOW_SECS);
+        let mut before_landing = None;
+        if pull.is_none() {
+            let early = applied::landed(&repo, &base, &branch, &series, &ids, since)
+                .unwrap_or_else(|err| {
+                    eprintln!("bodnuti: {root}: matching landed patches: {err:#}");
+                    Default::default()
+                });
+            if !early.is_empty() && early.len() == series.patches.len() {
+                record.applied = early;
+                record.status = Status::Applied;
+                record.reason = Some(format!(
+                    "every patch had landed on {branch} before it was checked"
+                ));
+                // A report from an earlier check is of a tree that already
+                // had the series, and does not stand.
+                for file in ["report.json", "report.txt"] {
+                    let _ = std::fs::remove_file(dir.join(file));
+                }
+                record.result = None;
+                self.remember(PATCH_IDS, &ids, list, &root, &repo_name, &branch)?;
+                self.remember(MAIL_IDS, &mails, list, &root, &repo_name, &branch)?;
+                return Ok(());
+            }
+            let exact: Vec<&str> = early
+                .values()
+                .filter(|l| l.exact)
+                .map(|l| l.commit.as_str())
+                .collect();
+            if let Some(first) = earliest(&repo, &exact) {
+                before_landing = git::run(&repo, &["rev-parse", &format!("{first}^")]).ok();
+            }
+        }
+        let check_base = pull
+            .as_ref()
+            .map(|pr| pr.base.as_str())
+            .or(before_landing.as_deref());
         // A series that does not apply to its branch is checked on the
         // branch's staging branch (designs/PHASE2.md §5.6); a pull request
         // names its own base.
-        let staging = pull
-            .is_none()
+        let staging = (pull.is_none() && before_landing.is_none())
             .then(|| {
                 self.config
                     .repos
@@ -211,7 +252,6 @@ impl Runner<'_> {
         // commits. A series checked after it was merged is applied.
         // Not finding them is no reason to fail the check: the scans may
         // still match later commits.
-        let last_seen = crate::lore::parse_time(&record.tracked.last_seen).unwrap_or(0);
         match applied::landed(
             &repo,
             &report.base,
@@ -228,15 +268,22 @@ impl Runner<'_> {
             }
             Err(err) => eprintln!("bodnuti: {root}: matching landed patches: {err:#}"),
         }
-        record.reason = pull.map(|pr| {
-            format!(
-                "pull request: {} {}, {}..{}",
-                pr.url,
-                pr.branch,
-                &pr.base[..12],
-                &pr.head[..12]
-            )
-        });
+        record.reason = pull
+            .map(|pr| {
+                format!(
+                    "pull request: {} {}, {}..{}",
+                    pr.url,
+                    pr.branch,
+                    &pr.base[..12],
+                    &pr.head[..12]
+                )
+            })
+            .or(before_landing.map(|b| {
+                format!(
+                    "checked against {branch} at {}, before the first of its patches that had landed",
+                    &b[..b.len().min(12)]
+                )
+            }));
         self.remember(PATCH_IDS, &ids, list, &root, &repo_name, &branch)?;
         self.remember(MAIL_IDS, &mails, list, &root, &repo_name, &branch)?;
         Ok(())
@@ -604,6 +651,15 @@ fn branch_name(base: &str) -> String {
     name.to_string()
 }
 
+/// The commit of `commits` that the others descend from, the first to land.
+fn earliest<'a>(repo: &Path, commits: &[&'a str]) -> Option<&'a str> {
+    commits.iter().copied().find(|c| {
+        commits
+            .iter()
+            .all(|o| o == c || git::run(repo, &["merge-base", "--is-ancestor", c, o]).is_ok())
+    })
+}
+
 /// Paths the series modifies or deletes that do not exist at its base in
 /// `repo`. Added files are skipped: they exist in no tree yet.
 fn missing_paths(repo: &Path, base: &str, series: &Series) -> Result<Vec<String>> {
@@ -722,6 +778,37 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
         let mut record = state.series.remove(root).unwrap();
         record.repo = Some("openembedded-core".into());
         record
+    }
+
+    #[test]
+    fn the_earliest_landed_commit_is_the_one_the_others_descend_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path();
+        git::run(r, &["init", "-q", "-b", "master"]).unwrap();
+        let commit = |m: &str| {
+            git::run(
+                r,
+                &[
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@x",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    m,
+                ],
+            )
+            .unwrap();
+            git::run(r, &["rev-parse", "HEAD"]).unwrap()
+        };
+        let a = commit("a");
+        let b = commit("b");
+        let c = commit("c");
+        assert_eq!(earliest(r, &[&c, &a, &b]), Some(a.as_str()));
+        assert_eq!(earliest(r, &[&c]), Some(c.as_str()));
+        assert_eq!(earliest(r, &[]), None);
     }
 
     #[test]
