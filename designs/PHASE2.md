@@ -670,7 +670,7 @@ way, on which branch, is checked when this is built, together with how
 often their series fail to apply on `master`; each is named in the
 configuration only then.
 
-### 5.7 AutoBuilder builds and error reports (draft)
+### 5.7 AutoBuilder builds and error reports
 
 Patches under review are built and tested on the Yocto Project AutoBuilder
 (<https://autobuilder.yoctoproject.org/valkyrie/>) before they reach
@@ -791,11 +791,23 @@ the staging fallback can also try the stack of the latest build that
 carried a series' predecessors, where the configured staging branch has
 moved on.
 
-**To decide before building.** Whether to start with OE-Core alone, whose
-trees are archived; which builders' results to show (`a-full` only, or
-`a-quick` and the single-layer builders such as `meta-virt` too); whether
-a failure tied by the difference alone is shown, or kept until two builds
-agree; and whether to add the JSON read API to error-report-web first.
+**Decided.** Settled with the maintainer:
+
+1. OE-Core and BitBake first, the repositories poky-ci-archive keeps a tag
+   per build for. meta-openembedded, meta-virtualization and the other
+   layers follow once their tested commits can be kept, since nothing
+   archives them.
+2. `a-full` builds first, then `a-quick`. The single-layer builders (such
+   as `meta-virt`) come with the layers in 1.
+3. A failure tied to a series by the difference alone is shown only once
+   two builds agree: it is new in two builds whose stacks carry the series,
+   each against the build of its branch before it. Until then it stays the
+   stack's. A failure tied by the recipe is shown at once.
+4. A JSON read API in error-report-web, for the failures of one AutoBuilder
+   build, is being decided separately and is likely. bodnuti reads error
+   reports through it once it exists; until then, the AutoBuilder's own
+   step logs (`errors`, `stdio`) give the recipe, task and error, and the
+   error report is only linked.
 
 ## 6. Publishing
 
