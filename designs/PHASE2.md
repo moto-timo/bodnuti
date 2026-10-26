@@ -818,6 +818,46 @@ moved on.
    step logs (`errors`, `stdio`) give the recipe, task and error, and the
    error report is only linked.
 
+### 5.8 GitHub CI of the Django applications
+
+The Django applications are tested on GitHub the same way OE-Core is on
+the AutoBuilder: their maintainer pushes the patches under review to
+`master-next` and GitHub Actions builds and tests them. Measured on 26
+October:
+
+| Repository | Workflows | Last 30 runs |
+|---|---|---|
+| yoctoproject/layerindex-web | CI, Safety, CodeQL | 16 pushes to `master-next`, 2 to `master`, 12 CodeQL |
+| moto-timo/layerindex-web | CI, Safety, CodeQL, Dependabot | 20 pushes to `master-next`, 2 to `master`, 3 Dependabot pull requests, 5 CodeQL |
+| moto-timo/error-report-web | CI, Safety, CodeQL | 18 pushes to `master-next`, 2 to `master`, 10 CodeQL |
+
+CI builds the application's image and runs its tests
+(`docker/run-tests.sh`), with ruff for error-report-web and a test of
+`dockersetup.py` for layerindex-web; Safety builds the image and scans its
+Python dependencies. Both run on pushes to `master` and `master-next`.
+CodeQL runs on `master`; its open alerts carry the commit and file and line
+they were found at (error-report-web has seven open, such as
+`py/stack-trace-exposure` in `Post/views.py`).
+
+This is §5.7 with less to work out: GitHub's API is JSON throughout, each
+run names the commit it tested (`head_sha`), the commits stay in the
+repository GitHub holds, and a run is one result, not 60 builds of a
+70-patch stack. So, for each finished CI or Safety run on `master-next`:
+fetch its commit, list `master..<commit>`, match the commits to checked
+series by patch-id, and record the run, its result and its failed jobs on
+each series it carried. A failing run whose stack differs from the
+previous run of its branch by one series is that series' result; one
+that differs by more waits for a second run to agree, as on the
+AutoBuilder (§5.7, decision 3). CodeQL alerts first seen at a commit that
+is one of a series' patches are shown on that series, with their rule,
+file and line.
+
+**Not decided.** Which of the two layerindex-web repositories to read, or
+both (they run the same workflows; yoctoproject's is upstream's own);
+whether this comes before §5.7 or with it, since it needs no AutoBuilder
+or error-report-web work; and whether CodeQL alerts belong with the CI
+results or with the findings, as a checker that runs elsewhere.
+
 ## 6. Publishing
 
 `bodnuti publish` renders, from `state/`:
