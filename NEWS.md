@@ -2,6 +2,33 @@
 
 <!-- towncrier release notes start -->
 
+## bodnuti 0.2.0 (2026-10-25)
+
+### Features
+
+- **check:** oelint-adv layout rules (spacing, ordering, suggested variables) are reported as style, kept apart from findings and not counted in the result or the exit status; the style rules OE-Core does not follow, once suppressed, are reported this way too.
+- **kinds:** Django applications also get Django's own checks, `manage.py check` and `makemigrations --check`, run offline against sqlite with the image's venv for each application; a model change without its migration is an error.
+- **publish:** Style findings are collapsed under each patch behind a "Show N style findings" toggle, which needs no JavaScript, and the result notes how many there are.
+- **publish:** `bodnuti publish` also writes `summary.html`, the last week per list and the latest series, for bodnuti.dev's front page.
+
+### Bug fixes
+
+- **poll:** Patches that landed before their series was checked, as a backfill checks them, are now matched upstream; they were missed, since the scans read only later commits.
+
+### Security
+
+- Report pages escape `{` and `}` as well, so text from mail can never act as a template where a page is served through one.
+
+### Documentation
+
+- SECURITY.md says how to report a vulnerability privately, through GitHub's private vulnerability reporting, and what is in scope.
+
+### Other changes
+
+- **packaging:** `make audit` runs cargo-deny: besides advisories, every linked crate must have a permissive license (`deny.toml`) and come from crates.io.
+- **packaging:** bodnuti is licensed under MIT or Apache-2.0, at your option (`LICENSE-MIT`, `LICENSE-APACHE`).
+
+
 ## bodnuti 0.1.0 (2026-10-25)
 
 ### Features
