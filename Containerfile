@@ -2,7 +2,7 @@
 # macOS, where bitbake does not run). Build with:
 #   docker build -t bodnuti -f Containerfile .
 
-FROM docker.io/library/rust:1.90-slim-trixie AS build
+FROM docker.io/library/rust:1.99-slim-trixie AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY assets ./assets
@@ -11,7 +11,7 @@ COPY tests ./tests
 RUN cargo build --release --locked
 
 # shellcheck ships as a static binary in its own image.
-FROM docker.io/koalaman/shellcheck:v0.10.0 AS shellcheck
+FROM docker.io/koalaman/shellcheck:v0.11.0 AS shellcheck
 
 # So does trivy, which scans Django applications' requirements pins. Its
 # database is not in the image: the watcher downloads it daily and mounts it

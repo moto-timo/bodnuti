@@ -250,7 +250,7 @@ OE defect.
    because BitBake expands its variables before the shell runs.
 3. Run `shellcheck --format=json1 --severity=warning --shell <sh|dash|bash> -`
    on stdin, on base and head, using the same delta rule as oelint (§3.4). It
-   runs from the pinned `koalaman/shellcheck:v0.10.0` image. A shellcheck
+   runs from the pinned `koalaman/shellcheck:v0.11.0` image. A shellcheck
    parse error means nothing in that input was checked, so it is a
    `ToolError`.
 

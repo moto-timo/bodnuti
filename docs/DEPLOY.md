@@ -27,7 +27,7 @@ The lists carry about 170 patches a day, which one worker handles easily.
 | Two parallel workers, documentation builds included | 4 | 8 GB | 40 GB |
 
 Shared vCPU is enough. Arm (Hetzner CAX) should work, because the base
-images and `koalaman/shellcheck:v0.10.0` publish arm64, but check that
+images and `koalaman/shellcheck:v0.11.0` publish arm64, but check that
 `pygit2` and the Sphinx extensions install from wheels on aarch64.
 
 ## Firewall

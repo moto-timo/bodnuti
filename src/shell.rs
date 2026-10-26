@@ -21,7 +21,7 @@ use crate::finding::{Checker, Finding, Severity, Tool};
 
 pub struct ShellCheck {
     /// The shellcheck command and its leading arguments, e.g. a
-    /// `docker run --rm -i koalaman/shellcheck:v0.10.0` invocation.
+    /// `docker run --rm -i koalaman/shellcheck:v0.11.0` invocation.
     pub command: Vec<String>,
 }
 

@@ -411,7 +411,7 @@ struct CheckArgs {
     #[arg(
         long,
         env = "BODNUTI_SHELLCHECK",
-        default_value = "docker run --rm -i koalaman/shellcheck:v0.10.0"
+        default_value = "docker run --rm -i koalaman/shellcheck:v0.11.0"
     )]
     shellcheck: String,
     /// The Python interpreter with patchtest's requirements installed.
