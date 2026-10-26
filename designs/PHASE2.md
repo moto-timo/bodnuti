@@ -580,9 +580,9 @@ yocto-autobuilder2's TypeScript view.
 ### 5.6 Series that depend on staged patches
 
 Some maintainers stage the patches they have taken on a branch of their
-own before they reach `master`, such as meta-openembedded's `master-next`. A series that builds on staged
-patches does not apply to `master`, and is reported as a `bodnuti.apply`
-error. On 26 October, `[meta-oe][PATCH 6/8] tbb: Skip test_resumable_tasks
+own before they reach `master`, such as meta-openembedded's `master-next`.
+A series that builds on staged patches does not apply to `master`, and is
+reported as a `bodnuti.apply` error. On 26 October, `[meta-oe][PATCH 6/8] tbb: Skip test_resumable_tasks
 in ptest under QEMU` changed `tbb/files/run-ptest` from the version an
 earlier series (`[meta-oe][PATCH 3/6] tbb: Skip test_scheduler_mix in
 ptest`, the day before) creates. That series was on `master-next` and not
@@ -669,6 +669,133 @@ OE-Core, BitBake and the other watched repositories stage patches the same
 way, on which branch, is checked when this is built, together with how
 often their series fail to apply on `master`; each is named in the
 configuration only then.
+
+### 5.7 AutoBuilder builds and error reports (draft)
+
+Patches under review are built and tested on the Yocto Project AutoBuilder
+(<https://autobuilder.yoctoproject.org/valkyrie/>) before they reach
+`master`: OE-Core's maintainers push stacks of them to staging branches
+(`master-next`; `mathieu/master-next` and `mathieu/master-next-tests` in
+openembedded-core-contrib) and start a full build (`a-full`), which
+triggers about 60 builds across machines, distros, oe-selftest and ptest.
+Their failures are sent to errors.yoctoproject.org. That is evidence about
+a series that no static check can give: whether it builds and passes the
+tests everywhere. A staging branch rebases at any time, but every build
+was of a stack of patches on top of a `master` commit, and that is enough
+to trace a build to the series in it.
+
+**What is there.** Measured on 26 October:
+
+- **Builds.** Buildbot's REST API (`/valkyrie/api/v2`) is public, read-only
+  JSON. Each top-level build's properties give, per layer, the repository,
+  branch and exact commit it built (`repo_oecore`, `branch_oecore`,
+  `commit_oecore`, and the same for `meta-openembedded`,
+  `meta-virtualization`, BitBake and the rest), the owner and the reason
+  ("test mathieu/master-next"). Its child builds are found through
+  `/buildsets?parent_buildid=<id>`, each with a result (success, warnings,
+  failure, cancelled), and each failed step has `stdio`, `errors` and
+  `warnings` logs. Of the last 60 `a-full` builds, 31 tested OE-Core
+  staging branches (21 `mathieu/master-next`, 5 `master-next`, 5
+  `mathieu/master-next-tests`), 10 were nightly builds of `master`, and the
+  rest were stable `-nut` and personal branches. meta-openembedded and
+  meta-virtualization were on `master` or a stable branch in all 60;
+  staging builds of theirs, if there are any, use builders this sample did
+  not cover, and are to be found before this is built.
+- **The tested trees.** poky-ci-archive keeps a tag per build for OE-Core,
+  BitBake, meta-yocto and poky
+  (`oecore/autobuilder.yoctoproject.org/valkyrie/a-full-4999`), so a
+  staging commit stays reachable after its branch rebases. It keeps
+  nothing for meta-openembedded or meta-virtualization.
+- **The stacks.** a-full-4999 (`mathieu/master-next`) built 71 commits on
+  top of `master`, from about 20 authors; a-full-5001, a day later, built
+  70 of the same 71 by patch-id. Consecutive builds of one branch differ
+  by a few patches.
+- **Error reports.** Each failure on errors.yoctoproject.org records the
+  branch (`mathieu/master-next`), the commit (`unknown` for AutoBuilder
+  reports), the recipe, task and log, and a link back to the AutoBuilder
+  build that sent it (`#/builders/74/builds/4827`). There is no JSON read
+  API: the pages are HTML, and the AutoBuilder feed
+  (`Errors/Latest/Autobuilder/feed`) carries only the latest 10 failures,
+  with their whole logs (9 MB). error-report-web is maintained by
+  bodnuti's maintainer, so a small read API (failures of one AutoBuilder
+  build, as JSON) is a change that can be made there rather than scraped
+  around.
+
+**From a build to a series.** For each finished top-level build of a
+staging branch:
+
+1. Read its properties, and for each watched repository fetch the commit
+   it built into a ref of bodnuti's own (`refs/bodnuti/ab/<build>`): from
+   poky-ci-archive for OE-Core and BitBake, from the upstream branch for
+   the others, which must happen soon after the build, while the branch
+   still has the commit.
+2. List the stack: `git log <master>..<commit>`, merges excluded, the
+   `master` commit being the merge-base.
+3. Match each commit to the series it came from by `git patch-id --stable`,
+   against `state/patch-ids/`, as applied matching does (§5.1); a commit
+   that matches no checked series is counted, not reported.
+4. Record, per series, each build that carried all or part of it: the
+   build, the branch, which of its patches, and the result.
+
+**Failures and blame.** A build tests 70 patches at once, so its result is
+not a result for one series, and some failures are no patch's fault: the
+one failure of a-full-4999 was GitHub refusing a `git fetch` of
+`cvelistV5`. Its stack differed from a-full-5001's, which passed, by one
+patch (a systemd upgrade), so naive bisection would have blamed the
+systemd upgrade for an outage. Failures are therefore classified first,
+from the failed step's `errors` log and the error report:
+
+- **Infrastructure:** fetch failures from upstream sites, worker disk or
+  network trouble, cancelled builds. Recorded, never attributed.
+- **Build or test:** a task failure (`do_compile`, `do_install`,
+  `do_testimage`, a ptest), with its recipe.
+
+A build or test failure is shown on a series only when it is tied to the
+series by one of:
+
+- **The recipe:** the failed task's recipe is one the series changes (its
+  `.bb`, `.bbappend` or files directory).
+- **The difference:** the failure is in this build and not in the build of
+  the same branch before it, and this series is among the few patches that
+  differ between their stacks.
+
+Anything else is the stack's, not the series': the series page says only
+that it was in a build that failed, with the link, so the reviewer can
+look.
+
+**On the series page.** A block per build, like a finding (§6.1): the
+build (`a-full 4999, mathieu/master-next`, linked), its date, which of the
+series' patches were in it, and the result. Passing builds count as much
+as failing ones: "built and tested in 3 full builds, 2 passed" is news for
+a reviewer. A failure tied to the series by its recipe or by the
+difference shows the recipe, task and the first lines of its error, with
+links to the AutoBuilder step and the error report. None of this changes
+the check's findings or its counts: it is another kind of result, shown
+apart, like style findings (§6.1.1).
+
+**Polling.** One request for new top-level builds per poll (`builds` of
+`a-full`, newer than the last one seen), then, per finished build, its
+properties and its buildsets' builds: about ten requests per build, and a
+few dozen builds a day. Error reports only for failed builds, by their
+link back. Results are kept in `state/autobuilder/`, a build being done
+once all its children have finished.
+
+**Trust.** Build properties, step logs and error reports are written by
+the AutoBuilder and by what it built, which includes the patches under
+review: they are untrusted text, escaped like mail (§6), and nothing from
+them is run. Fetching tested commits uses the same https upstreams as the
+clones.
+
+**With §5.6.** A staging branch on the AutoBuilder is a tested stack, so
+the staging fallback can also try the stack of the latest build that
+carried a series' predecessors, where the configured staging branch has
+moved on.
+
+**To decide before building.** Whether to start with OE-Core alone, whose
+trees are archived; which builders' results to show (`a-full` only, or
+`a-quick` and the single-layer builders such as `meta-virt` too); whether
+a failure tied by the difference alone is shown, or kept until two builds
+agree; and whether to add the JSON read API to error-report-web first.
 
 ## 6. Publishing
 
