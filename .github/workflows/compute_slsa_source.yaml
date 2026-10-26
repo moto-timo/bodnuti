@@ -12,9 +12,9 @@ jobs:
     permissions:
       contents: write # needed for storing the vsa in the repo.
       id-token: write # meeded to mint yokens for signing
-    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@dea965cdca5e0cb422bf7b2653c9d15f678ad01c # v0.1.0
-    with:
-      # v0.1.0 defaults to sourcetool v0.6.2, which fails on tag pushes
-      # ("evaluating the tag provenance metadata: nil statement").
-      version: v0.7.1
+    # Pinned to main after v0.1.0 (2026-10-04), the first with sourcetool
+    # v0.7.1: v0.1.0's v0.6.2 fails on tag pushes ("evaluating the tag
+    # provenance metadata: nil statement"), and v0.1.0 cannot verify
+    # v0.7.1's binary, which slsa-framework/actions' attest_actions signs.
+    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@078463f1155c9295ba9e1b41d49ee2623b4415aa # main, 2026-10-04
 
