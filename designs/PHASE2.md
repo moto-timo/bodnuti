@@ -577,6 +577,99 @@ and sqlite headers in the image and runs the series' `configure` and
 Makefile. It can follow as a later tier, like Django's own checks. Linting
 yocto-autobuilder2's TypeScript view.
 
+### 5.6 Series that depend on staged patches
+
+Some maintainers stage the patches they have taken on a branch of their
+own before they reach `master`, such as meta-openembedded's `master-next`. A series that builds on staged
+patches does not apply to `master`, and is reported as a `bodnuti.apply`
+error. On 26 October, `[meta-oe][PATCH 6/8] tbb: Skip test_resumable_tasks
+in ptest under QEMU` changed `tbb/files/run-ptest` from the version an
+earlier series (`[meta-oe][PATCH 3/6] tbb: Skip test_scheduler_mix in
+ptest`, the day before) creates. That series was on `master-next` and not
+on `master`, so 6/8 failed with "Failed to merge in the changes", although
+it applies cleanly on top of the patches it was written for. The error is
+accurate for `master`, but tells the author and the reviewer nothing they
+can act on, and every checker that needs the patched tree is skipped, for
+the whole series.
+
+**The fallback.** A repository can name a staging branch:
+
+```toml
+[repos.meta-openembedded]
+url = "https://git.openembedded.org/meta-openembedded"
+staging = "master-next"
+```
+
+When the series targets the repository's default branch (no subject tag
+names another branch, §5) and does not apply there, the check tries once
+more on the staging branch, and checks the series there if it applies.
+Series for stable branches get no fallback: stable releases are staged in
+other repositories, and their staging can follow if a series on a stable
+branch needs it.
+
+**Which commit on the staging branch.** A staging branch often carries the
+series under check itself, as the tbb patch was on `master-next` by the
+time it was checked (`01e8e0510e`). Applying it on the branch's tip then
+fails as already applied, or checks nothing. So the base is chosen with
+the patch-id matching of §5.1:
+
+1. Match each patch of the series against the staging branch's commits
+   since it left the default branch (`git log <default>..<staging>`), by
+   `git patch-id --stable`.
+2. If any matches, the base is the parent of the earliest matching commit:
+   the staging branch as it was just before the series was taken, which
+   holds the patches it depends on.
+3. Otherwise the base is the staging branch's tip.
+
+If the series does not apply at that base either, the result is the
+`bodnuti.apply` error for the default branch, as now: the staging branch
+did not explain it.
+
+**One base for every checker.** The fallback is decided before any checker
+runs. patchtest applies the series itself, and the before and after runs
+of the other checkers must see the same base, so the check first tries
+`git am` in a throwaway workspace on the default branch, and only if a
+patch fails tries the staging base. Everything then runs on the chosen
+base. The extra cost is one `git am` attempt on a series that already
+failed to apply, and none on one that applies.
+
+**The report.** The base line names the branch it came from:
+`base: <commit> (master-next)`. An info finding, `bodnuti.base`, says
+why:
+
+```
+INFO    bodnuti bodnuti.base
+    does not apply to master (533d0a63ac2a): patch 6/8: Failed to merge
+    in the changes.
+    Checked on master-next (<commit>), which carries the patches it
+    builds on.
+```
+
+It is info, not a warning: depending on staged patches is how the
+maintainer works, not a fault of the series. The series' findings are the
+usual ones, compared before and after the series on that base.
+
+**What stays keyed to the default branch.** The series still targets
+`master`: the branch recorded for duplicates (`state/patch-ids/`) and the
+landed-patch matching (§5.1) stay `master`, so a later resend to `master`,
+or the patches reaching `master`, are recognised as before. The record and
+`report.json` gain the staging branch the check used, for the report and
+the index.
+
+**Where it runs.** The choice is made in `bodnuti check`, offline in the
+container like the rest of the check, given `--staging <ref>` by the
+runner from the configuration; run by hand, `bodnuti check --staging
+origin/master-next` does the same. The staging branch comes from the same
+upstream as the default branch and is fetched with it, so the check reads
+nothing it did not already trust; and if the clone has no such ref, there
+is no fallback.
+
+**Which repositories.** meta-openembedded has `master-next`. Whether
+OE-Core, BitBake and the other watched repositories stage patches the same
+way, on which branch, is checked when this is built, together with how
+often their series fail to apply on `master`; each is named in the
+configuration only then.
+
 ## 6. Publishing
 
 `bodnuti publish` renders, from `state/`:
