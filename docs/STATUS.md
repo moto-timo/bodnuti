@@ -297,11 +297,38 @@ Reading the published reports on 26 October turned up these, all fixed:
   checked, but the reason now names the attached file and asks for
   `git send-email`.
 
-Two more sources of evidence about a series are designed and decided, not
-yet built: the Django applications' GitHub CI and CodeQL runs on
-`master-next`, traced to series by patch-id (§5.8), first; then the Yocto
-Project AutoBuilder's builds of staging branches and their error reports,
-for OE-Core and BitBake, whose tested trees poky-ci-archive keeps (§5.7).
+### Builds and CI of patches under review
+
+Two more sources of evidence about a series are built, shown on its page
+apart from its result:
+
+- **GitHub CI of the Django applications** (§5.8). The maintainer pushes
+  patches under review to `master-next` on GitHub (both layerindex-web
+  repositories and error-report-web), where CI and Safety run. Each finished
+  run's commit is fetched, its patches on top of `master` are matched to
+  checked series by patch-id, and the run is recorded on each. A run that
+  skipped its own steps (Safety without a key, in upstream's layerindex-web)
+  shows as skipped. A failure is a series' own only once two runs failed
+  newly carrying it. CodeQL alerts on `master` are shown on the series whose
+  patch wrote the alert's line, found by blame, with a read-only token on
+  the worker. On the worker, five series carry 4 to 12 runs each.
+- **The Yocto Project AutoBuilder** (§5.7), for OE-Core and BitBake, from
+  `a-full` builds. Each build's trees come from poky-ci-archive's tag for
+  it, so staging branches can rebase; its commits on top of their branch are
+  matched to checked series, and its failed steps are read from their
+  `errors` logs. A failed fetch is infrastructure; a failure in a recipe the
+  series changes is the series' at once; any other once two builds agree.
+  Against the live AutoBuilder, an OE-Core strace upgrade was found in four
+  `a-full` builds on `mathieu/master-next`, the one failure among them a
+  `cvelistV5` fetch, classed as infrastructure. Error reports are only
+  linked until error-report-web has a JSON read API.
+
+Building the AutoBuilder evidence found that patch-ids were computed from
+the raw mail, so a patch the list re-encoded as quoted-printable matched no
+commit: not upstream, not as a resend, not in a build or a CI run. That is
+likely much of why so few series showed as landed. They are read from the
+decoded mail now, and the first poll records every checked series' patch-ids
+again.
 
 ## bodnuti CI and security
 
@@ -435,9 +462,13 @@ window held about eight sashiko reviews.
   resend, the attached patch), link the pycryptodome v2 to the series it
   revises, and re-check series with findings for excerpts, style findings
   and Django's checks.
-- Build the GitHub CI evidence for the Django applications (§5.8), then the
-  AutoBuilder evidence for OE-Core and BitBake (§5.7), with error reports
-  read through a JSON API in error-report-web once it has one.
+- Deploy the AutoBuilder evidence and the patch-id fix: the new binary and
+  `[autobuilder] builders = ["a-full"]` (`DEPLOY.md`), then compare the
+  Landed counts before and after the first poll records the patch-ids
+  again. Add `a-quick` once `a-full` has run for a while.
+- Read error reports through a JSON API in error-report-web once it has
+  one, and add the other layers' AutoBuilder builds (meta-openembedded,
+  meta-virtualization) once their tested commits can be kept.
 - Once slsa-framework/source-policies#27 merges, check that sourcetool
   verifies main at SLSA Source Level 3, and tag the next release, the first
   whose tag verifies at that level.
