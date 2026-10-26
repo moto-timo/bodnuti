@@ -82,6 +82,20 @@ bodnuti at it with `--python`, `--oelint` and `--b4` (or `BODNUTI_PYTHON`,
 `BODNUTI_OELINT`, `BODNUTI_B4`). shellcheck runs from its container image by default; set
 `--shellcheck shellcheck` to use a local binary.
 
+## Verifying a release
+
+Each release's wheels and container image carry SLSA build provenance,
+signed through Sigstore by the Release workflow, and the image a keyless
+cosign signature:
+
+```
+gh attestation verify bodnuti-0.2.0-py3-none-manylinux_2_28_aarch64.whl --repo moto-timo/bodnuti
+gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bodnuti
+cosign verify ghcr.io/moto-timo/bodnuti:0.2.0 \
+  --certificate-identity-regexp '^https://github.com/moto-timo/bodnuti/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## License
 
 bodnuti is licensed under either of the [MIT license](LICENSE-MIT) or the

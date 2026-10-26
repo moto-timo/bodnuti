@@ -1,6 +1,8 @@
 # A v* tag builds the wheels and the image and makes the GitHub release
-# with the version's section of NEWS.md. Run by hand (workflow_dispatch),
-# it builds everything and publishes nothing, to try a release first.
+# with the version's section of NEWS.md. Each wheel and the image get SLSA
+# build provenance (GitHub artifact attestations, signed through Sigstore),
+# and the image a keyless cosign signature. Run by hand (workflow_dispatch),
+# it builds everything and publishes, attests and signs nothing.
 name: Release
 
 on:
@@ -37,6 +39,10 @@ jobs:
     name: wheel (${{ matrix.target }})
     needs: version
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # Sigstore signs the provenance
+      attestations: write
     strategy:
       matrix:
         include:
@@ -54,6 +60,10 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --locked --out dist
           manylinux: ${{ matrix.manylinux }}
+      - uses: actions/attest-build-provenance@v4
+        if: github.ref_type == 'tag'
+        with:
+          subject-path: dist/*.whl
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.target }}
@@ -66,6 +76,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # Sigstore: provenance and the cosign signature
+      attestations: write
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -78,6 +90,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       # arm64 builds under QEMU: slow, but the worker is arm64.
       - uses: docker/build-push-action@v7
+        id: build
         with:
           context: .
           file: Containerfile
@@ -86,6 +99,20 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}
             ghcr.io/${{ github.repository }}:latest
+      - uses: actions/attest-build-provenance@v4
+        if: github.ref_type == 'tag'
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - uses: sigstore/cosign-installer@v4
+        if: github.ref_type == 'tag'
+      # Keyless: the certificate names this workflow and the tag.
+      - name: sign the image
+        if: github.ref_type == 'tag'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@$DIGEST"
 
   release:
     name: GitHub release
