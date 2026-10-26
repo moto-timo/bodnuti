@@ -1,8 +1,11 @@
 # A v* tag builds the wheels and the image and makes the GitHub release
 # with the version's section of NEWS.md. Each wheel and the image get SLSA
-# build provenance (GitHub artifact attestations, signed through Sigstore),
-# and the image a keyless cosign signature. Run by hand (workflow_dispatch),
-# it builds everything and publishes, attests and signs nothing.
+# build provenance (GitHub artifact attestations, signed through Sigstore)
+# and an attested SPDX SBOM: the wheels the Rust crates, from cargo-sbom,
+# and the image its packages per platform, from trivy. The image is also
+# signed with cosign, keylessly, and the SBOMs are attached to the release.
+# Run by hand (workflow_dispatch), it builds everything and the crate SBOM,
+# and publishes, attests and signs nothing.
 name: Release
 
 on:
@@ -34,6 +37,20 @@ jobs:
           fi
           grep -q "^## bodnuti $version " NEWS.md \
             || { echo "NEWS.md has no section for $version" >&2; exit 1; }
+
+  # The wheels hold only the bodnuti binary, so their SBOM is its crates.
+  sbom:
+    name: crate SBOM
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: cargo install --locked cargo-sbom@0.10.0
+      - run: cargo sbom --output-format spdx_json_2_3 > "bodnuti-${{ needs.version.outputs.version }}.spdx.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-crates
+          path: bodnuti-*.spdx.json
 
   wheels:
     name: wheel (${{ matrix.target }})
@@ -114,14 +131,49 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "ghcr.io/${{ github.repository }}@$DIGEST"
+      # trivy reads the pushed image with the login above; an SBOM needs no
+      # vulnerability database.
+      - name: image SBOMs
+        if: github.ref_type == 'tag'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          sh .github/install-scanners.sh
+          for arch in amd64 arm64; do
+            trivy image --quiet --format spdx-json --platform "linux/$arch" \
+              -o "bodnuti-$VERSION-image-$arch.spdx.json" \
+              "ghcr.io/${{ github.repository }}@$DIGEST"
+          done
+      - uses: actions/attest-sbom@v4
+        if: github.ref_type == 'tag'
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: bodnuti-${{ needs.version.outputs.version }}-image-amd64.spdx.json
+          push-to-registry: true
+      - uses: actions/attest-sbom@v4
+        if: github.ref_type == 'tag'
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: bodnuti-${{ needs.version.outputs.version }}-image-arm64.spdx.json
+          push-to-registry: true
+      - uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
+        with:
+          name: sbom-image
+          path: bodnuti-*-image-*.spdx.json
 
   release:
     name: GitHub release
     if: github.ref_type == 'tag'
-    needs: [version, wheels, image]
+    needs: [version, sbom, wheels, image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write # Sigstore signs the SBOM attestation
+      attestations: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -129,6 +181,15 @@ jobs:
           pattern: wheel-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: sbom-*
+          path: sbom
+          merge-multiple: true
+      - uses: actions/attest-sbom@v4
+        with:
+          subject-path: dist/*.whl
+          sbom-path: sbom/bodnuti-${{ needs.version.outputs.version }}.spdx.json
       - name: notes from NEWS.md
         run: |
           awk -v v="## bodnuti ${{ needs.version.outputs.version }} " \
@@ -137,5 +198,5 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.whl \
+          gh release create "$GITHUB_REF_NAME" dist/*.whl sbom/*.spdx.json \
             --title "bodnuti ${{ needs.version.outputs.version }}" --notes-file notes.md

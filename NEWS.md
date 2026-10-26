@@ -18,7 +18,7 @@
 ### Security
 
 - Report pages escape `{` and `}` as well, so text from mail can never act as a template where a page is served through one.
-- **packaging:** Release wheels and the container image carry SLSA build provenance (GitHub artifact attestations), and the image a keyless cosign signature; the README says how to verify them.
+- **packaging:** Release wheels and the container image carry SLSA build provenance and an attested SPDX 2.3 SBOM (GitHub artifact attestations), and the image a keyless cosign signature; the SBOMs are also attached to the release, and the README says how to verify all of them.
 
 ### Documentation
 

@@ -84,9 +84,11 @@ bodnuti at it with `--python`, `--oelint` and `--b4` (or `BODNUTI_PYTHON`,
 
 ## Verifying a release
 
-Each release's wheels and container image carry SLSA build provenance,
-signed through Sigstore by the Release workflow, and the image a keyless
-cosign signature:
+Each release's wheels and container image carry SLSA build provenance and
+an SPDX 2.3 SBOM, both signed through Sigstore by the Release workflow, and
+the image a keyless cosign signature. The wheels' SBOM lists the Rust
+crates in the bodnuti binary; the image's, one per platform, its Debian,
+Python and Go packages. The SBOMs are also attached to the GitHub release.
 
 ```
 gh attestation verify bodnuti-0.2.0-py3-none-manylinux_2_28_aarch64.whl --repo moto-timo/bodnuti
@@ -94,6 +96,8 @@ gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bod
 cosign verify ghcr.io/moto-timo/bodnuti:0.2.0 \
   --certificate-identity-regexp '^https://github.com/moto-timo/bodnuti/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bodnuti \
+  --predicate-type https://spdx.dev/Document/v2.3
 ```
 
 ## License
