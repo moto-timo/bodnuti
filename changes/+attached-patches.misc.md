@@ -1,0 +1,1 @@
+**poll:** A thread whose patch was sent as an attachment rather than inline is still not checked, but its reason now says so, naming the attached file and asking for git send-email, instead of reporting that it has no patches.

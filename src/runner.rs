@@ -272,7 +272,8 @@ impl Runner<'_> {
         root: &str,
     ) -> Result<std::result::Result<(Series, PullRequest), String>> {
         let mut invalid = None;
-        let pr = Series::letters(&std::fs::read(mbox)?)
+        let thread = std::fs::read(mbox)?;
+        let pr = Series::letters(&thread)
             .iter()
             .find_map(|text| match request_pull::parse(text) {
                 Ok(pr) => Some(pr),
@@ -283,6 +284,13 @@ impl Runner<'_> {
                 }
             });
         let Some(pr) = pr else {
+            let attached = Series::attached_patches(&thread);
+            if !attached.is_empty() {
+                return Ok(Err(format!(
+                    "the patch is an attachment ({}), not inline: send it with git send-email",
+                    attached.join(", ")
+                )));
+            }
             return Ok(Err(match invalid {
                 Some(why) => format!("the thread has no patches, and {why}"),
                 None => "the thread has no patches: a cover letter whose patches were \

@@ -7,6 +7,10 @@ use bodnuti::series::Series;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
+    let _ = Series::letters(data);
+    for name in Series::attached_patches(data) {
+        assert!(name.len() <= 100 || name == "an unnamed patch");
+    }
     let Ok(series) = Series::parse(data) else {
         return;
     };
@@ -21,5 +25,8 @@ fuzz_target!(|data: &[u8]| {
         let _ = patch.summary();
         let _ = patch.author();
         let _ = patch.author_email();
+        let _ = patch.author_from();
+        let _ = patch.commit_message();
     }
+    let _ = series.mbox();
 });

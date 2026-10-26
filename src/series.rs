@@ -285,6 +285,54 @@ impl Series {
             .collect()
     }
 
+    /// The patches attached to the thread's messages that are not replies,
+    /// rather than sent inline, by file name: MIME parts named `*.patch` or
+    /// `*.diff`, or typed `text/x-patch` or `text/x-diff`. The names come
+    /// from mail, so only file-name characters are kept.
+    pub fn attached_patches(mbox: &[u8]) -> Vec<String> {
+        let mut names = Vec::new();
+        for raw in split_mbox(mbox) {
+            let Ok(m) = parse_message(raw.clone()) else {
+                continue;
+            };
+            let s = m.subject.trim_start().to_ascii_lowercase();
+            if ["re:", "aw:", "fwd:", "fw:"]
+                .iter()
+                .any(|p| s.starts_with(p))
+            {
+                continue;
+            }
+            let text = String::from_utf8_lossy(&raw);
+            let mut typed = false;
+            for line in text.lines() {
+                let lower = line.to_ascii_lowercase();
+                if lower.contains("text/x-patch") || lower.contains("text/x-diff") {
+                    typed = true;
+                }
+                for key in ["filename=", "name="] {
+                    let Some(at) = lower.find(key) else { continue };
+                    let value = line[at + key.len()..].trim_start_matches('"');
+                    let name: String = value
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || "._-+".contains(*c))
+                        .take(100)
+                        .collect();
+                    let lower = name.to_ascii_lowercase();
+                    if (lower.ends_with(".patch") || lower.ends_with(".diff"))
+                        && !names.contains(&name)
+                    {
+                        names.push(name);
+                    }
+                    break;
+                }
+            }
+            if typed && names.is_empty() {
+                names.push("an unnamed patch".into());
+            }
+        }
+        names
+    }
+
     fn from_messages(messages: Vec<Vec<u8>>, root: Option<&str>) -> Result<Series> {
         let mut cover = None;
         let mut patches = Vec::new();
@@ -558,6 +606,30 @@ mod tests {
         let again = Series::load(&[file.path()]).unwrap();
         assert_eq!(again.patches.len(), 1);
         assert_eq!(again.patches[0].version, 2);
+    }
+
+    #[test]
+    fn names_patches_sent_as_attachments() {
+        let mail = "From x Mon Sep 17 00:00:00 2001\n\
+            From: A Dev <a@example.org>\n\
+            Subject: [meta-networking][wrynose][PATCH] mdio-tools: upgrade\n\
+            Content-Type: multipart/mixed; boundary=\"b\"\n\n\
+            --b\nContent-Type: text/plain\n\nWhy.\n\
+            --b\nContent-Type: image/png; name=\"image.png\"\n\nxx\n\
+            --b\nContent-Type: text/x-patch;\n\
+            \tname=\"0001-mdio-tools-upgrade.patch\"\n\
+            Content-Disposition: attachment;\n\
+            \tfilename=\"0001-mdio-tools-upgrade.patch\"\n\
+            Content-Transfer-Encoding: base64\n\nRnJvbSAx\n--b--\n\n\
+            From y Mon Sep 17 00:00:00 2001\n\
+            From: B <b@example.org>\n\
+            Subject: Re: [PATCH] mdio-tools: upgrade\n\n\
+            Please send it inline; see reply.patch\n";
+        assert_eq!(
+            Series::attached_patches(mail.as_bytes()),
+            vec!["0001-mdio-tools-upgrade.patch"]
+        );
+        assert!(Series::parse(mail.as_bytes()).is_err());
     }
 
     #[test]
