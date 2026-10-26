@@ -1,0 +1,1 @@
+**check:** shellcheck no longer reads BitBake Python as shell: an `:append` or `:prepend` whose body is Python, because the task it extends is defined `python` in a class (librsvg's `do_compile_ptest_cargo:prepend`), is skipped like a `python` function instead of failing to parse and leaving the recipe's shell unchecked.

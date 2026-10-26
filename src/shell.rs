@@ -58,14 +58,22 @@ fn shebang_shell(text: &str) -> Option<&'static str> {
 // ponytail: a closing brace is recognised only at the start of a line, which
 // is how OE metadata writes it; one-line functions are skipped.
 fn shell_functions(text: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
     let mut inside = false;
+    // Inside a function whose body is Python, blanked like a `python` one.
+    let mut skipping = false;
     let mut found = false;
     // The terminator of an open here-document, and whether it was opened
     // with `<<-`, which allows leading tabs before it. Its body may start a
     // line with `}` (device tree source does) without ending the function.
     let mut heredoc: Option<(String, bool)> = None;
-    for (n, line) in text.lines().enumerate() {
+    for (n, &line) in lines.iter().enumerate() {
+        if skipping {
+            skipping = !line.starts_with('}');
+            out.push(String::new());
+            continue;
+        }
         if inside {
             if let Some((end, tabs)) = &heredoc {
                 let candidate = if *tabs {
@@ -94,7 +102,10 @@ fn shell_functions(text: &str) -> Option<String> {
             && header.contains("()")
             && !header.starts_with("python")
             && !header.starts_with("def ");
-        if is_function {
+        if is_function && python_body(&lines[n + 1..]) {
+            skipping = true;
+            out.push(String::new());
+        } else if is_function {
             inside = true;
             found = true;
             out.push(format!("bb_function_{n}() {{"));
@@ -103,6 +114,48 @@ fn shell_functions(text: &str) -> Option<String> {
         }
     }
     found.then(|| out.join("\n") + "\n")
+}
+
+/// Whether a function's body, up to its closing brace, is BitBake Python.
+/// An `:append` or `:prepend` takes the language of the task it extends,
+/// which is often defined `python` in a class of another file
+/// (`do_compile_ptest_cargo:prepend` extends ptest-cargo.bbclass's Python
+/// task), so the body itself is read: a statement on the datastore or
+/// `bb`, or an import, is Python and never shell. Here-documents are
+/// skipped: a shell function may write a Python script through one
+/// (rust-common.bbclass's `create_wrapper_rust`).
+fn python_body(rest: &[&str]) -> bool {
+    const PYTHON: [&str; 9] = [
+        "d.getVar(",
+        "d.setVar(",
+        "d.appendVar(",
+        "d.prependVar(",
+        "d.delVar(",
+        "d.getVarFlag(",
+        "d.setVarFlag(",
+        "bb.",
+        "import ",
+    ];
+    let mut heredoc: Option<(String, bool)> = None;
+    for line in rest.iter().take_while(|l| !l.starts_with('}')) {
+        if let Some((end, tabs)) = &heredoc {
+            let candidate = if *tabs {
+                line.trim_start_matches('\t')
+            } else {
+                line
+            };
+            if candidate == end {
+                heredoc = None;
+            }
+            continue;
+        }
+        heredoc = heredoc_start(line);
+        let l = line.trim_start();
+        if PYTHON.iter().any(|p| l.starts_with(p)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// The terminator of a here-document a line opens, if any.
@@ -309,6 +362,26 @@ mod tests {
         // The python task is blanked, body included.
         assert!(lines[4..7].iter().all(|l| l.is_empty()));
         assert_eq!(lines[7], "bb_function_7() {");
+    }
+
+    #[test]
+    fn appends_to_python_tasks_are_not_shell() {
+        // librsvg: the prepend extends ptest-cargo.bbclass's Python task.
+        let text = "do_compile_ptest_cargo:prepend() {\n    \
+                    # Note that this is Python.\n    \
+                    d.setVar('PACKAGECONFIG_CONFARGS', '')\n}\n\n\
+                    do_compile_ptest:prepend() {\n\
+                    \tsed -i '/rsvg-convert$/d' ${CARGO_TEST_BINARIES_FILES}\n}\n";
+        let out = shell_functions(text).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), text.lines().count());
+        assert!(lines[..4].iter().all(|l| l.is_empty()), "{out}");
+        assert_eq!(lines[5], "bb_function_5() {");
+        assert!(lines[6].contains("sed -i"));
+        // A shell function writing a Python script is still shell.
+        let text = "create_wrapper() {\n\tcat <<- EOF > \"$1\"\n\timport os, sys\n\tEOF\n}\n";
+        let out = shell_functions(text).unwrap();
+        assert!(out.starts_with("bb_function_0() {\n"), "{out}");
     }
 
     #[test]
