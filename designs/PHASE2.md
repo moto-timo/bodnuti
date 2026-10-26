@@ -852,11 +852,21 @@ AutoBuilder (§5.7, decision 3). CodeQL alerts first seen at a commit that
 is one of a series' patches are shown on that series, with their rule,
 file and line.
 
-**Not decided.** Which of the two layerindex-web repositories to read, or
-both (they run the same workflows; yoctoproject's is upstream's own);
-whether this comes before §5.7 or with it, since it needs no AutoBuilder
-or error-report-web work; and whether CodeQL alerts belong with the CI
-results or with the findings, as a checker that runs elsewhere.
+**Decided.** Settled with the maintainer:
+
+1. Both layerindex-web repositories are read, upstream's and the
+   maintainer's; a series carried by runs in both shows each.
+2. This comes before §5.7: it needs no AutoBuilder or error-report-web
+   work, and is the smaller first use of the same matching.
+
+**Not decided: where CodeQL alerts go.** Recommended: with the CI
+results, shown and not counted, rather than as findings. CodeQL runs on
+`master`, so an alert appears only once its series has landed, while a
+finding is what a series adds, compared before and after it, before it is
+merged; an alert would arrive after the review it could inform, and
+without the before-and-after comparison. If CodeQL is later run on
+`master-next` as well, its alerts arrive in time, and the question can be
+asked again.
 
 ## 6. Publishing
 
