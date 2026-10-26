@@ -67,8 +67,20 @@ impl Tracker {
             if self.root_of.contains_key(&e.message_id) {
                 continue;
             }
-            let (_, index, total) = counters(&subject_tags(&e.subject));
-            let root = if index == 0 && total > 0 {
+            let (version, mut index, mut total) = counters(&subject_tags(&e.subject));
+            // A later revision of a patch sent as a reply to it, such as a
+            // [PATCH v2] answering patch 11/12 of a v1 series, is a series of
+            // its own, complete on its own.
+            let reroll = e.in_reply_to.as_ref().is_some_and(|parent| {
+                self.root_of
+                    .get(parent)
+                    .and_then(|r| self.series.get(r))
+                    .is_some_and(|s| counters(&subject_tags(&s.subject)).0 != version)
+            });
+            if reroll {
+                (index, total) = (1, 1);
+            }
+            let root = if reroll || (index == 0 && total > 0) {
                 e.message_id.clone()
             } else if let Some(parent) = &e.in_reply_to {
                 // The parent is the root or another patch of the series. If it
@@ -167,6 +179,26 @@ mod tests {
         ]);
         assert_eq!(t.series.len(), 2);
         assert!(t.series["v2@x"].complete());
+    }
+
+    #[test]
+    fn a_revision_sent_as_a_reply_is_its_own_series() {
+        let mut t = Tracker::default();
+        t.ingest(&[
+            entry("0@x", "[PATCH 0/2] upgrades", None, "00"),
+            entry("1@x", "[PATCH 1/2] a: upgrade", Some("0@x"), "01"),
+            entry("2@x", "[PATCH 2/2] b: upgrade", Some("0@x"), "02"),
+            // The author's fix to patch 2, sent in its thread.
+            entry("v2@x", "[PATCH v2] b: upgrade", Some("2@x"), "30"),
+        ]);
+        assert_eq!(t.series.len(), 2);
+        assert!(t.series["0@x"].complete());
+        let v2 = &t.series["v2@x"];
+        assert!(v2.complete());
+        assert_eq!(v2.subject, "[PATCH v2] b: upgrade");
+        // A reply of the same revision still belongs to its series.
+        t.ingest(&[entry("3@x", "[PATCH 2/2] b: upgrade", Some("1@x"), "40")]);
+        assert_eq!(t.series.len(), 2);
     }
 
     #[test]

@@ -31,6 +31,17 @@ pub struct Patch {
 }
 
 impl Patch {
+    /// The commit message: the body before the `---` line or the first
+    /// diff.
+    pub fn commit_message(&self) -> String {
+        let text = String::from_utf8_lossy(&self.decoded()).into_owned();
+        let body = text.split_once("\n\n").map_or("", |(_, b)| b);
+        body.lines()
+            .take_while(|l| *l != "---" && !l.starts_with("diff --git"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub fn is_cover_letter(&self) -> bool {
         self.index == 0 && self.total > 0
     }
@@ -83,7 +94,7 @@ impl Patch {
     /// writes when the sender is not the author, as for a backport, else
     /// the From header. git am takes the author from the same place, so
     /// this is the author of the commit the patch becomes.
-    fn author_from(&self) -> Option<&str> {
+    pub fn author_from(&self) -> Option<&str> {
         self.in_body_from().or(self.from.as_deref())
     }
 
@@ -197,7 +208,36 @@ impl Series {
                 std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
             messages.extend(split_mbox(&data));
         }
-        Series::from_messages(messages)
+        Series::from_messages(messages, None)
+    }
+
+    /// Like `load`, for the series whose root is the message `root`: a
+    /// thread fetched for a revision sent as a reply, such as a `[PATCH v2]`
+    /// of one patch of a v1 series, holds the v1 series too.
+    pub fn load_rooted(paths: &[impl AsRef<Path>], root: &str) -> Result<Series> {
+        let mut messages = Vec::new();
+        for path in paths {
+            let path = path.as_ref();
+            let data =
+                std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            messages.extend(split_mbox(&data));
+        }
+        Series::from_messages(messages, Some(root))
+    }
+
+    /// The series' messages, cover letter first, as an mbox.
+    pub fn mbox(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for m in self.cover.iter().chain(&self.patches) {
+            out.extend_from_slice(&m.raw);
+            if !out.ends_with(b"\n") {
+                out.push(b'\n');
+            }
+            if !out.ends_with(b"\n\n") {
+                out.push(b'\n');
+            }
+        }
+        out
     }
 
     /// Fetches a series from lore by Message-ID or lore URL.
@@ -224,7 +264,7 @@ impl Series {
     /// Reads a series from mbox data: one or more messages, as `b4 mbox` or
     /// `git format-patch --stdout` writes them.
     pub fn parse(mbox: &[u8]) -> Result<Series> {
-        Series::from_messages(split_mbox(mbox))
+        Series::from_messages(split_mbox(mbox), None)
     }
 
     /// The text of every message in mbox data that is not a reply, decoded,
@@ -243,7 +283,7 @@ impl Series {
             .collect()
     }
 
-    fn from_messages(messages: Vec<Vec<u8>>) -> Result<Series> {
+    fn from_messages(messages: Vec<Vec<u8>>, root: Option<&str>) -> Result<Series> {
         let mut cover = None;
         let mut patches = Vec::new();
         for raw in messages {
@@ -262,14 +302,21 @@ impl Series {
         }
         // A thread can carry a later revision posted as a reply, such as a
         // [PATCH v2] of one patch of a v1 series. It is its own series: keep
-        // only patches of the cover letter's revision, or, without one, of
-        // the first patch in the input (the root b4 fetched the thread from).
-        let (version, total) = cover
-            .as_ref()
+        // only patches of the root's revision when the root is one of the
+        // patches, else of the cover letter's, or, without one, of the first
+        // patch in the input (the root b4 fetched the thread from).
+        let root = root.map(|r| r.trim_matches(|c| c == '<' || c == '>'));
+        let (version, total) = patches
+            .iter()
+            .find(|p| root.is_some() && p.message_id.as_deref() == root)
+            .or(cover.as_ref())
             .or(patches.first())
             .map(|p| (p.version, p.total))
             .unwrap_or((1, 1));
         patches.retain(|p| p.version == version && p.total == total);
+        if cover.as_ref().is_some_and(|c| c.version != version) {
+            cover = None;
+        }
         patches.sort_by_key(|p| p.index);
         Ok(Series { cover, patches })
     }
@@ -485,6 +532,33 @@ mod tests {
     }
 
     #[test]
+    fn loads_the_revision_a_thread_was_fetched_for() {
+        // A v1 series and, in its thread, a [PATCH v2] of its second patch.
+        let mbox = [
+            message("[PATCH 0/2] upgrades", "cover\n"),
+            message("[PATCH 1/2] a: upgrade", "one\ndiff --git a/a b/a\n"),
+            message("[PATCH 2/2] b: upgrade", "two\ndiff --git a/b b/b\n"),
+            message("[PATCH v2] b: upgrade", "fixed\ndiff --git a/b b/b\n"),
+        ]
+        .concat();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), &mbox).unwrap();
+        let v1 = Series::load(&[file.path()]).unwrap();
+        assert_eq!(v1.patches.len(), 2);
+        let id = "<21@example.org>"; // "[PATCH v2] b: upgrade" is 21 bytes
+        let v2 = Series::load_rooted(&[file.path()], id).unwrap();
+        assert!(v2.cover.is_none());
+        assert_eq!(v2.patches.len(), 1);
+        assert_eq!(v2.patches[0].subject, "[PATCH v2] b: upgrade");
+        assert!(v2.patches[0].commit_message().starts_with("fixed"));
+        // Written back, it loads as itself alone.
+        std::fs::write(file.path(), v2.mbox()).unwrap();
+        let again = Series::load(&[file.path()]).unwrap();
+        assert_eq!(again.patches.len(), 1);
+        assert_eq!(again.patches[0].version, 2);
+    }
+
+    #[test]
     fn splits_a_b4_mbox_and_orders_by_counter() {
         let mbox = [
             message(
@@ -498,7 +572,7 @@ mod tests {
             ),
         ]
         .concat();
-        let series = Series::from_messages(split_mbox(mbox.as_bytes())).unwrap();
+        let series = Series::from_messages(split_mbox(mbox.as_bytes()), None).unwrap();
         assert_eq!(
             series.cover.as_ref().unwrap().subject,
             "[PATCH v2 0/2] curl fixes"
@@ -525,7 +599,7 @@ mod tests {
             message("[PATCH v2] strace: upgrade 7.2 -> 7.3", diff),
         ]
         .concat();
-        let series = Series::from_messages(split_mbox(mbox.as_bytes())).unwrap();
+        let series = Series::from_messages(split_mbox(mbox.as_bytes()), None).unwrap();
         let subjects: Vec<_> = series.patches.iter().map(|p| p.subject.as_str()).collect();
         assert_eq!(
             subjects,
@@ -615,7 +689,7 @@ mod tests {
             ),
         ]
         .concat();
-        let series = Series::from_messages(split_mbox(mbox.as_bytes())).unwrap();
+        let series = Series::from_messages(split_mbox(mbox.as_bytes()), None).unwrap();
         assert_eq!(series.patches.len(), 1);
         assert_eq!(series.branch_candidates(), vec!["scarthgap"]);
     }
@@ -687,6 +761,6 @@ mod tests {
     #[test]
     fn rejects_input_without_patches() {
         let mbox = message("[PATCH 0/1] cover only", "x");
-        assert!(Series::from_messages(split_mbox(mbox.as_bytes())).is_err());
+        assert!(Series::from_messages(split_mbox(mbox.as_bytes()), None).is_err());
     }
 }

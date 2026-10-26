@@ -112,7 +112,7 @@ impl Runner<'_> {
         std::fs::create_dir_all(&dir)?;
 
         let mbox = self.fetch(&dir, &root, members)?;
-        let (series, base, branch, pull) = match Series::load(&[&mbox]) {
+        let (series, base, branch, pull) = match Series::load_rooted(&[&mbox], &root) {
             Err(err) if err.downcast_ref::<NoPatches>().is_some() => {
                 match self.pull_request(&repo, &mbox, &root)? {
                     Ok((series, pr)) => {
@@ -128,6 +128,10 @@ impl Runner<'_> {
             }
             loaded => {
                 let series = loaded?;
+                // Only this series' messages, so the check and later
+                // readers of the mbox do not pick another revision of the
+                // thread.
+                std::fs::write(&mbox, series.mbox())?;
                 if route == Route::SubjectTag
                     && record.candidates.len() > 1
                     && let Some(chosen) = self.choose(&record.candidates, &series)?
@@ -142,8 +146,16 @@ impl Runner<'_> {
             }
         };
         let ids = patch_ids(&series)?;
+        let mails = mail_ids(&series)?;
         record.branch = Some(branch.clone());
-        if let Some(earlier) = self.all_known(&ids, list, &root, &branch)? {
+        // A resend is a duplicate only when its mail is unchanged too: a
+        // revision that fixes only the author or the commit message changes
+        // what patchtest's mail checks find.
+        if let Some(earlier) = self.all_known(PATCH_IDS, &ids, list, &root, &branch)?
+            && self
+                .all_known(MAIL_IDS, &mails, list, &root, &branch)?
+                .is_some()
+        {
             record.status = Status::Duplicate;
             record.reason = Some(format!(
                 "every patch was already checked for {branch} in {earlier}"
@@ -224,7 +236,8 @@ impl Runner<'_> {
                 &pr.head[..12]
             )
         });
-        self.remember(&ids, list, &root, &branch)?;
+        self.remember(PATCH_IDS, &ids, list, &root, &branch)?;
+        self.remember(MAIL_IDS, &mails, list, &root, &branch)?;
         Ok(())
     }
 
@@ -385,6 +398,7 @@ impl Runner<'_> {
     /// (a backport) is checked for each.
     fn all_known(
         &self,
+        store: &str,
         ids: &[(String, u32)],
         list: &str,
         root: &str,
@@ -393,7 +407,7 @@ impl Runner<'_> {
         let this = format!("{list}/{root}");
         let mut first = None;
         for (id, _) in ids {
-            let owners = read_owners(&self.config.state, id)?;
+            let owners = read_owners_in(&self.config.state, store, id)?;
             match owners.iter().find(|o| o.branch.as_deref() == Some(branch)) {
                 Some(o) if o.series != this => first = first.or(Some(o.series.clone())),
                 _ => return Ok(None),
@@ -404,11 +418,18 @@ impl Runner<'_> {
 
     /// Records the series as the first one checked with each patch-id for
     /// `branch`, with the patch's position in it.
-    fn remember(&self, ids: &[(String, u32)], list: &str, root: &str, branch: &str) -> Result<()> {
-        let dir = self.config.state.join("patch-ids");
+    fn remember(
+        &self,
+        store: &str,
+        ids: &[(String, u32)],
+        list: &str,
+        root: &str,
+        branch: &str,
+    ) -> Result<()> {
+        let dir = self.config.state.join(store);
         std::fs::create_dir_all(&dir)?;
         for (id, index) in ids {
-            if read_owners(&self.config.state, id)?
+            if read_owners_in(&self.config.state, store, id)?
                 .iter()
                 .any(|o| o.branch.as_deref() == Some(branch))
             {
@@ -438,7 +459,50 @@ pub struct Owner {
 /// Every series a patch-id was checked in: one line each, as
 /// `<list>/<root> <branch> <index>`.
 pub fn read_owners(state: &Path, id: &str) -> Result<Vec<Owner>> {
-    let text = match std::fs::read_to_string(state.join("patch-ids").join(id)) {
+    read_owners_in(state, PATCH_IDS, id)
+}
+
+/// The series' patches by `git patch-id`, under `state/`.
+const PATCH_IDS: &str = "patch-ids";
+
+/// The series' patches by their mail (author, summary and commit message),
+/// under `state/`.
+const MAIL_IDS: &str = "mail-ids";
+
+/// An id of each patch's mail: its author, summary and commit message,
+/// hashed by git. Patches whose diffs and mail match are the same patch
+/// sent again.
+fn mail_ids(series: &Series) -> Result<Vec<(String, u32)>> {
+    let mut ids = Vec::new();
+    for patch in &series.patches {
+        let text = format!(
+            "{}\n{}\n{}",
+            patch.author_from().unwrap_or_default(),
+            patch.summary(),
+            patch.commit_message()
+        );
+        let mut child = git::command(Path::new("."))
+            .args(["hash-object", "--stdin"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .context("running git hash-object")?;
+        child
+            .stdin
+            .take()
+            .context("git stdin")?
+            .write_all(text.as_bytes())?;
+        let output = child.wait_with_output()?;
+        ids.push((
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            patch.index,
+        ));
+    }
+    Ok(ids)
+}
+
+fn read_owners_in(state: &Path, store: &str, id: &str) -> Result<Vec<Owner>> {
+    let text = match std::fs::read_to_string(state.join(store).join(id)) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e.into()),
@@ -589,6 +653,21 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
         let mut record = state.series.remove(root).unwrap();
         record.repo = Some("openembedded-core".into());
         record
+    }
+
+    #[test]
+    fn a_new_author_is_a_new_mail_for_the_same_diff() {
+        let mail = |from: &str| {
+            format!(
+                "From 1 Mon Sep 17 00:00:00 2001\nFrom: {from}\nSubject: [PATCH] b: upgrade\n\n\
+                 Upgrade b.\n---\ndiff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-1\n+2\n"
+            )
+        };
+        let auh = Series::parse(mail("auh <auh@yoctoproject.org>").as_bytes()).unwrap();
+        let dev = Series::parse(mail("A Dev <a@example.org>").as_bytes()).unwrap();
+        assert_eq!(patch_ids(&auh).unwrap(), patch_ids(&dev).unwrap());
+        assert_ne!(mail_ids(&auh).unwrap(), mail_ids(&dev).unwrap());
+        assert_eq!(mail_ids(&dev).unwrap(), mail_ids(&dev).unwrap());
     }
 
     #[test]
