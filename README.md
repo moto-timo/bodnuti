@@ -100,6 +100,15 @@ gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bod
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
+The source has SLSA source provenance too: each push to `main` and each
+tag gets a signed source provenance attestation and verification summary,
+kept in git notes, which the
+[SLSA source tool](https://github.com/slsa-framework/source-tool) checks:
+
+```
+sourcetool verify moto-timo/bodnuti --tag v0.2.0
+```
+
 ## License
 
 bodnuti is licensed under either of the [MIT license](LICENSE-MIT) or the

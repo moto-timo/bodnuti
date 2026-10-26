@@ -19,6 +19,7 @@
 
 - Report pages escape `{` and `}` as well, so text from mail can never act as a template where a page is served through one.
 - **packaging:** Release wheels and the container image carry SLSA build provenance and an attested SPDX 2.3 SBOM (GitHub artifact attestations), and the image a keyless cosign signature; the SBOMs are also attached to the release, and the README says how to verify all of them.
+- **packaging:** The repository produces SLSA source provenance: rulesets keep `main` and every tag from being deleted or rewritten, and each push to `main` and each tag gets a signed source provenance attestation and verification summary, stored in git notes, from the SLSA source tool.
 
 ### Documentation
 
