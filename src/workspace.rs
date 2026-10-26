@@ -169,16 +169,16 @@ pub fn resolve_base(repo: &Path, series: &Series, explicit: Option<&str>) -> Str
 }
 
 /// A series checked on a staging branch because it does not apply to the
-/// default branch (designs/PHASE2.md §5.6).
+/// branch it targets (designs/PHASE2.md §5.6).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Staged {
-    /// The staging branch, as `--staging` named it without its remote
-    /// (`master-next`).
+    /// The staging branch, without its remote (`master-next`,
+    /// `scarthgap-next`).
     pub branch: String,
-    /// The default branch, likewise (`master`).
-    pub default: String,
-    /// The default branch's commit the series does not apply to.
-    pub default_base: String,
+    /// The branch the series targets, likewise (`master`, `scarthgap`).
+    pub target: String,
+    /// That branch's commit the series does not apply to.
+    pub target_base: String,
     /// Why it does not: the patch, and git am's error.
     pub reason: String,
 }
@@ -188,31 +188,45 @@ impl Staged {
     pub fn note(&self) -> String {
         format!(
             "does not apply to {} {}: {}; checked on {}, which carries the patches it builds on",
-            self.default,
-            self.default_base,
+            self.target,
+            self.target_base,
             self.reason.trim_end_matches('.'),
             self.branch
         )
     }
 }
 
-/// The base on `staging` to check `series` on, when it targets the
-/// repository's default branch at `base` and does not apply there
-/// (designs/PHASE2.md §5.6): the staging branch just before the series, if
-/// it already carries some of it, else its tip. None when the series
-/// applies at `base`, when `base` is not the default branch, when the clone
-/// has no `staging`, or when the series does not apply there either.
+/// The base on a staging branch to check `series` on, when it targets the
+/// branch `base` and does not apply there (designs/PHASE2.md §5.6): the
+/// staging branch just before the series, if it already carries some of
+/// it, else its tip. `staging` names the staging branch, with `{branch}`
+/// standing for the target branch (`origin/{branch}-next` stages `master`
+/// on `master-next` and `scarthgap` on `scarthgap-next`); without
+/// `{branch}`, it stages the default branch only.
+///
+/// None when `base` is not a branch, when the series applies there, when
+/// the clone has no such staging branch or it stages nothing (it is
+/// already part of the target branch, as an abandoned one is), or when
+/// the series does not apply there either.
 pub fn staged_base(
     repo: &Path,
     base: &str,
     staging: &str,
     series: &Series,
 ) -> Result<Option<(String, Staged)>> {
-    let full = |r: &str| git::run(repo, &["rev-parse", "--symbolic-full-name", r]).ok();
-    let default = full("origin/HEAD");
-    if default.is_none() || full(base) != default {
+    let full =
+        |r: &str| git::run(repo, &["rev-parse", "--symbolic-full-name", r]).unwrap_or_default();
+    let target = full(base);
+    if !(target.starts_with("refs/remotes/") || target.starts_with("refs/heads/")) {
         return Ok(None);
     }
+    let staging = if staging.contains("{branch}") {
+        staging.replace("{branch}", &branch_label(&target))
+    } else if full("origin/HEAD") == target {
+        staging.to_string()
+    } else {
+        return Ok(None);
+    };
     let Some(failed) = not_applied(repo, base, series)? else {
         return Ok(None);
     };
@@ -227,6 +241,9 @@ pub fn staged_base(
     ) else {
         return Ok(None);
     };
+    if git::run(repo, &["merge-base", "--is-ancestor", &tip, base]).is_ok() {
+        return Ok(None);
+    }
     let on = match first_carried(repo, base, &tip, series)? {
         Some(commit) => git::run(repo, &["rev-parse", &format!("{commit}^")])?,
         None => tip,
@@ -235,9 +252,9 @@ pub fn staged_base(
         return Ok(None);
     }
     let staged = Staged {
-        branch: branch_label(staging),
-        default: branch_label(&default.unwrap_or_default()),
-        default_base: failed.base.clone(),
+        branch: branch_label(&staging),
+        target: branch_label(&target),
+        target_base: failed.base.clone(),
         reason: format!("patch {}/{}: {}", failed.index, failed.total, failed.reason),
     };
     Ok(Some((on, staged)))
@@ -486,7 +503,13 @@ mod tests {
         git::run(p, &["branch", "next-early"]).unwrap();
         commit(p, "SUMMARY = \"foo\"\nA = \"2\"\n", "foo: change A");
         let mbox = git::run(p, &["format-patch", "--stdout", "-1"]).unwrap();
+        // A stable branch stages the same way, and an abandoned staging
+        // branch is part of its branch already.
+        git::run(p, &["branch", "scarthgap-next", "master-next"]).unwrap();
+        git::run(p, &["branch", "main-next", "master-next"]).unwrap();
         git::run(p, &["checkout", "-q", "main"]).unwrap();
+        git::run(p, &["branch", "kirkstone"]).unwrap();
+        git::run(p, &["branch", "kirkstone-next", "HEAD"]).unwrap();
         let clone = tempfile::tempdir().unwrap();
         git::run(clone.path(), &["clone", "-q", p.to_str().unwrap(), "."]).unwrap();
         (up, clone, series((mbox + "\n").into_bytes()), staged)
@@ -502,7 +525,7 @@ mod tests {
             .unwrap();
         assert_eq!(on, staged);
         assert_eq!(how.branch, "master-next");
-        assert_eq!(how.default, "main");
+        assert_eq!(how.target, "main");
         assert!(how.reason.starts_with("patch 1/1: "), "{}", how.reason);
         assert!(how.note().starts_with("does not apply to main "));
         // A staging branch without the series: its tip.
@@ -511,6 +534,33 @@ mod tests {
             .unwrap();
         assert_eq!(on, staged);
         assert_eq!(how.branch, "next-early");
+    }
+
+    #[test]
+    fn stages_each_branch_on_its_own_next_branch() {
+        let (_up, clone, s, staged) = staged_upstream();
+        let repo = clone.path();
+        let pattern = "origin/{branch}-next";
+        let (on, how) = staged_base(repo, "refs/remotes/origin/scarthgap", pattern, &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(on, staged);
+        assert_eq!(
+            (how.branch.as_str(), how.target.as_str()),
+            ("scarthgap-next", "scarthgap")
+        );
+        let (_, how) = staged_base(repo, "origin/main", pattern, &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(how.branch, "main-next");
+        // kirkstone-next stages nothing: it is part of kirkstone.
+        assert!(
+            staged_base(repo, "origin/kirkstone", pattern, &s)
+                .unwrap()
+                .is_none()
+        );
+        // A commit is no branch, so has no staging branch.
+        assert!(staged_base(repo, &staged, pattern, &s).unwrap().is_none());
     }
 
     #[test]

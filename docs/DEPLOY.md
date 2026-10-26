@@ -511,7 +511,7 @@ route = "subject-tag"
 
 [repos]
 openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"] }
-meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = "master-next" }
+meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = "{branch}-next" }
 bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
@@ -530,10 +530,12 @@ yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "py
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 ```
 
-`staging` names a branch the maintainers stage patches on before the
-default branch. A series that does not apply to `master` is checked on
-`origin/master-next` instead, just before the series if the branch already
-carries it (`designs/PHASE2.md` §5.6). `bodnuti-fetch.timer` fetches
+`staging` names the branch the maintainers stage patches on before each
+branch, `{branch}` standing for that branch: a series that does not apply
+to `master` is checked on `origin/master-next`, one for `scarthgap` on
+`origin/scarthgap-next`, just before the series if the staging branch
+already carries it (`designs/PHASE2.md` §5.6). A staging branch that is
+missing, or already part of its branch, stages nothing. `bodnuti-fetch.timer` fetches
 every branch of each upstream, so `master-next` is as current as
 `master`.
 

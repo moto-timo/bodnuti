@@ -348,10 +348,13 @@ struct CheckArgs {
     /// tag such as [scarthgap], else origin/HEAD, else HEAD.
     #[arg(long)]
     base: Option<String>,
-    /// A staging branch, such as origin/master-next: a series for the
-    /// default branch that does not apply there is checked on it, at the
-    /// commit before the series if the branch already carries it
-    /// (designs/PHASE2.md §5.6). Not used with --base.
+    /// The staging branch of the branch a series targets, `{branch}`
+    /// standing for that branch: origin/{branch}-next stages master on
+    /// master-next and scarthgap on scarthgap-next. A series that does not
+    /// apply to its branch is checked on the staging branch, at the commit
+    /// before the series if it already carries it (designs/PHASE2.md
+    /// §5.6). Without {branch}, the default branch only. Not used with
+    /// --base.
     #[arg(long)]
     staging: Option<String>,
     /// oelint-adv release. Default: the base branch name when the base is a
@@ -613,6 +616,8 @@ fn check(args: CheckArgs) -> Result<Report> {
         inputs => Series::load(inputs)?,
     };
     let mut base = resolve_base(&args.repo, &series, args.base.as_deref());
+    // The release is the target branch's, wherever the series is checked.
+    let release = args.release.unwrap_or_else(|| release_for(&base));
     // Chosen before any checker runs, so every one sees the same base.
     let mut staged = None;
     if let (None, Some(staging)) = (&args.base, &args.staging)
@@ -646,7 +651,7 @@ fn check(args: CheckArgs) -> Result<Report> {
 
     let oelint = Oelint {
         program: args.oelint.unwrap_or_else(|| sibling("oelint-adv")),
-        release: args.release.unwrap_or_else(|| release_for(&base)),
+        release,
     };
     let shellcheck = ShellCheck {
         command: args

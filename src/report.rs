@@ -423,8 +423,8 @@ mod tests {
         let mut r = report(Vec::new(), Vec::new());
         r.staged = Some(Staged {
             branch: "master-next".into(),
-            default: "master".into(),
-            default_base: "533d0a63ac2a".into(),
+            target: "master".into(),
+            target_base: "533d0a63ac2a".into(),
             reason: "patch 6/8: Failed to merge in the changes.".into(),
         });
         let text = r.text();

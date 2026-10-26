@@ -592,20 +592,29 @@ accurate for `master`, but tells the author and the reviewer nothing they
 can act on, and every checker that needs the patched tree is skipped, for
 the whole series.
 
-**The fallback.** A repository can name a staging branch:
+**The fallback.** A repository can name its staging branches, by the
+maintainers' convention of `<branch>-next`:
 
 ```toml
 [repos.meta-openembedded]
 url = "https://git.openembedded.org/meta-openembedded"
-staging = "master-next"
+staging = "{branch}-next"
 ```
 
-When the series targets the repository's default branch (no subject tag
-names another branch, §5) and does not apply there, the check tries once
-more on the staging branch, and checks the series there if it applies.
-Series for stable branches get no fallback: stable releases are staged in
-other repositories, and their staging can follow if a series on a stable
-branch needs it.
+When a series does not apply to the branch it targets (`master`, or a
+stable branch a subject tag names, §5), the check tries once more on that
+branch's staging branch (`master-next`, `scarthgap-next`), and checks the
+series there if it applies. A name without `{branch}` stages the default
+branch only.
+
+A staging branch can be abandoned: meta-openembedded keeps
+`scarthgap-next` and `kirkstone-next`, last updated in 2025 and since
+merged, 869 and 810 commits behind their branches, and has no
+`wrynose-next` or `blacksail-next` at all. A staging branch that is an
+ancestor of its branch stages nothing, so it gives no fallback, and
+neither does a missing one. Of the six stable-branch series among the 44
+openembedded-devel series that ended in `bodnuti.apply`, none moves:
+their branches have no live staging branch.
 
 **Which commit on the staging branch.** A staging branch often carries the
 series under check itself, as the tbb patch was on `master-next` by the
@@ -630,7 +639,8 @@ runs. patchtest applies the series itself, and the before and after runs
 of the other checkers must see the same base, so the check first tries
 `git am` in a throwaway workspace on the default branch, and only if a
 patch fails tries the staging base. Everything then runs on the chosen
-base. The extra cost, in a repository with a staging branch, is that trial
+base. The oelint-adv release stays the target branch's. The extra cost,
+in a repository with a staging branch, is that trial
 `git am` of every series, a second or two, and a second trial on one that
 fails.
 
@@ -653,10 +663,10 @@ Built as designed, the note apart. On the tbb series that prompted it, the
 check moved to `master-next` at `961cbb788414`, the commit just before
 the series' first patch there, and all eight patches applied.
 
-**What stays keyed to the default branch.** The series still targets
-`master`: the branch recorded for duplicates (`state/patch-ids/`) and the
-landed-patch matching (§5.1) stay `master`, so a later resend to `master`,
-or the patches reaching `master`, are recognised as before. `report.json`
+**What stays keyed to the target branch.** The series still targets its
+branch: the branch recorded for duplicates (`state/patch-ids/`) and the
+landed-patch matching (§5.1) stay that branch, so a later resend to it, or
+the patches reaching it, are recognised as before. `report.json`
 gains the staging branch the check used (`staged`), for the report and the
 series page.
 
