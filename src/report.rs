@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::finding::{Finding, Severity, ToolError};
 use crate::patchtest::Counts;
 use crate::series::Series;
-use crate::workspace::Applied;
+use crate::workspace::{Applied, Staged};
 
 #[derive(Serialize, Deserialize)]
 pub struct Report {
@@ -36,6 +36,10 @@ pub struct Report {
     /// tree, so the pages read them from here (designs/PHASE2.md §6.1).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub excerpts: BTreeMap<String, Excerpt>,
+    /// Set when the series did not apply to the default branch and was
+    /// checked on its staging branch (designs/PHASE2.md §5.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staged: Option<Staged>,
 }
 
 /// A few numbered lines of a file.
@@ -111,7 +115,16 @@ impl Report {
         let first = self.series.cover.as_ref().or(self.series.patches.first());
         let subject = first.map_or("", |p| p.subject.as_str());
         let _ = writeln!(out, "bodnuti: {subject}");
-        let _ = writeln!(out, "base: {}", &self.base[..self.base.len().min(12)]);
+        let base = &self.base[..self.base.len().min(12)];
+        match &self.staged {
+            Some(s) => {
+                let _ = writeln!(out, "base: {base} ({})", s.branch);
+                let _ = writeln!(out, "      {}", s.note());
+            }
+            None => {
+                let _ = writeln!(out, "base: {base}");
+            }
+        }
 
         for patch in &self.series.patches {
             let findings: Vec<&Finding> = self
@@ -282,6 +295,7 @@ mod tests {
             fixed: Vec::new(),
             style: Vec::new(),
             excerpts: BTreeMap::new(),
+            staged: None,
         }
     }
 
@@ -402,6 +416,26 @@ mod tests {
         );
         assert!(text.contains("patchtest: 8 pass, 0 fail, 2 skip"));
         assert!(text.ends_with("1 findings: 0 errors, 1 warnings, 0 info\n"));
+    }
+
+    #[test]
+    fn names_the_staging_branch_it_was_checked_on() {
+        let mut r = report(Vec::new(), Vec::new());
+        r.staged = Some(Staged {
+            branch: "master-next".into(),
+            default: "master".into(),
+            default_base: "533d0a63ac2a".into(),
+            reason: "patch 6/8: Failed to merge in the changes.".into(),
+        });
+        let text = r.text();
+        assert!(
+            text.contains(
+                "base: 0123456789ab (master-next)\n      does not apply to master \
+                 533d0a63ac2a: patch 6/8: Failed to merge in the changes; checked on \
+                 master-next"
+            ),
+            "{text}"
+        );
     }
 
     #[test]

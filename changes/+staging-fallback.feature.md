@@ -1,0 +1,1 @@
+**check:** A series that does not apply to a repository's default branch is checked on its staging branch, such as meta-openembedded's `master-next`, named with `staging` in `[repos]` or `--staging`: at the commit just before the series if the branch already carries it, else at its tip. The report and the series page name the branch and say why.

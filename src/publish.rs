@@ -601,13 +601,21 @@ fn series_page(config: &Config, row: &Row, generated: &str) -> String {
         item("Checked against", escape(&format!("{repo} {branch}")));
     }
     if let Some(report) = &row.report {
+        let staged = report
+            .staged
+            .as_ref()
+            .map(|s| format!(" ({})", escape(&s.branch)))
+            .unwrap_or_default();
         item(
             "Base",
             format!(
-                "<code>{}</code>",
+                "<code>{}</code>{staged}",
                 escape(&report.base[..report.base.len().min(12)])
             ),
         );
+        if let Some(s) = &report.staged {
+            item("Staging", escape(&s.note()));
+        }
     }
     if let Some(reason) = &record.reason {
         item("Note", escape(reason));
@@ -831,6 +839,7 @@ mod tests {
             fixed: vec![],
             style: vec![],
             excerpts: Default::default(),
+            staged: None,
         }
     }
 

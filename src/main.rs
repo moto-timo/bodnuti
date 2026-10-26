@@ -348,6 +348,12 @@ struct CheckArgs {
     /// tag such as [scarthgap], else origin/HEAD, else HEAD.
     #[arg(long)]
     base: Option<String>,
+    /// A staging branch, such as origin/master-next: a series for the
+    /// default branch that does not apply there is checked on it, at the
+    /// commit before the series if the branch already carries it
+    /// (designs/PHASE2.md §5.6). Not used with --base.
+    #[arg(long)]
+    staging: Option<String>,
     /// oelint-adv release. Default: the base branch name when the base is a
     /// release branch, else latest.
     #[arg(long)]
@@ -606,7 +612,15 @@ fn check(args: CheckArgs) -> Result<Report> {
         [one] if series::is_remote(one) => Series::fetch(&b4, one)?,
         inputs => Series::load(inputs)?,
     };
-    let base = resolve_base(&args.repo, &series, args.base.as_deref());
+    let mut base = resolve_base(&args.repo, &series, args.base.as_deref());
+    // Chosen before any checker runs, so every one sees the same base.
+    let mut staged = None;
+    if let (None, Some(staging)) = (&args.base, &args.staging)
+        && let Some((on, how)) = workspace::staged_base(&args.repo, &base, staging, &series)?
+    {
+        base = on;
+        staged = Some(how);
+    }
     let workspace = Workspace::create(&args.repo, &base)?;
     let mut tool_errors = Vec::new();
 
@@ -694,6 +708,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         fixed: linted.fixed,
         style,
         excerpts,
+        staged,
     })
 }
 

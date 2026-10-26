@@ -8,7 +8,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
@@ -21,7 +21,7 @@ use bodnuti::request_pull::{self, Invalid, PullRequest};
 use crate::pull;
 use crate::series::{NoPatches, Series};
 use crate::watch::{CheckResult, Config, Route, SeriesRecord, Status};
-use crate::workspace::resolve_base;
+use crate::workspace::{patch_ids, resolve_base};
 
 /// The clone patchtest always comes from.
 const OECORE: &str = "openembedded-core";
@@ -349,6 +349,17 @@ impl Runner<'_> {
                     .flatten(),
             )
             .args(base.map(|b| ["--base", b]).into_iter().flatten())
+            // A series that does not apply to the default branch is checked
+            // on the repository's staging branch (designs/PHASE2.md §5.6).
+            .args(
+                self.config
+                    .repos
+                    .get(repo)
+                    .and_then(|r| r.staging.as_ref())
+                    .map(|s| ["--staging".to_string(), format!("origin/{s}")])
+                    .into_iter()
+                    .flatten(),
+            )
             .arg(format!("/in/{root}.mbx"))
             .output()
             .context("starting the container to check the series")?;
@@ -447,33 +458,6 @@ fn branch_name(base: &str) -> String {
         .or_else(|| base.split_once('/').map(|(_, b)| b))
         .unwrap_or(base);
     name.to_string()
-}
-
-/// `git patch-id --stable` for each patch, which is the same for a patch
-/// whatever its commit message, so a resend with a reworded message matches.
-fn patch_ids(series: &Series) -> Result<Vec<(String, u32)>> {
-    let mut ids = Vec::new();
-    for patch in &series.patches {
-        let mut child = git::command(Path::new("."))
-            .args(["patch-id", "--stable"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .context("running git patch-id")?;
-        child
-            .stdin
-            .take()
-            .context("git stdin")?
-            .write_all(&patch.raw)?;
-        let output = child.wait_with_output()?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let id = text
-            .split_whitespace()
-            .next()
-            .context("git patch-id printed nothing")?;
-        ids.push((id.to_string(), patch.index));
-    }
-    Ok(ids)
 }
 
 /// Paths the series modifies or deletes that do not exist at its base in

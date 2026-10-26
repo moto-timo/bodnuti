@@ -4,9 +4,11 @@
 //! layer checkout bodnuti was pointed at is never modified beyond git's
 //! worktree bookkeeping.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
@@ -166,6 +168,161 @@ pub fn resolve_base(repo: &Path, series: &Series, explicit: Option<&str>) -> Str
     git::run(repo, &["rev-parse", "--abbrev-ref", "origin/HEAD"]).unwrap_or_else(|_| "HEAD".into())
 }
 
+/// A series checked on a staging branch because it does not apply to the
+/// default branch (designs/PHASE2.md §5.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Staged {
+    /// The staging branch, as `--staging` named it without its remote
+    /// (`master-next`).
+    pub branch: String,
+    /// The default branch, likewise (`master`).
+    pub default: String,
+    /// The default branch's commit the series does not apply to.
+    pub default_base: String,
+    /// Why it does not: the patch, and git am's error.
+    pub reason: String,
+}
+
+impl Staged {
+    /// Why the series was checked on the staging branch, in one line.
+    pub fn note(&self) -> String {
+        format!(
+            "does not apply to {} {}: {}; checked on {}, which carries the patches it builds on",
+            self.default,
+            self.default_base,
+            self.reason.trim_end_matches('.'),
+            self.branch
+        )
+    }
+}
+
+/// The base on `staging` to check `series` on, when it targets the
+/// repository's default branch at `base` and does not apply there
+/// (designs/PHASE2.md §5.6): the staging branch just before the series, if
+/// it already carries some of it, else its tip. None when the series
+/// applies at `base`, when `base` is not the default branch, when the clone
+/// has no `staging`, or when the series does not apply there either.
+pub fn staged_base(
+    repo: &Path,
+    base: &str,
+    staging: &str,
+    series: &Series,
+) -> Result<Option<(String, Staged)>> {
+    let full = |r: &str| git::run(repo, &["rev-parse", "--symbolic-full-name", r]).ok();
+    let default = full("origin/HEAD");
+    if default.is_none() || full(base) != default {
+        return Ok(None);
+    }
+    let Some(failed) = not_applied(repo, base, series)? else {
+        return Ok(None);
+    };
+    let Ok(tip) = git::run(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{staging}^{{commit}}"),
+        ],
+    ) else {
+        return Ok(None);
+    };
+    let on = match first_carried(repo, base, &tip, series)? {
+        Some(commit) => git::run(repo, &["rev-parse", &format!("{commit}^")])?,
+        None => tip,
+    };
+    if not_applied(repo, &on, series)?.is_some() {
+        return Ok(None);
+    }
+    let staged = Staged {
+        branch: branch_label(staging),
+        default: branch_label(&default.unwrap_or_default()),
+        default_base: failed.base.clone(),
+        reason: format!("patch {}/{}: {}", failed.index, failed.total, failed.reason),
+    };
+    Ok(Some((on, staged)))
+}
+
+/// Why `series` does not apply at `base`, tried in a throwaway worktree;
+/// None when it applies.
+fn not_applied(repo: &Path, base: &str, series: &Series) -> Result<Option<NotApplied>> {
+    let workspace = Workspace::create(repo, base)?;
+    match workspace.apply(series) {
+        Ok(_) => Ok(None),
+        Err(err) => Ok(Some(err.downcast::<NotApplied>()?)),
+    }
+}
+
+/// The oldest commit of `base..tip` that is one of the series' patches,
+/// by patch-id: a staging branch often carries the series under check.
+fn first_carried(repo: &Path, base: &str, tip: &str, series: &Series) -> Result<Option<String>> {
+    let wanted: Vec<String> = patch_ids(series)?.into_iter().map(|(id, _)| id).collect();
+    let log = git::command(repo)
+        .args(["log", "-p", "--no-merges", "--reverse", "--no-color"])
+        .arg(format!("{base}..{tip}"))
+        .output()
+        .context("running git log")?;
+    if !log.status.success() {
+        bail!("git log {base}..{tip} failed");
+    }
+    // `git patch-id` prints "<patch-id> <commit>" per commit, in log order.
+    Ok(patch_id_lines(&log.stdout)?
+        .into_iter()
+        .find(|(id, _)| wanted.contains(id))
+        .map(|(_, commit)| commit))
+}
+
+/// `git patch-id --stable` for each patch, which is the same for a patch
+/// whatever its commit message, so a resend with a reworded message matches.
+pub fn patch_ids(series: &Series) -> Result<Vec<(String, u32)>> {
+    let mut ids = Vec::new();
+    for patch in &series.patches {
+        let (id, _) = patch_id_lines(&patch.raw)?
+            .into_iter()
+            .next()
+            .context("git patch-id printed nothing")?;
+        ids.push((id, patch.index));
+    }
+    Ok(ids)
+}
+
+/// `git patch-id --stable` on `input`: one `(patch-id, commit)` per patch.
+fn patch_id_lines(input: &[u8]) -> Result<Vec<(String, String)>> {
+    let mut child = git::command(Path::new("."))
+        .args(["patch-id", "--stable"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("running git patch-id")?;
+    let mut stdin = child.stdin.take().context("git stdin")?;
+    // Written from a thread: a long log fills the pipe before git reads it
+    // all, and git's output would fill the other.
+    let input = input.to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let output = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| anyhow::anyhow!("writing to git patch-id"))??;
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|l| {
+            let (id, commit) = l.split_once(' ')?;
+            Some((id.to_string(), commit.to_string()))
+        })
+        .collect())
+}
+
+/// A branch without its remote: `origin/master-next`,
+/// `refs/remotes/origin/master` and `refs/heads/master` give the branch.
+fn branch_label(name: &str) -> String {
+    name.strip_prefix("refs/remotes/")
+        .and_then(|r| r.split_once('/').map(|(_, b)| b))
+        .or_else(|| name.strip_prefix("refs/heads/"))
+        .or_else(|| name.strip_prefix("origin/"))
+        .unwrap_or(name)
+        .to_string()
+}
+
 fn path_str(path: &Path) -> Result<&str> {
     path.to_str().context("worktree path is not valid UTF-8")
 }
@@ -297,5 +454,87 @@ mod tests {
         let s = series(tagged.into_bytes());
         assert_eq!(resolve_base(repo.path(), &s, None), "refs/heads/scarthgap");
         assert_eq!(resolve_base(repo.path(), &s, Some("v1.0")), "v1.0");
+    }
+
+    fn commit(repo: &Path, contents: &str, subject: &str) -> String {
+        std::fs::write(repo.join("foo.bb"), contents).unwrap();
+        git::run(
+            repo,
+            &[
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@x",
+                "commit",
+                "-qam",
+                subject,
+            ],
+        )
+        .unwrap();
+        git::run(repo, &["rev-parse", "HEAD"]).unwrap()
+    }
+
+    /// An upstream whose `master-next` stages a patch, `foo: add A`, and a
+    /// series built on it, `foo: change A`, which master-next carries too;
+    /// `next-early` has only the staged patch. Returns a clone of it, the
+    /// series, and the staged patch's commit.
+    fn staged_upstream() -> (TempDir, TempDir, Series, String) {
+        let up = layer();
+        let p = up.path();
+        git::run(p, &["checkout", "-q", "-b", "master-next"]).unwrap();
+        let staged = commit(p, "SUMMARY = \"foo\"\nA = \"1\"\n", "foo: add A");
+        git::run(p, &["branch", "next-early"]).unwrap();
+        commit(p, "SUMMARY = \"foo\"\nA = \"2\"\n", "foo: change A");
+        let mbox = git::run(p, &["format-patch", "--stdout", "-1"]).unwrap();
+        git::run(p, &["checkout", "-q", "main"]).unwrap();
+        let clone = tempfile::tempdir().unwrap();
+        git::run(clone.path(), &["clone", "-q", p.to_str().unwrap(), "."]).unwrap();
+        (up, clone, series((mbox + "\n").into_bytes()), staged)
+    }
+
+    #[test]
+    fn checks_a_series_on_staging_before_it() {
+        let (_up, clone, s, staged) = staged_upstream();
+        let repo = clone.path();
+        // master-next carries the series itself: the base is just before it.
+        let (on, how) = staged_base(repo, "origin/main", "origin/master-next", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(on, staged);
+        assert_eq!(how.branch, "master-next");
+        assert_eq!(how.default, "main");
+        assert!(how.reason.starts_with("patch 1/1: "), "{}", how.reason);
+        assert!(how.note().starts_with("does not apply to main "));
+        // A staging branch without the series: its tip.
+        let (on, how) = staged_base(repo, "origin/main", "origin/next-early", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(on, staged);
+        assert_eq!(how.branch, "next-early");
+    }
+
+    #[test]
+    fn falls_back_only_when_needed_and_possible() {
+        let (_up, clone, s, _) = staged_upstream();
+        let repo = clone.path();
+        // No such staging branch in the clone.
+        assert!(
+            staged_base(repo, "origin/main", "origin/nope", &s)
+                .unwrap()
+                .is_none()
+        );
+        // Not the default branch: a series for another branch is not moved.
+        assert!(
+            staged_base(repo, "origin/next-early", "origin/master-next", &s)
+                .unwrap()
+                .is_none()
+        );
+        // A series that applies to the default branch stays there.
+        let applies = series(format_patch(repo, "SUMMARY = \"bar\"\n", "foo: bar"));
+        assert!(
+            staged_base(repo, "origin/main", "origin/master-next", &applies)
+                .unwrap()
+                .is_none()
+        );
     }
 }

@@ -630,31 +630,40 @@ runs. patchtest applies the series itself, and the before and after runs
 of the other checkers must see the same base, so the check first tries
 `git am` in a throwaway workspace on the default branch, and only if a
 patch fails tries the staging base. Everything then runs on the chosen
-base. The extra cost is one `git am` attempt on a series that already
-failed to apply, and none on one that applies.
+base. The extra cost, in a repository with a staging branch, is that trial
+`git am` of every series, a second or two, and a second trial on one that
+fails.
 
-**The report.** The base line names the branch it came from:
-`base: <commit> (master-next)`. An info finding, `bodnuti.base`, says
-why:
+**The report.** The base line names the branch it came from, and a note
+under it says why:
 
 ```
-INFO    bodnuti bodnuti.base
-    does not apply to master (533d0a63ac2a): patch 6/8: Failed to merge
-    in the changes.
-    Checked on master-next (<commit>), which carries the patches it
-    builds on.
+base: 961cbb788414 (master-next)
+      does not apply to master 533d0a63ac2a: patch 6/8: Failed to merge in the changes; checked on master-next, which carries the patches it builds on
 ```
 
-It is info, not a warning: depending on staged patches is how the
-maintainer works, not a fault of the series. The series' findings are the
-usual ones, compared before and after the series on that base.
+The series page shows the same as the base and a "Staging" line. It is a
+note, not a finding: depending on staged patches is how the maintainer
+works, not a fault of the series, and a finding, even an info one, would
+keep a series that is otherwise clean from being shown clean. The series'
+findings are the usual ones, compared before and after the series on that
+base.
+
+Built as designed, the note apart. On the tbb series that prompted it, the
+check moved to `master-next` at `961cbb788414`, the commit just before
+the series' first patch there, and all eight patches applied.
 
 **What stays keyed to the default branch.** The series still targets
 `master`: the branch recorded for duplicates (`state/patch-ids/`) and the
 landed-patch matching (§5.1) stay `master`, so a later resend to `master`,
-or the patches reaching `master`, are recognised as before. The record and
-`report.json` gain the staging branch the check used, for the report and
-the index.
+or the patches reaching `master`, are recognised as before. `report.json`
+gains the staging branch the check used (`staged`), for the report and the
+series page.
+
+The path check that confirms subject-tag routing on yocto-patches (§3.1)
+still reads the default branch, so a series there that changes a file only
+the staging branch has is unrouted; no repository routed that way has a
+staging branch yet.
 
 **Where it runs.** The choice is made in `bodnuti check`, offline in the
 container like the rest of the check, given `--staging <ref>` by the

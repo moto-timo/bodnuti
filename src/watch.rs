@@ -76,6 +76,9 @@ pub struct Repo {
     /// Subject tags besides the repository's name that route to it, such
     /// as `AUH` for auto-upgrade-helper (designs/PHASE2.md §3.1.1).
     pub tags: Vec<String>,
+    /// The branch the maintainers stage patches on before the default
+    /// branch, such as `master-next` (designs/PHASE2.md §5.6).
+    pub staging: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +96,8 @@ struct RepoTable {
     kind: Kind,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    staging: Option<String>,
 }
 
 impl From<RepoSpec> for Repo {
@@ -102,11 +107,13 @@ impl From<RepoSpec> for Repo {
                 url,
                 kind: Kind::Layer,
                 tags: Vec::new(),
+                staging: None,
             },
             RepoSpec::Table(t) => Repo {
                 url: t.url,
                 kind: t.kind,
                 tags: t.tags,
+                staging: t.staging,
             },
         }
     }
@@ -779,6 +786,7 @@ mod tests {
                 url: "u".into(),
                 kind: Kind::Layer,
                 tags: Vec::new(),
+                staging: None,
             },
         );
         patches.series.get_mut("c@x").unwrap().tracked.subject =
