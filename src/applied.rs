@@ -432,6 +432,7 @@ mod tests {
                 applied: BTreeMap::new(),
                 candidates: Vec::new(),
                 duplicate_of: None,
+                ci: Vec::new(),
             },
         );
     }

@@ -308,7 +308,7 @@ pub fn patch_ids(series: &Series) -> Result<Vec<(String, u32)>> {
 }
 
 /// `git patch-id --stable` on `input`: one `(patch-id, commit)` per patch.
-fn patch_id_lines(input: &[u8]) -> Result<Vec<(String, String)>> {
+pub fn patch_id_lines(input: &[u8]) -> Result<Vec<(String, String)>> {
     let mut child = git::command(Path::new("."))
         .args(["patch-id", "--stable"])
         .stdin(Stdio::piped())

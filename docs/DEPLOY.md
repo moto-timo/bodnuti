@@ -518,8 +518,8 @@ bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
 meta-yocto = "https://git.yoctoproject.org/meta-yocto"
-layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app" }
-error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app" }
+layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app", github = ["yoctoproject/layerindex-web", "moto-timo/layerindex-web"] }
+error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app", github = ["moto-timo/error-report-web"] }
 meta-security = "https://git.yoctoproject.org/meta-security"
 pseudo = { url = "https://git.yoctoproject.org/pseudo", kind = "c" }
 yocto-autobuilder-helper = { url = "https://git.yoctoproject.org/yocto-autobuilder-helper", kind = "python" }
@@ -531,6 +531,12 @@ auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper"
 yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 ```
+
+`github` names the GitHub repositories whose CI and Safety runs on
+`master-next` test the application's patches under review
+(`designs/PHASE2.md` §5.8). Each poll looks at most every 20 minutes,
+without a token (GitHub allows 60 requests an hour), fetches each new
+run's commit into the clone, and records the run on the series it carried.
 
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on

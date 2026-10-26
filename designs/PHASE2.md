@@ -898,6 +898,19 @@ file and line.
    before-and-after comparison. If CodeQL is later run on `master-next`
    as well, its alerts arrive in time, and this can be revisited.
 
+**Built**, CI and Safety runs: a `[repos]` entry's `github` names the
+repositories; each poll, at most every 20 minutes, reads their finished
+push runs on `master-next` without a token, fetches each run's commit into
+the clone, matches its commits on top of `master` to checked series by
+patch-id, and records the run on each (`ci` in the series' record). A
+failure that is new against the run of its workflow before, and newly
+carries the series, counts towards it; at the second, the failure is the
+series'. The series page lists the runs, newest first; they do not change
+the series' result. CodeQL alerts wait for a read-only token, since
+GitHub's code scanning API needs one even for public repositories. Checked
+on 26 October: both layerindex-web repositories' latest runs tested the
+same six patches on top of `master`.
+
 ## 6. Publishing
 
 `bodnuti publish` renders, from `state/`:

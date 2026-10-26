@@ -1,0 +1,1 @@
+**poll:** The Django applications' GitHub CI and Safety runs on `master-next` are traced to the series they carried, by patch-id, and listed on each series' page, with a failure shown as the series' own only once two runs failed newly carrying it. A `[repos]` entry names the GitHub repositories with `github`; no token is needed.

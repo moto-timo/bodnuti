@@ -1,6 +1,7 @@
 //! bodnuti: automated patch review for the Yocto Project and OpenEmbedded.
 
 mod applied;
+mod ci;
 mod cppcheck;
 mod django;
 mod djlint;
@@ -136,6 +137,11 @@ fn poll(args: PollArgs) -> Result<()> {
     if let Err(err) = scan_applied(&config) {
         eprintln!("bodnuti: matching applied patches: {err:#}");
         failed += 1;
+    }
+    // GitHub CI of the staging branches (designs/PHASE2.md §5.8); a
+    // failure is logged and does not fail the poll.
+    if let Err(err) = ci::poll(&config, now) {
+        eprintln!("bodnuti: GitHub CI: {err:#}");
     }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());

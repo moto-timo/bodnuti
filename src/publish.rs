@@ -813,6 +813,25 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
     if !applied.is_empty() {
         item("Upstream", applied);
     }
+    if !record.ci.is_empty() {
+        let passed = record
+            .ci
+            .iter()
+            .filter(|r| r.conclusion == "success")
+            .count();
+        let failed = record
+            .ci
+            .iter()
+            .filter(|r| r.conclusion == "failure")
+            .count();
+        item(
+            "GitHub CI",
+            format!(
+                "{}: {passed} passed, {failed} failed",
+                plural(record.ci.len(), "run")
+            ),
+        );
+    }
     body.push_str("</dl>\n");
     if let Some(report) = &row.report {
         body.push_str(&findings_html(
@@ -824,8 +843,56 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
         ));
         body.push_str("<p class=\"muted\"><a href=\"report.txt\">Text report</a></p>\n");
     }
+    body.push_str(&ci_html(record));
     let title = format!("bodnuti: {subject}");
     page(&title, "../../", &body, generated)
+}
+
+/// The GitHub CI runs that carried the series (designs/PHASE2.md §5.8),
+/// newest first. A run tests every patch on the branch at once, so a
+/// failure is the series' own only when two runs tied it to the series.
+fn ci_html(record: &SeriesRecord) -> String {
+    if record.ci.is_empty() {
+        return String::new();
+    }
+    let mut runs: Vec<&crate::ci::CiRun> = record.ci.iter().collect();
+    runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let mut out = String::from(
+        "<h3>GitHub CI</h3>\n<p class=\"muted\">Runs on master-next that carried this series. \
+         Each tests every patch on the branch; a failure is shown as this series' only when two \
+         runs failed newly carrying it.</p>\n<ul class=\"ci\">\n",
+    );
+    for r in runs {
+        let class = match r.conclusion.as_str() {
+            "success" => "clean",
+            "failure" if r.tied => "error",
+            "failure" => "warn",
+            _ => "muted",
+        };
+        let patches = r
+            .patches
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let whose = match (r.conclusion.as_str(), r.tied) {
+            ("failure", true) => " · failed newly with this series in two runs".to_string(),
+            ("failure", false) => format!(" · with {} series on the branch", r.series),
+            _ => String::new(),
+        };
+        let _ = writeln!(
+            out,
+            "<li>{} <a href=\"{}\">{} {}</a>: <span class=\"{class}\">{}</span> \
+             <span class=\"muted\">(patches {patches}{whose})</span></li>",
+            timestamp(&r.created_at),
+            escape(&r.url),
+            escape(&r.repo),
+            escape(&r.workflow),
+            escape(&r.conclusion),
+        );
+    }
+    out.push_str("</ul>\n");
+    out
 }
 
 /// The series' patches, each with its findings and where it landed.
@@ -1314,6 +1381,48 @@ mod tests {
         // A second run replaces the site.
         render(&config, &states, now).unwrap();
         assert!(!dir.path().join(".site.tmp").exists());
+    }
+
+    #[test]
+    fn lists_the_ci_runs_that_carried_a_series() {
+        let run = |id: u64, conclusion: &str, tied: bool| crate::ci::CiRun {
+            repo: "moto-timo/layerindex-web".into(),
+            workflow: "CI".into(),
+            id,
+            url: format!("https://github.com/moto-timo/layerindex-web/actions/runs/{id}"),
+            conclusion: conclusion.into(),
+            created_at: format!("2026-10-2{id}T02:00:00Z"),
+            patches: vec![1, 2],
+            series: 3,
+            tied,
+        };
+        let mut rec = record(Status::Checked, &[]);
+        rec.ci = vec![
+            run(4, "success", false),
+            run(5, "failure", false),
+            run(6, "failure", true),
+        ];
+        let html = ci_html(&rec);
+        // Newest first; an untied failure is the branch's, a tied one this series'.
+        let first = html.find("runs/6").unwrap();
+        assert!(first < html.find("runs/5").unwrap(), "{html}");
+        assert!(
+            html.contains("<span class=\"error\">failure</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"warn\">failure</span>"),
+            "{html}"
+        );
+        assert!(html.contains("with 3 series on the branch"), "{html}");
+        assert!(
+            html.contains("failed newly with this series in two runs"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"clean\">success</span>"),
+            "{html}"
+        );
     }
 
     #[test]

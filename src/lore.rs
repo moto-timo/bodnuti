@@ -11,7 +11,7 @@ use quick_xml::events::{BytesRef, Event};
 use quick_xml::{Reader, XmlVersion};
 
 const LORE: &str = "https://lore.kernel.org";
-const USER_AGENT: &str = concat!(
+pub const USER_AGENT: &str = concat!(
     "bodnuti/",
     env!("CARGO_PKG_VERSION"),
     " (+https://bodnuti.dev)"

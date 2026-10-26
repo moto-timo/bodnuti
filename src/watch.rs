@@ -79,6 +79,10 @@ pub struct Repo {
     /// Where the maintainers stage patches before each branch
     /// (designs/PHASE2.md §5.6).
     pub staging: Option<Staging>,
+    /// GitHub repositories, `owner/name`, whose CI runs on `master-next`
+    /// test this repository's patches under review (designs/PHASE2.md
+    /// §5.8).
+    pub github: Vec<String>,
 }
 
 /// The remote a clone fetches a [`Staging::Remote`] repository's staging
@@ -136,6 +140,8 @@ struct RepoTable {
     tags: Vec<String>,
     #[serde(default)]
     staging: Option<Staging>,
+    #[serde(default)]
+    github: Vec<String>,
 }
 
 impl From<RepoSpec> for Repo {
@@ -146,12 +152,14 @@ impl From<RepoSpec> for Repo {
                 kind: Kind::Layer,
                 tags: Vec::new(),
                 staging: None,
+                github: Vec::new(),
             },
             RepoSpec::Table(t) => Repo {
                 url: t.url,
                 kind: t.kind,
                 tags: t.tags,
                 staging: t.staging,
+                github: t.github,
             },
         }
     }
@@ -370,6 +378,9 @@ pub struct SeriesRecord {
     /// in. Absent in older state, where `reason` names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duplicate_of: Option<String>,
+    /// GitHub CI runs that carried the series (designs/PHASE2.md §5.8).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ci: Vec<crate::ci::CiRun>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -451,6 +462,7 @@ impl ListState {
                             applied: BTreeMap::new(),
                             candidates: Vec::new(),
                             duplicate_of: None,
+                            ci: Vec::new(),
                         },
                     );
                 }
@@ -852,6 +864,7 @@ mod tests {
                 kind: Kind::Layer,
                 tags: Vec::new(),
                 staging: None,
+                github: Vec::new(),
             },
         );
         patches.series.get_mut("c@x").unwrap().tracked.subject =
