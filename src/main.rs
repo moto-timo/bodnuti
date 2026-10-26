@@ -490,6 +490,19 @@ fn recipe_upgrades(series: &Series) -> Vec<(String, String)> {
     pairs
 }
 
+/// The files the series touches after it, each once: a file several
+/// patches touch would otherwise be checked once per patch, and each of its
+/// findings counted as many times, so that the base's could not cancel them.
+fn touched_files(series: &Series) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for file in series.patches.iter().flat_map(|p| p.files()) {
+        if !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    files
+}
+
 /// Maps each base path the series touches to its path after the series,
 /// following renames across patches (`a` renamed to `b`, then `b` to `c`),
 /// and recipe upgrades git did not detect as renames.
@@ -526,7 +539,7 @@ fn lint(
     series: &Series,
     tool_errors: &mut Vec<ToolError>,
 ) -> Result<Linted> {
-    let files: Vec<String> = series.patches.iter().flat_map(|p| p.files()).collect();
+    let files = touched_files(series);
     let head_of = head_paths(series);
     let base_files: Vec<String> = head_of.keys().cloned().collect();
 
@@ -794,6 +807,24 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), raw).unwrap();
         Series::load(&[file.path()]).unwrap().patches.remove(0)
+    }
+
+    #[test]
+    fn a_file_several_patches_touch_is_checked_once() {
+        let mail = |n: u32, body: &str| {
+            format!(
+                "From {n} Mon Sep 17 00:00:00 2001\nFrom: A <a@x>\nSubject: [PATCH {n}/2] python3: x\n\n\
+                 x\n---\n{body}\n"
+            )
+        };
+        let rename = "diff --git a/python3_3.14.7.bb b/python3_3.14.8.bb\n\
+            similarity index 90%\nrename from python3_3.14.7.bb\nrename to python3_3.14.8.bb\n";
+        let change = "diff --git a/python3_3.14.8.bb b/python3_3.14.8.bb\n\
+            --- a/python3_3.14.8.bb\n+++ b/python3_3.14.8.bb\n@@ -1 +1 @@\n-a\n+b\n";
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), mail(1, rename) + &mail(2, change)).unwrap();
+        let series = Series::load(&[file.path()]).unwrap();
+        assert_eq!(touched_files(&series), ["python3_3.14.8.bb"]);
     }
 
     #[test]

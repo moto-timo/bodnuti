@@ -1,0 +1,1 @@
+**check:** A file that several patches of a series touch is checked once, not once per patch: each of its findings was counted as many times as patches touched it, so the copies could not cancel against the base's and showed as new. A python3 upgrade series with 14 such findings has none.
