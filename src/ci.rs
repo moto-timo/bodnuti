@@ -48,7 +48,9 @@ pub struct CiRun {
     pub workflow: String,
     pub id: u64,
     pub url: String,
-    /// `success`, `failure`, `cancelled` and so on, as GitHub says.
+    /// `success`, `failure`, `cancelled` and so on, as GitHub says, or
+    /// `skipped` for a run whose jobs all skipped their own steps, such as
+    /// a Safety scan in a repository without a Safety key.
     pub conclusion: String,
     pub created_at: String,
     /// The series' patches the run carried, by number.
@@ -76,6 +78,46 @@ struct ApiRun {
     head_sha: String,
     html_url: String,
     created_at: String,
+}
+
+#[derive(Deserialize)]
+struct JobsPage {
+    jobs: Vec<ApiJob>,
+}
+
+#[derive(Deserialize)]
+struct ApiJob {
+    conclusion: Option<String>,
+    #[serde(default)]
+    steps: Vec<ApiStep>,
+}
+
+#[derive(Deserialize)]
+struct ApiStep {
+    name: String,
+    conclusion: Option<String>,
+}
+
+/// Whether every job of a run skipped the steps the workflow defines: a
+/// run GitHub calls a success that tested nothing. GitHub's own steps
+/// (setting up, checking out, cleaning up) run either way.
+fn all_skipped(jobs: &[ApiJob]) -> bool {
+    let own = |s: &&ApiStep| {
+        !(s.name == "Set up job"
+            || s.name == "Complete job"
+            || s.name.starts_with("Run actions/")
+            || s.name.starts_with("Post "))
+    };
+    !jobs.is_empty()
+        && jobs.iter().all(|j| {
+            j.conclusion.as_deref() == Some("skipped") || {
+                let steps: Vec<&ApiStep> = j.steps.iter().filter(own).collect();
+                !steps.is_empty()
+                    && steps
+                        .iter()
+                        .all(|s| s.conclusion.as_deref() == Some("skipped"))
+            }
+        })
 }
 
 /// A CodeQL alert as recorded on the series whose patch wrote its line.
@@ -212,7 +254,14 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
             let Some(stack) = stack(&clone, slug, &run.head_sha)? else {
                 continue;
             };
-            let conclusion = run.conclusion.clone().unwrap_or_default();
+            let mut conclusion = run.conclusion.clone().unwrap_or_default();
+            if conclusion == "success" {
+                match fetch_jobs(slug, run.id) {
+                    Ok(jobs) if all_skipped(&jobs) => conclusion = "skipped".into(),
+                    Ok(_) => {}
+                    Err(err) => eprintln!("bodnuti: {slug}: run {}: {err:#}", run.id),
+                }
+            }
             let previous = state.last.get(&key).cloned().unwrap_or_default();
             let carried = carried(&config.state, name, &stack)?;
             // New to this run, against the one before it.
@@ -241,14 +290,21 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
                 };
                 add_run(config, &mut lists, series, record)?;
             }
-            state.last.insert(
-                key,
+            // A skipped run tested nothing: the next run is compared with
+            // the last one that did.
+            let seen = if conclusion == "skipped" {
+                Seen {
+                    id: run.id,
+                    ..previous
+                }
+            } else {
                 Seen {
                     id: run.id,
                     conclusion,
                     stack: stack.into_iter().collect(),
-                },
-            );
+                }
+            };
+            state.last.insert(key, seen);
         }
     }
     for (list, list_state) in &lists {
@@ -266,6 +322,14 @@ fn fetch_runs(slug: &str) -> Result<Vec<ApiRun>> {
     let page: RunsPage =
         serde_json::from_str(&get(&url, token().as_deref())?).context("parsing GitHub's runs")?;
     Ok(runs_of(page, slug))
+}
+
+/// The jobs of run `id`, with their steps.
+fn fetch_jobs(slug: &str, id: u64) -> Result<Vec<ApiJob>> {
+    let url = format!("https://api.github.com/repos/{slug}/actions/runs/{id}/jobs");
+    let page: JobsPage =
+        serde_json::from_str(&get(&url, token().as_deref())?).context("parsing GitHub's jobs")?;
+    Ok(page.jobs)
 }
 
 /// The token for GitHub's code scanning API, if the worker has one.
@@ -538,6 +602,36 @@ mod tests {
         .unwrap();
         let runs = runs_of(page, "o/r");
         assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), [3]);
+    }
+
+    #[test]
+    fn a_run_that_skipped_its_own_steps_tested_nothing() {
+        let job = |conclusion: &str, steps: &[(&str, &str)]| ApiJob {
+            conclusion: Some(conclusion.into()),
+            steps: steps
+                .iter()
+                .map(|(n, c)| ApiStep {
+                    name: (*n).into(),
+                    conclusion: Some((*c).into()),
+                })
+                .collect(),
+        };
+        let housekeeping = [
+            ("Set up job", "success"),
+            ("Run actions/checkout@v5", "success"),
+            ("Post Run actions/checkout@v5", "success"),
+            ("Complete job", "success"),
+        ];
+        // yoctoproject/layerindex-web's Safety, without a Safety key.
+        let mut skipped = housekeeping.to_vec();
+        skipped.extend([("Build image", "skipped"), ("Safety scan", "skipped")]);
+        assert!(all_skipped(&[job("success", &skipped)]));
+        let mut ran = housekeeping.to_vec();
+        ran.extend([("Build image", "success"), ("Safety scan", "skipped")]);
+        assert!(!all_skipped(&[job("success", &ran)]));
+        assert!(all_skipped(&[job("skipped", &[])]));
+        assert!(!all_skipped(&[job("success", &housekeeping)]));
+        assert!(!all_skipped(&[]));
     }
 
     #[test]

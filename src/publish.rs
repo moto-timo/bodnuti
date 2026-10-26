@@ -814,21 +814,18 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
         item("Upstream", applied);
     }
     if !record.ci.is_empty() {
-        let passed = record
-            .ci
-            .iter()
-            .filter(|r| r.conclusion == "success")
-            .count();
-        let failed = record
-            .ci
-            .iter()
-            .filter(|r| r.conclusion == "failure")
-            .count();
+        let count = |c: &str| record.ci.iter().filter(|r| r.conclusion == c).count();
+        let skipped = match count("skipped") {
+            0 => String::new(),
+            n => format!(", {n} skipped"),
+        };
         item(
             "GitHub CI",
             format!(
-                "{}: {passed} passed, {failed} failed",
-                plural(record.ci.len(), "run")
+                "{}: {} passed, {} failed{skipped}",
+                plural(record.ci.len(), "run"),
+                count("success"),
+                count("failure")
             ),
         );
     }
@@ -1435,6 +1432,7 @@ mod tests {
         };
         let mut rec = record(Status::Checked, &[]);
         rec.ci = vec![
+            run(3, "skipped", false),
             run(4, "success", false),
             run(5, "failure", false),
             run(6, "failure", true),
@@ -1458,6 +1456,10 @@ mod tests {
         );
         assert!(
             html.contains("<span class=\"clean\">success</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"muted\">skipped</span>"),
             "{html}"
         );
     }
