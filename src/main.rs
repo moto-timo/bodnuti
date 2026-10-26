@@ -1,6 +1,7 @@
 //! bodnuti: automated patch review for the Yocto Project and OpenEmbedded.
 
 mod applied;
+mod autobuilder;
 mod ci;
 mod cppcheck;
 mod django;
@@ -142,6 +143,10 @@ fn poll(args: PollArgs) -> Result<()> {
     // failure is logged and does not fail the poll.
     if let Err(err) = ci::poll(&config, now) {
         eprintln!("bodnuti: GitHub CI: {err:#}");
+    }
+    // AutoBuilder builds of staging branches (designs/PHASE2.md §5.7).
+    if let Err(err) = autobuilder::poll(&config, now) {
+        eprintln!("bodnuti: AutoBuilder: {err:#}");
     }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());

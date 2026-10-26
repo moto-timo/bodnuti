@@ -434,6 +434,7 @@ mod tests {
                 duplicate_of: None,
                 ci: Vec::new(),
                 codeql: Vec::new(),
+                autobuilder: Vec::new(),
             },
         );
     }

@@ -813,6 +813,19 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
     if !applied.is_empty() {
         item("Upstream", applied);
     }
+    if !record.autobuilder.is_empty() {
+        let count = |c: &str| record.autobuilder.iter().filter(|b| b.result == c).count();
+        item(
+            "AutoBuilder",
+            format!(
+                "{}: {} passed, {} with warnings, {} failed",
+                plural(record.autobuilder.len(), "build"),
+                count("success"),
+                count("warnings"),
+                count("failure")
+            ),
+        );
+    }
     if !record.ci.is_empty() {
         let count = |c: &str| record.ci.iter().filter(|r| r.conclusion == c).count();
         let skipped = match count("skipped") {
@@ -840,9 +853,87 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
         ));
         body.push_str("<p class=\"muted\"><a href=\"report.txt\">Text report</a></p>\n");
     }
+    body.push_str(&autobuilder_html(record));
     body.push_str(&ci_html(record));
     let title = format!("bodnuti: {subject}");
     page(&title, "../../", &body, generated)
+}
+
+/// The AutoBuilder builds that carried the series (designs/PHASE2.md
+/// §5.7), newest first, with their failed steps. A build tests every patch
+/// on its branch, so a failure is shown as the series' only when it is in
+/// a recipe the series changes, or two builds failed so newly carrying it;
+/// a failed fetch is the infrastructure's.
+fn autobuilder_html(record: &SeriesRecord) -> String {
+    if record.autobuilder.is_empty() {
+        return String::new();
+    }
+    let mut builds: Vec<&crate::autobuilder::AbBuild> = record.autobuilder.iter().collect();
+    builds.sort_by(|a, b| b.completed.cmp(&a.completed));
+    let mut out = String::from(
+        "<h3>AutoBuilder</h3>\n<p class=\"muted\">Builds of staging branches that carried this \
+         series. Each builds every patch on the branch; a failure is shown as this series' only \
+         when it is in a recipe the series changes, or two builds failed so newly carrying it.</p>\n\
+         <ul class=\"ci\">\n",
+    );
+    for b in builds {
+        let class = match b.result.as_str() {
+            "success" => "clean",
+            "warnings" => "warn",
+            "failure" if b.failures.iter().any(|f| f.tied.is_some()) => "error",
+            "failure" => "warn",
+            _ => "muted",
+        };
+        let patches = b
+            .patches
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            out,
+            "<li>{} <a href=\"{}\">{} {}</a> <code>{}</code>: <span class=\"{class}\">{}</span> \
+             <span class=\"muted\">(patches {patches}, with {} series on the branch)</span>",
+            timestamp(&b.completed),
+            escape(&b.url),
+            escape(&b.builder),
+            b.number,
+            escape(&b.branch),
+            escape(&b.result),
+            b.series,
+        );
+        if !b.failures.is_empty() {
+            out.push_str("<ul>\n");
+            for f in &b.failures {
+                let (class, whose) = match (f.infra, f.tied) {
+                    (true, _) => ("muted", "infrastructure"),
+                    (false, Some(crate::autobuilder::Tie::Recipe)) => {
+                        ("error", "in a recipe this series changes")
+                    }
+                    (false, Some(crate::autobuilder::Tie::Builds)) => {
+                        ("error", "failed newly with this series in two builds")
+                    }
+                    (false, None) => ("warn", "on the branch"),
+                };
+                let what = match (&f.recipe, &f.task) {
+                    (Some(r), Some(t)) => format!("<code>{}:{}</code>", escape(r), escape(t)),
+                    _ => escape(&f.step),
+                };
+                let _ = writeln!(
+                    out,
+                    "<li><a href=\"{}\">{}</a> {what}: <span class=\"{class}\">{whose}</span>\
+                     <div class=\"message muted\">{}</div></li>",
+                    escape(&f.url),
+                    escape(&f.builder),
+                    escape(&f.error),
+                );
+            }
+            out.push_str("</ul>\n");
+        }
+        out.push_str("</li>\n");
+    }
+    out.push_str("</ul>\n");
+    out
 }
 
 /// CodeQL alerts on `master` on lines the series' patches wrote, found
@@ -1415,6 +1506,52 @@ mod tests {
         // A second run replaces the site.
         render(&config, &states, now).unwrap();
         assert!(!dir.path().join(".site.tmp").exists());
+    }
+
+    #[test]
+    fn lists_the_autobuilder_builds_that_carried_a_series() {
+        use crate::autobuilder::{AbBuild, AbFailure, Tie};
+        let failure = |builder: &str, infra: bool, tied: Option<Tie>| AbFailure {
+            builder: builder.into(),
+            step: "Build images".into(),
+            url: "https://autobuilder.yoctoproject.org/valkyrie/#/builders/8/builds/1".into(),
+            recipe: Some("meta/recipes-devtools/strace/strace_7.3.bb".into()),
+            task: Some(if infra { "do_fetch" } else { "do_compile" }.into()),
+            error: "ERROR: <b>strace</b> do_compile failed".into(),
+            infra,
+            tied,
+        };
+        let mut rec = record(Status::Checked, &[]);
+        rec.autobuilder = vec![AbBuild {
+            builder: "a-full".into(),
+            number: 4999,
+            url: "https://autobuilder.yoctoproject.org/valkyrie/#/builders/29/builds/4999".into(),
+            branch: "mathieu/master-next".into(),
+            result: "failure".into(),
+            completed: "20261024200000".into(),
+            patches: vec![1],
+            series: 9,
+            failures: vec![
+                failure("qemuarm64-armhost", true, None),
+                failure("qemux86-64", false, Some(Tie::Recipe)),
+                failure("qemuppc", false, None),
+            ],
+        }];
+        let html = autobuilder_html(&rec);
+        assert!(html.contains("a-full 4999</a> <code>mathieu/master-next</code>: <span class=\"error\">failure</span>"), "{html}");
+        assert!(
+            html.contains("<span class=\"muted\">infrastructure</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"error\">in a recipe this series changes</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span class=\"warn\">on the branch</span>"),
+            "{html}"
+        );
+        assert!(html.contains("&lt;b&gt;strace&lt;/b&gt;"), "{html}");
     }
 
     #[test]

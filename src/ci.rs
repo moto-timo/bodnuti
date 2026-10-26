@@ -504,7 +504,7 @@ fn stack_of(clone: &Path, sha: &str) -> Result<Vec<String>> {
 
 /// The checked series of repository `name` whose patches are in `stack`:
 /// `<list>/<root>` to each patch's id and number.
-fn carried(
+pub fn carried(
     state: &Path,
     name: &str,
     stack: &[String],

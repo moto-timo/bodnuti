@@ -849,6 +849,28 @@ moved on.
    step logs (`errors`, `stdio`) give the recipe, task and error, and the
    error report is only linked.
 
+**Built** for `a-full` (designs decided above): `[autobuilder] builders`
+names the builders. Each poll, at most every 30 minutes, reads each
+builder's last ten finished builds (one request), and for a build that did
+not succeed, its child builds and the `errors` log of each failed step
+(about nine requests, and three per failed step). Each build's OE-Core and
+BitBake commits are fetched from poky-ci-archive's tag for the build, and
+their commits on top of the branch the staging branch stages (`master`,
+or the release its name holds, such as `stable/scarthgap-nut`) are
+matched to checked series by patch-id. A failed step is read for its
+first `ERROR:` line and the recipe and task of its failed task; a failed
+`do_fetch` is infrastructure. A task failure in a recipe directory the
+series changes is the series' at once; another, once two builds of its
+branch failed so newly carrying the series. The series page lists the
+builds and their failed steps, apart from the series' result.
+
+Tried on 27 October against the AutoBuilder: an OE-Core strace upgrade
+was carried by `a-full` 4999, 5001, 5003 and 5004 on
+`mathieu/master-next`; 4999's one failure, the `cvelistV5` fetch, was
+classed as infrastructure. Building it found that bodnuti's patch-ids
+were computed from the raw mail, so quoted-printable patches matched no
+commit; they are read from the decoded mail since.
+
 ### 5.8 GitHub CI of the Django applications
 
 The Django applications are tested on GitHub the same way OE-Core is on

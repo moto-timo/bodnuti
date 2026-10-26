@@ -59,6 +59,10 @@ pub struct Config {
     /// `state/site/`.
     #[serde(default)]
     pub publish_to: Option<String>,
+    /// AutoBuilder builders whose builds are traced to series
+    /// (designs/PHASE2.md §5.7); none without it.
+    #[serde(default)]
+    pub autobuilder: Option<crate::autobuilder::AutobuilderConfig>,
 }
 
 /// A `[repos]` entry: its upstream URL, a layer, or a table with the URL and
@@ -384,6 +388,9 @@ pub struct SeriesRecord {
     /// CodeQL alerts on lines the series' patches wrote (§5.8).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub codeql: Vec<crate::ci::CodeqlAlert>,
+    /// AutoBuilder builds that carried the series (§5.7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub autobuilder: Vec<crate::autobuilder::AbBuild>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -467,6 +474,7 @@ impl ListState {
                             duplicate_of: None,
                             ci: Vec::new(),
                             codeql: Vec::new(),
+                            autobuilder: Vec::new(),
                         },
                     );
                 }

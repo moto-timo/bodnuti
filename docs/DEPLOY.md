@@ -511,6 +511,9 @@ repo = "meta-virtualization"
 name = "yocto-patches"
 route = "subject-tag"
 
+[autobuilder]
+builders = ["a-full"]
+
 [repos]
 openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = { url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next" } } }
 meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut", scarthgap = "anujm/scarthgap", wrynose = "anujm/wrynose" } } }
@@ -543,6 +546,13 @@ personal access token with only **Code scanning alerts: Read-only** on the
 GitHub repositories named, in `~/.config/bodnuti/env` (mode 600) as
 `BODNUTI_GITHUB_TOKEN=…`, read by the poll service through
 `EnvironmentFile=%h/.config/bodnuti/env`. Without it, alerts are skipped.
+
+`[autobuilder]` names the AutoBuilder's top-level builders whose builds
+are traced to series (`designs/PHASE2.md` §5.7): each poll, at most every
+30 minutes, reads their last ten finished builds, fetches each build's
+OE-Core and BitBake trees from poky-ci-archive into the clones, matches
+their commits on top of their branch to checked series, and records the
+build and its failed steps on each. Without it, nothing is read.
 
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on
