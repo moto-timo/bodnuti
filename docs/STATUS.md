@@ -179,7 +179,10 @@ only once it did. And a patch that landed before its series was checked is
 now matched when the series is checked: the scans read only commits that
 arrive later, so after the two-week backfill openembedded-core showed 1
 landed series in a week while opensbi, curl 8.23.0 and createrepo-c, all on
-master, showed none.
+master, showed none. With the fix deployed and the upstream scan positions
+reset, the next poll matched about 145 backfilled series as applied
+(about 67 on openembedded-core, 65 on openembedded-devel, 12 on
+yocto-patches).
 
 oelint-adv's layout rules (spacing, ordering, suggested variables) no
 longer bury the findings that matter. Measured on the 397 published series,
@@ -195,7 +198,11 @@ The third tier runs Django's own checks, `manage.py check` and
 in-memory sqlite, in a venv per application built into the image from
 copies of their requirements (`designs/PHASE2.md` §5.5). On
 error-report-web, a patch adding a model field without its migration
-reports exactly that; layerindex-web's checks run clean.
+reports exactly that; layerindex-web's checks run clean. The copies keep
+the applications' own pins, so GitHub's Dependabot shows 30 open alerts on
+layerindex-web's (Pillow 12.3.0, djangorestframework 3.18.0, GitPython
+3.1.62), left open on purpose: they close when layerindex-web merges its
+fixes and the copy is refreshed.
 
 ### Other repositories on yocto-patches
 
@@ -226,7 +233,7 @@ the series' paths choosing among them, so `[AUH]` reaches auto-upgrade-helper
 for the tool's own patches and openembedded-core for its bot's upgrades; a
 missing clone is logged as configuration and spends no attempts; and a
 branch with a slash, as in meta-lts-mixins' `scarthgap/go`, keeps its full
-name. meta-lts-mixins, meta-darwin, auto-upgrade-helper and the two
+name. meta-lts-mixins, meta-darwin, meta-rockchip, auto-upgrade-helper and the two
 yocto-metrics repositories are added to the configuration.
 
 Deploying found one more problem, now fixed: lore answers a search with no
@@ -355,18 +362,18 @@ window held about eight sashiko reviews.
 - Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
   when the repository goes public), and let the worker pull it instead of
   loading a copied image.
-- Deploy the current image and binary on the worker (the image now
-  carries the Django applications' venvs for tier 3), then remove
-  `~/state/upstream/*.json` once so the next scan matches the backfilled
-  series' landed patches, and re-check series with findings for excerpts,
-  style findings and Django's checks.
+- Deploy the current image on the worker (it carries the Django
+  applications' venvs for tier 3), add meta-rockchip (`DEPLOY.md`), and
+  re-check series with findings for excerpts, style findings and Django's
+  checks.
 - Release 0.2.0, the first with the license.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
 - Refresh `django/<application>/requirements.txt` from the applications'
   master branches when their pins change, so Django's checks run against
-  current dependencies.
+  current dependencies; for layerindex-web this closes the 30 Dependabot
+  alerts once its fixes land.
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
   defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
