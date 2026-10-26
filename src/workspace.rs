@@ -295,10 +295,12 @@ fn first_carried(repo: &Path, base: &str, tip: &str, series: &Series) -> Result<
 
 /// `git patch-id --stable` for each patch, which is the same for a patch
 /// whatever its commit message, so a resend with a reworded message matches.
+/// Read from the decoded message: a quoted-printable patch's raw text is not
+/// its diff, and gives a patch-id no commit has.
 pub fn patch_ids(series: &Series) -> Result<Vec<(String, u32)>> {
     let mut ids = Vec::new();
     for patch in &series.patches {
-        let (id, _) = patch_id_lines(&patch.raw)?
+        let (id, _) = patch_id_lines(&patch.decoded())?
             .into_iter()
             .next()
             .context("git patch-id printed nothing")?;
@@ -518,6 +520,24 @@ mod tests {
         let clone = tempfile::tempdir().unwrap();
         git::run(clone.path(), &["clone", "-q", p.to_str().unwrap(), "."]).unwrap();
         (up, clone, series((mbox + "\n").into_bytes()), staged)
+    }
+
+    #[test]
+    fn a_quoted_printable_patch_has_its_commit_s_patch_id() {
+        let repo = layer();
+        let mbox = format_patch(repo.path(), "SUMMARY = \"bar = baz\"\n", "foo: change");
+        let plain = series(mbox.clone());
+        // The same patch as a mailing list re-encodes it.
+        let text = String::from_utf8(mbox).unwrap();
+        let qp = text
+            .replacen(
+                "Subject:",
+                "Content-Transfer-Encoding: quoted-printable\nSubject:",
+                1,
+            )
+            .replace("bar = baz", "bar =3D baz");
+        let qp = series(qp.into_bytes());
+        assert_eq!(patch_ids(&qp).unwrap(), patch_ids(&plain).unwrap());
     }
 
     #[test]

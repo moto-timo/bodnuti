@@ -206,6 +206,11 @@ fn load_states(
 
 fn scan_applied(config: &watch::Config) -> Result<()> {
     let mut states = load_states(config)?;
+    match (runner::Runner { config }).reindex_once(&states) {
+        Ok(0) => {}
+        Ok(n) => println!("patch-ids: recorded again for {n} checked series"),
+        Err(err) => eprintln!("bodnuti: recording patch-ids again: {err:#}"),
+    }
     let summary = applied::scan(config, &mut states)?;
     for (name, state) in &states {
         state.save(&config.state, name)?;

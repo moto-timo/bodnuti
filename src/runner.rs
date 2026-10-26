@@ -427,6 +427,46 @@ impl Runner<'_> {
         Ok(first)
     }
 
+    /// Records again the patch-ids and mail ids of every checked series,
+    /// once: before patch-ids were read from the decoded mail, a
+    /// quoted-printable patch was recorded under a patch-id no commit has,
+    /// so it was never matched upstream or to a CI run. The marker file
+    /// `patch-ids/.decoded` says it was done.
+    pub fn reindex_once(
+        &self,
+        states: &std::collections::BTreeMap<String, crate::watch::ListState>,
+    ) -> Result<usize> {
+        let marker = self.config.state.join(PATCH_IDS).join(".decoded");
+        if marker.exists() {
+            return Ok(0);
+        }
+        let mut done = 0;
+        for (list, state) in states {
+            for record in state.series.values() {
+                if !matches!(record.status, Status::Checked | Status::Applied) {
+                    continue;
+                }
+                let (Some(repo), Some(branch)) = (&record.repo, &record.branch) else {
+                    continue;
+                };
+                let root = &record.tracked.root;
+                if !crate::lore::safe_id(root) {
+                    continue;
+                }
+                let mbox = self.series_dir(list, root).join(format!("{root}.mbx"));
+                let Ok(series) = Series::load_rooted(&[&mbox], root) else {
+                    continue;
+                };
+                self.remember(PATCH_IDS, &patch_ids(&series)?, list, root, repo, branch)?;
+                self.remember(MAIL_IDS, &mail_ids(&series)?, list, root, repo, branch)?;
+                done += 1;
+            }
+        }
+        std::fs::create_dir_all(marker.parent().unwrap_or(&self.config.state))?;
+        std::fs::write(&marker, "")?;
+        Ok(done)
+    }
+
     /// Records the series as the first one checked with each patch-id for
     /// `repo`'s `branch`, with the patch's position in it.
     fn remember(
