@@ -227,6 +227,65 @@ All three tiers are built: tier 1 in §5.2, tier 2 in §5.3, and tier 3, on
 the decision of the applications' maintainer (who is also bodnuti's), in
 §5.5.
 
+### 3.3 Series sent unthreaded (draft)
+
+A series is grouped by threading (§3): its patches reply to the cover
+letter, or to patch 1/N. Some are sent without it, each message a thread of
+its own. On 16 October, `[PATCH wrynose 0/7] initramfs: backport startup
+optimizations` arrived as eight threads within two minutes, each with a
+Message-ID of its own git send-email run (`…031721.693971-1-…`,
+`…031735.694414-1-…`) and no `In-Reply-To`. bodnuti made eight series of
+it: the cover letter has no patches, and each patch was checked alone.
+Patch 2/7 builds on 1/7, so it was reported as not applying, on the
+branch and on `stable/wrynose-nut` alike; patches 3 to 7 were checked
+without what came before them. Of 428 series on the site, these six are
+the only ones rooted at patch k/N with k above 1 that came from a series
+sent this way; the other two such rows are single patches of a larger
+series, sent again on their own, which are right as they are.
+
+**Grouping.** A message is a candidate when it has no `In-Reply-To` and
+its subject numbers it within a series of more than one (`0/N` to `N/N`).
+Candidates join one group when they have:
+
+- the same sender, the address in the feed entry's author (lore's Atom
+  feed gives each entry's name and address);
+- the same subject tags apart from the counter: the list and branch tags
+  (`[OE-core]`, `[wrynose]`, a branch inside the PATCH tag), the revision
+  (`v2`), and the same N;
+- dates within ten minutes of the group's first message;
+- different counters: a second `3/7` starts another group, as a resend
+  would.
+
+The group is one series, rooted at its cover letter, else at its lowest
+patch. Every member maps to that root, so the series is complete once it
+has all N patches, as a threaded one is, and settles as one otherwise.
+A lone candidate, with no other message of its series in the window, stays
+a series of its own: a single patch sent again on its own is one.
+
+**Fetching.** `b4 mbox <root>` returns only the root's thread, so the
+runner fetches each member's thread and merges the messages, each
+Message-ID once, into the series' mbox. The rest of the check is as for a
+threaded series. The tracker records the members (`Tracked.members`), as
+it records the messages it saw for the root-not-on-lore fallback (§5.0).
+
+**Across polls.** Members arrive together, within minutes, and the series
+waits `settle_minutes` before it is checked, so a group forms within one
+poll or the next. A candidate whose group was already checked when it
+arrives (it came after the settle time) does not reopen it: it stays a
+series of its own, and its row says which series it belongs with.
+
+**Trust.** Only messages from one address, with one set of tags, are put
+together; a reply from someone else, or a patch with other tags, never
+joins. The sender address comes from mail, so it can be forged, but a
+forged member only puts the forger's patch into a series it was not part
+of, in a check that runs offline in the container like any other.
+
+**To decide.** The window (ten minutes, against the two the initramfs
+series took); whether a candidate arriving after its group was checked
+should reopen the group for a new check rather than stay apart; and
+whether a group with patches missing after `settle_minutes` (some never
+sent, or lost) is checked as it is, as a threaded series is, or held.
+
 ## 4. State
 
 Files, not SQLite. The volume is about 170 patches a day, every record is
