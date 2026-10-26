@@ -366,7 +366,9 @@ window held about eight sashiko reviews.
   applications' venvs for tier 3), add meta-rockchip (`DEPLOY.md`), and
   re-check series with findings for excerpts, style findings and Django's
   checks.
-- Release 0.2.0, the first with the license.
+- Once slsa-framework/source-policies#27 merges, check that sourcetool
+  verifies main at SLSA Source Level 3, and tag the next release, the first
+  whose tag verifies at that level.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
