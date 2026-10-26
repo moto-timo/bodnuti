@@ -4,8 +4,8 @@ Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
 first day of the bodnuti phase 2 deployment, the first security scans, the
-addition of CI, the Django application checks and the 0.1.0 release. The
-bodnuti repository is public.
+addition of CI, the Django application checks and the 0.1.0 and 0.2.0
+releases. The bodnuti repository is public.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -318,12 +318,29 @@ creates the GitHub release with the wheels and the version's notes. Its
 trial run caught the aarch64 wheel failing on manylinux2014's compiler,
 fixed by building it for manylinux_2_28.
 
-bodnuti is licensed under MIT or Apache-2.0, at your option, and
-`SECURITY.md` asks for vulnerabilities to be reported through GitHub's
-private vulnerability reporting, enabled since the repository went public.
-Both came after 0.1.0 and ship in the next release, 0.2.0 (new features
-are waiting, so a minor version): `main` carries `0.2.0-dev` until then,
-and `changes/README.md` lists the release steps.
+bodnuti 0.2.0 followed the same day (`v0.2.0`:
+<https://github.com/moto-timo/bodnuti/releases/tag/v0.2.0>), the first
+release under MIT or Apache-2.0, at your option, with `SECURITY.md` asking
+for vulnerabilities to be reported through GitHub's private vulnerability
+reporting. It adds Django's own checks, oelint-adv style findings kept
+apart, the front-page summary and the landed-patch fix. Its wheels and
+image carry SLSA build provenance and attested SPDX 2.3 SBOMs (the crates
+from cargo-sbom, the image per platform from trivy, also attached to the
+release), and the image a keyless cosign signature; all of them verify
+from the published artifacts. `main` carries `0.3.0-dev`, and
+`changes/README.md` lists the release steps.
+
+The repository also produces SLSA source provenance, set up with the SLSA
+source tool: rulesets keep `main` and every tag from being deleted or
+rewritten, and a workflow writes signed source provenance and a
+verification summary to git notes on each push. Every source control
+except two-party review is met, so the repository is eligible for SLSA
+Source Level 3; it verifies at Level 1 until its policy,
+slsa-framework/source-policies#27, is merged. The `v0.2.0` tag has no tag
+provenance: the workflow's pinned release ran sourcetool v0.6.2, which
+fails on tags, so it is now pinned to slsa-framework/actions' main of
+4 October 2026, with sourcetool v0.7.1, whose tag handling is untried in
+CI until the next tag.
 
 bodnuti.dev's front page replaces the placeholder: what bodnuti checks, the
 watched lists, links to the reports, source, releases and security policy,
