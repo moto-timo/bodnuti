@@ -225,6 +225,30 @@ impl Series {
         Series::from_messages(messages, Some(root))
     }
 
+    /// The messages of several mboxes as one mbox, each Message-ID once, in
+    /// the order first seen: the threads of a series sent unthreaded
+    /// (designs/PHASE2.md §3.3).
+    pub fn merge_mboxes(mboxes: &[Vec<u8>]) -> Vec<u8> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for data in mboxes {
+            for raw in split_mbox(data) {
+                let id = parse_message(raw.clone()).ok().and_then(|m| m.message_id);
+                if id.is_some_and(|id| !seen.insert(id)) {
+                    continue;
+                }
+                out.extend_from_slice(&raw);
+                if !out.ends_with(b"\n") {
+                    out.push(b'\n');
+                }
+                if !out.ends_with(b"\n\n") {
+                    out.push(b'\n');
+                }
+            }
+        }
+        out
+    }
+
     /// The series' messages, cover letter first, as an mbox.
     pub fn mbox(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -630,6 +654,33 @@ mod tests {
             vec!["0001-mdio-tools-upgrade.patch"]
         );
         assert!(Series::parse(mail.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn merges_the_threads_of_a_series_sent_unthreaded() {
+        let one = [
+            message("[PATCH 0/2] x", "cover\n"),
+            message("Re: [PATCH 0/2] x", "reply\n"),
+        ]
+        .concat();
+        let two = [message("[PATCH 1/2] a: x", "one\ndiff --git a/a b/a\n")].concat();
+        let three = [message("[PATCH 2/2] bbbb: x", "two\ndiff --git a/b b/b\n")].concat();
+        // The cover letter's thread again, as a member's fetch can return.
+        let merged = Series::merge_mboxes(&[
+            one.clone().into_bytes(),
+            two.into_bytes(),
+            three.into_bytes(),
+            one.into_bytes(),
+        ]);
+        let series = Series::parse(&merged).unwrap();
+        assert!(series.cover.is_some());
+        assert_eq!(series.patches.len(), 2);
+        assert_eq!(
+            String::from_utf8_lossy(&merged)
+                .matches("Subject: [PATCH 0/2] x")
+                .count(),
+            1
+        );
     }
 
     #[test]

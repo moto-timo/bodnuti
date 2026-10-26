@@ -26,6 +26,8 @@ pub struct Entry {
     pub in_reply_to: Option<String>,
     /// RFC 3339 timestamp, as lore gives it.
     pub updated: String,
+    /// The sender's address, lowercased, from the entry's author.
+    pub author: Option<String>,
 }
 
 /// How many entries lore returns per page of search results.
@@ -92,19 +94,26 @@ fn no_results(page: &str) -> bool {
     page.contains("[No results found]")
 }
 
+/// An entry while it is read: Message-ID, title, parent, date, author's
+/// address.
+type Partial = (Option<String>, String, Option<String>, String, String);
+
 /// Parses an Atom feed. Entries without a usable Message-ID are skipped.
 pub fn parse(xml: &str) -> Result<Vec<Entry>> {
     let mut reader = Reader::from_str(xml);
     let mut entries = Vec::new();
-    let mut current: Option<(Option<String>, String, Option<String>, String)> = None;
+    let mut current: Option<Partial> = None;
     let mut field: Option<&'static str> = None;
     loop {
         match reader.read_event().context("lore feed is not valid XML")? {
             Event::Start(e) | Event::Empty(e) => {
                 let name = e.name();
                 match (name.as_ref(), current.as_mut()) {
-                    ("entry", _) => current = Some((None, String::new(), None, String::new())),
+                    ("entry", _) => {
+                        current = Some((None, String::new(), None, String::new(), String::new()))
+                    }
                     ("title", Some(_)) => field = Some("title"),
+                    ("email", Some(_)) => field = Some("email"),
                     ("updated", Some(_)) => field = Some("updated"),
                     ("link", Some(c)) if c.0.is_none() => {
                         c.0 = href(&e).as_deref().and_then(message_id)
@@ -118,6 +127,7 @@ pub fn parse(xml: &str) -> Result<Vec<Entry>> {
                     let text = t.xml10_content();
                     match f {
                         "title" => c.1.push_str(&text),
+                        "email" => c.4.push_str(&text),
                         _ => c.3.push_str(&text),
                     }
                 }
@@ -130,16 +140,20 @@ pub fn parse(xml: &str) -> Result<Vec<Entry>> {
                 }
             }
             Event::End(e) => match e.name().as_ref() {
-                "title" | "updated" => field = None,
+                "title" | "updated" | "email" => field = None,
                 "entry" => {
-                    if let Some((Some(message_id), subject, in_reply_to, updated)) = current.take()
+                    if let Some((Some(message_id), subject, in_reply_to, updated, email)) =
+                        current.take()
                     {
                         let subject = subject.split_whitespace().collect::<Vec<_>>().join(" ");
+                        let author =
+                            Some(email.trim().to_ascii_lowercase()).filter(|e| e.contains('@'));
                         entries.push(Entry {
                             message_id,
                             subject,
                             in_reply_to,
                             updated,
+                            author,
                         });
                     }
                 }
@@ -286,6 +300,11 @@ mod tests {
             .unwrap();
         assert!(cover.in_reply_to.is_none());
         assert!(cover.message_id.contains('@'), "{}", cover.message_id);
+        let piglit = entries
+            .iter()
+            .find(|e| e.subject == "[PATCH 3/3] piglit: Fix build with glibc 2.43+ and clang")
+            .unwrap();
+        assert_eq!(piglit.author.as_deref(), Some("raj.khem@gmail.com"));
         let member = entries
             .iter()
             .find(|e| e.subject.starts_with("[PATCH 2/3] pulseaudio"))

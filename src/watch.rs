@@ -456,7 +456,22 @@ impl ListState {
         let mut new = 0;
         for (root, tracked) in tracker.series {
             match self.series.get_mut(&root) {
-                Some(record) => record.tracked = tracked,
+                Some(record) => {
+                    // A message of a series sent unthreaded that came after
+                    // the series was checked reopens it, to be checked again
+                    // as it was sent (designs/PHASE2.md §3.3).
+                    let reopen = tracked.joined
+                        && tracked.seen.len() > record.tracked.seen.len()
+                        && !matches!(record.status, Status::Seen | Status::Complete);
+                    record.tracked = tracked;
+                    if reopen {
+                        record.status = Status::Seen;
+                        record.attempts = 0;
+                        record.reason = None;
+                        record.result = None;
+                        record.duplicate_of = None;
+                    }
+                }
                 None => {
                     new += 1;
                     self.series.insert(
@@ -609,6 +624,7 @@ mod tests {
             subject: subject.into(),
             in_reply_to: parent.map(String::from),
             updated: t.into(),
+            author: None,
         }
     }
 
@@ -810,6 +826,39 @@ mod tests {
         assert_eq!(s.series["1@x"].status, Status::Seen);
         s.ingest(&[], t0 + 900, 900);
         assert_eq!(s.series["1@x"].status, Status::Complete);
+    }
+
+    #[test]
+    fn a_late_message_of_an_unthreaded_series_reopens_it() {
+        let t0 = lore::parse_time("2026-10-16T14:21:00Z").unwrap();
+        let sent = |id: &str, k: u32, at: &str| lore::Entry {
+            author: Some("wenwfu@qti.qualcomm.com".into()),
+            ..entry(
+                id,
+                &format!("[PATCH wrynose {k}/3] initramfs: change"),
+                None,
+                at,
+            )
+        };
+        let mut s = ListState::default();
+        s.ingest(
+            &[
+                sent("1@x", 1, "2026-10-16T14:21:00Z"),
+                sent("2@x", 2, "2026-10-16T14:22:00Z"),
+            ],
+            t0,
+            900,
+        );
+        // Checked before patch 3 came.
+        let record = s.series.get_mut("1@x").unwrap();
+        record.status = Status::Checked;
+        record.reason = Some("x".into());
+        s.ingest(&[sent("3@x", 3, "2026-10-16T14:29:00Z")], t0 + 600, 900);
+        // Reopened, and with every patch now there, ready to check again.
+        let record = &s.series["1@x"];
+        assert_eq!(record.status, Status::Complete);
+        assert!(record.reason.is_none());
+        assert!(record.tracked.complete());
     }
 
     #[test]

@@ -25,6 +25,47 @@ pub struct Tracked {
     /// revises (designs/PHASE2.md §6.3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revises: Option<Revises>,
+    /// For a series sent unthreaded, each message a thread of its own, what
+    /// its messages share (designs/PHASE2.md §3.3): sender, tags without the
+    /// counter, revision and N.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unthreaded: Option<String>,
+    /// When the first message of an unthreaded series came.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_seen: Option<String>,
+    /// Messages of other threads joined the series: it was sent unthreaded,
+    /// and its mbox is the merge of every member's thread.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub joined: bool,
+}
+
+/// How long after an unthreaded series' first message its other messages
+/// may come (designs/PHASE2.md §3.3).
+pub const UNTHREADED_WINDOW_SECS: u64 = 10 * 60;
+
+/// What the messages of a series sent unthreaded share: the sender, the
+/// subject tags without the counter, the revision and N.
+fn unthreaded_key(author: &str, subject: &str, version: u32, total: u32) -> String {
+    let tags: Vec<String> = subject_tags(subject)
+        .iter()
+        .map(|t| {
+            t.split_whitespace()
+                .filter(|w| {
+                    let counter = w.split_once('/').is_some_and(|(k, n)| {
+                        k.bytes().all(|b| b.is_ascii_digit())
+                            && n.bytes().all(|b| b.is_ascii_digit())
+                    });
+                    let revision = w.len() > 1
+                        && (w.starts_with('v') || w.starts_with('V'))
+                        && w[1..].bytes().all(|b| b.is_ascii_digit());
+                    !counter && !revision
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase()
+        })
+        .collect();
+    format!("{author} [{}] v{version} {total}", tags.join("]["))
 }
 
 /// The patch a revision sent as a reply revises: the root of its series
@@ -104,7 +145,38 @@ impl Tracker {
             if reroll {
                 (index, total) = (1, 1);
             }
-            let root = if reroll || (index == 0 && total > 0) {
+            // A message of a series sent unthreaded: no parent, numbered in a
+            // series of more than one (designs/PHASE2.md §3.3).
+            let unthreaded = match (&e.author, &e.in_reply_to) {
+                (Some(author), None) if !reroll && total > 1 => {
+                    Some(unthreaded_key(author, &e.subject, version, total))
+                }
+                _ => None,
+            };
+            let group = unthreaded.as_ref().and_then(|key| {
+                let at = crate::lore::parse_time(&e.updated)?;
+                self.series
+                    .iter()
+                    .find(|(_, s)| {
+                        s.unthreaded.as_deref() == Some(key)
+                            && s.first_seen
+                                .as_deref()
+                                .and_then(crate::lore::parse_time)
+                                .is_some_and(|first| {
+                                    at.saturating_sub(first) <= UNTHREADED_WINDOW_SECS
+                                })
+                            && if index == 0 {
+                                counters(&subject_tags(&s.subject)).1 != 0
+                            } else {
+                                !s.seen.contains(&index)
+                            }
+                    })
+                    .map(|(root, _)| root.clone())
+            });
+            let joins = group.is_some();
+            let root = if let Some(root) = group {
+                root
+            } else if reroll || (index == 0 && total > 0) {
                 e.message_id.clone()
             } else if let Some(parent) = &e.in_reply_to {
                 // The parent is the root or another patch of the series. If it
@@ -125,7 +197,11 @@ impl Tracker {
                 seen: BTreeSet::new(),
                 last_seen: e.updated.clone(),
                 revises: revises.clone(),
+                first_seen: unthreaded.as_ref().map(|_| e.updated.clone()),
+                unthreaded: unthreaded.clone(),
+                joined: false,
             });
+            series.joined |= joins;
             if index == 0 || e.message_id == root {
                 series.subject = e.subject.clone();
             }
@@ -150,6 +226,7 @@ mod tests {
             subject: subject.into(),
             in_reply_to: parent.map(String::from),
             updated: format!("2026-10-24T10:{t}:00Z"),
+            author: None,
         }
     }
 
@@ -231,6 +308,97 @@ mod tests {
         t.ingest(&[entry("v3@x", "[PATCH v3] b: upgrade", Some("v2@x"), "50")]);
         let revises = |id: &str| t.series[id].revises.clone().map(|r| (r.series, r.message));
         assert_eq!(revises("v3@x"), Some(("0@x".into(), "2@x".into())));
+    }
+
+    fn sent(id: &str, subject: &str, author: &str, at: &str) -> Entry {
+        Entry {
+            message_id: id.into(),
+            subject: subject.into(),
+            in_reply_to: None,
+            updated: format!("2026-10-16T14:{at}Z"),
+            author: Some(author.into()),
+        }
+    }
+
+    #[test]
+    fn groups_a_series_sent_unthreaded() {
+        // The wrynose initramfs series: every message a thread of its own.
+        let w = "wenwfu@qti.qualcomm.com";
+        let mut t = Tracker::default();
+        let mut entries = vec![sent(
+            "c@x",
+            "[PATCH wrynose 0/3] initramfs: backport",
+            w,
+            "21:30",
+        )];
+        for (k, s) in ["21:57", "22:11", "22:23"].iter().enumerate() {
+            let k = k + 1;
+            entries.push(sent(
+                &format!("{k}@x"),
+                &format!("[PATCH wrynose {k}/3] initramfs: change {k}"),
+                w,
+                s,
+            ));
+        }
+        // Not of it: another sender, another branch, an earlier revision.
+        entries.push(sent(
+            "o@x",
+            "[PATCH wrynose 2/3] initramfs: other",
+            "o@x.org",
+            "22:00",
+        ));
+        entries.push(sent(
+            "s@x",
+            "[PATCH scarthgap 2/3] initramfs: change 2",
+            w,
+            "22:00",
+        ));
+        entries.push(sent(
+            "v@x",
+            "[PATCH v2 wrynose 2/3] initramfs: change 2",
+            w,
+            "22:00",
+        ));
+        t.ingest(&entries);
+        let s = &t.series["c@x"];
+        assert!(s.complete(), "{s:?}");
+        assert!(s.joined);
+        assert_eq!(s.subject, "[PATCH wrynose 0/3] initramfs: backport");
+        for id in ["1@x", "2@x", "3@x"] {
+            assert_eq!(t.root_of[id], "c@x");
+        }
+        for id in ["o@x", "s@x", "v@x"] {
+            assert_eq!(t.root_of[id], id, "{id}");
+        }
+        // A patch numbered like one already in the group, or ten minutes
+        // after its first message, starts another.
+        t.ingest(&[
+            sent(
+                "again@x",
+                "[PATCH wrynose 2/3] initramfs: change 2",
+                w,
+                "23:00",
+            ),
+            sent(
+                "late@x",
+                "[PATCH wrynose 3/3] initramfs: change 3",
+                w,
+                "40:30",
+            ),
+        ]);
+        assert_eq!(t.root_of["again@x"], "again@x");
+        assert_eq!(t.root_of["late@x"], "late@x");
+        // A threaded series' cover letter, with its patches as replies, is
+        // not joined.
+        let mut t = Tracker::default();
+        t.ingest(&[
+            sent("0@y", "[PATCH 0/2] curl: fixes", w, "10:00"),
+            Entry {
+                in_reply_to: Some("0@y".into()),
+                ..sent("1@y", "[PATCH 1/2] curl: fix", w, "10:01")
+            },
+        ]);
+        assert!(!t.series["0@y"].joined);
     }
 
     #[test]

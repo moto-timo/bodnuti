@@ -111,7 +111,11 @@ impl Runner<'_> {
         let dir = self.series_dir(list, &root);
         std::fs::create_dir_all(&dir)?;
 
-        let mbox = self.fetch(&dir, &root, members)?;
+        let mbox = if record.tracked.joined {
+            self.fetch_unthreaded(&dir, &root, members)?
+        } else {
+            self.fetch(&dir, &root, members)?
+        };
         let (series, base, branch, pull) = match Series::load_rooted(&[&mbox], &root) {
             Err(err) if err.downcast_ref::<NoPatches>().is_some() => {
                 match self.pull_request(&repo, &mbox, &root)? {
@@ -365,6 +369,44 @@ impl Runner<'_> {
     /// series directory. When lore does not have the root (a parent on
     /// another list, say), the thread is fetched through the series' other
     /// messages in turn (designs/PHASE2.md §5.0).
+    /// The threads of every member of a series sent unthreaded, merged into
+    /// its mbox (designs/PHASE2.md §3.3). A member lore does not have is
+    /// left out; none at all is a failure.
+    fn fetch_unthreaded(&self, dir: &Path, root: &str, members: &[String]) -> Result<PathBuf> {
+        let mut parts = Vec::new();
+        let mut error = String::new();
+        for (i, id) in std::iter::once(root)
+            .chain(members.iter().map(String::as_str))
+            .enumerate()
+        {
+            let name = format!("part-{i}.mbx");
+            let part = dir.join(&name);
+            if part.exists() {
+                std::fs::remove_file(&part)?;
+            }
+            let output = self
+                .container()?
+                .arg("-v")
+                .arg(format!("{}:/out", dir.display()))
+                .args(["--entrypoint", "b4", &self.config.image])
+                .args(["mbox", "-o", "/out", "-n", &name, id])
+                .output()
+                .context("starting the container to fetch the series")?;
+            if output.status.success() && part.is_file() {
+                parts.push(std::fs::read(&part)?);
+            } else if error.is_empty() {
+                error = last_line(&output.stderr);
+            }
+            let _ = std::fs::remove_file(&part);
+        }
+        if parts.is_empty() {
+            bail!("b4 mbox failed: {error}");
+        }
+        let mbox = dir.join(format!("{root}.mbx"));
+        std::fs::write(&mbox, Series::merge_mboxes(&parts))?;
+        Ok(mbox)
+    }
+
     fn fetch(&self, dir: &Path, root: &str, members: &[String]) -> Result<PathBuf> {
         let name = format!("{root}.mbx");
         let mbox = dir.join(&name);
@@ -769,6 +811,7 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
             subject: "[PATCH] foo: fix".into(),
             in_reply_to: None,
             updated: "2026-10-24T10:00:00Z".into(),
+            author: None,
         };
         state.ingest(
             &[entry],

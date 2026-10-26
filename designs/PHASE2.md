@@ -281,6 +281,16 @@ joins. The sender address comes from mail, so it can be forged, but a
 forged member only puts the forger's patch into a series it was not part
 of, in a check that runs offline in the container like any other.
 
+**Built** as designed, with one difference: the series is rooted at the
+first message lore dates, not always at the cover letter or lowest patch,
+because the root names the series' state and pages from its first message
+on; its subject becomes the cover letter's when that arrives. The tracker
+marks a series another thread joined (`joined`), and only such a series is
+fetched member by member, so a threaded series with a cover letter is
+fetched as before. Tried on the wrynose initramfs series' real feed
+entries: its eight threads became one series of seven patches with its
+cover letter, and all seven applied to `wrynose`, with no findings.
+
 **Decided.** Settled with the maintainer:
 
 1. The window is ten minutes from the group's first message.
