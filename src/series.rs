@@ -258,7 +258,9 @@ impl Series {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
-        Series::parse(&output.stdout)
+        // The thread may hold other revisions: check the one asked for.
+        let root = id.rsplit('/').find(|p| p.contains('@')).unwrap_or(id);
+        Series::from_messages(split_mbox(&output.stdout), Some(root))
     }
 
     /// Reads a series from mbox data: one or more messages, as `b4 mbox` or

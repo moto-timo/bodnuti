@@ -24,7 +24,7 @@ mod workspace;
 
 use bodnuti::{lore, series, track};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
@@ -612,6 +612,15 @@ fn check(args: CheckArgs) -> Result<Report> {
     let b4 = args.b4.unwrap_or_else(|| sibling("b4"));
     let series = match args.input.as_slice() {
         [one] if series::is_remote(one) => Series::fetch(&b4, one)?,
+        // b4 mbox names the thread it saves after the Message-ID it was
+        // given: check that message's revision, not the thread's first.
+        [one] if one.ends_with(".mbx") && one.contains('@') => {
+            let name = Path::new(one)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            Series::load_rooted(&args.input, name)?
+        }
         inputs => Series::load(inputs)?,
     };
     let mut base = resolve_base(&args.repo, &series, args.base.as_deref());

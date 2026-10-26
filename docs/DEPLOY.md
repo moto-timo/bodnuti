@@ -226,7 +226,9 @@ $B --network none -v ~/cache/openembedded-core:/repo -v ~/inbox:/in:ro \
 
 `b4 mbox -o DIR` saves the whole thread as `DIR/<Message-ID>.mbx`, keeping
 the original subjects (and so tags such as `[scarthgap]`); bodnuti drops the
-replies. Any Message-ID in the thread works.
+replies. Any Message-ID of a patch in the thread works, and picks its
+revision: the Message-ID of a `[PATCH v2]` sent as a reply in a v1 thread
+checks the v2, any other the v1 series.
 
 Expand file name globs against the host path (`~/inbox/...`) and pass only
 the name. A glob written as `/in/...` is expanded by the host shell, where
