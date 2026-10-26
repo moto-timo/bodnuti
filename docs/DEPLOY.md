@@ -511,7 +511,7 @@ route = "subject-tag"
 
 [repos]
 openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"] }
-meta-openembedded = "https://git.openembedded.org/meta-openembedded"
+meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = "master-next" }
 bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
@@ -529,6 +529,13 @@ auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper"
 yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 ```
+
+`staging` names a branch the maintainers stage patches on before the
+default branch. A series that does not apply to `master` is checked on
+`origin/master-next` instead, just before the series if the branch already
+carries it (`designs/PHASE2.md` §5.6). `bodnuti-fetch.timer` fetches
+every branch of each upstream, so `master-next` is as current as
+`master`.
 
 Every `repo` needs a `[repos]` entry, or the configuration is rejected, and
 a clone under `~/cache/` (§5), or its series fail to check. lore has no meta-yocto inbox: its patches
