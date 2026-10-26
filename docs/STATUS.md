@@ -297,6 +297,35 @@ Reading the published reports on 26 October turned up these, all fixed:
   checked, but the reason now names the attached file and asks for
   `git send-email`.
 
+A scan of every published report with findings (128 of 426 series, on all
+lists, against local clones of all 18 repositories) found three more:
+
+- **Series checked after they landed.** Of the 65 landed series that
+  showed findings, 59 had been checked after their patches landed, by
+  re-checks and backfills against the branch as it was: their patches
+  failed to apply to a tree that already had them, or every finding in an
+  upgraded recipe looked new (56 for one meta-python series, 250 for a
+  linux-firmware upgrade). bodnuti now looks for landed patches before
+  every check: a series whose patches all landed is marked applied without
+  a check, and one partly landed is checked against the branch just before
+  the first of them, which its page notes. Re-checked on the worker, 51 of
+  the 59 became "already applied", one clean, and seven, partly landed,
+  show only what their patches add: mail checks, and lines the patches
+  wrote.
+- **A file several patches touch.** It was checked once per patch, so each
+  of its findings was counted as often, and the copies the base could not
+  cancel showed as new: a `[wrynose]` python3 upgrade reported 14 findings
+  its recipe already had, a pjproject series 27, 24 of them copies. Five
+  reports had such copies; each file is checked once now.
+- **Staging coverage.** Of 15 genuine "Failed to merge" errors, re-run with
+  today's branches and staging, two now apply to the branch, four apply on
+  the configured staging branches, and two on OE-Core's stable staging
+  branches, `stable/<release>-nut` in openembedded-core-contrib, which the
+  deployment now names; layerindex-web and error-report-web stage on their
+  own `master-next`. Of the rest, three `[scarthgap]` series built on what
+  `stable/scarthgap-nut` held in mid-October and has since dropped, and four
+  look like genuine conflicts.
+
 ### Builds and CI of patches under review
 
 Two more sources of evidence about a series are built, shown on its page
@@ -462,10 +491,11 @@ window held about eight sashiko reviews.
   resend, the attached patch), link the pycryptodome v2 to the series it
   revises, and re-check series with findings for excerpts, style findings
   and Django's checks.
-- Deploy the AutoBuilder evidence and the patch-id fix: the new binary and
-  `[autobuilder] builders = ["a-full"]` (`DEPLOY.md`), then compare the
-  Landed counts before and after the first poll records the patch-ids
-  again. Add `a-quick` once `a-full` has run for a while.
+- Turn on the AutoBuilder evidence with `[autobuilder] builders =
+  ["a-full"]` (`DEPLOY.md`), and add `a-quick` once `a-full` has run for a
+  while. Compare the Landed counts with those before the patch-id fix.
+- Re-check the five reports with duplicated findings and the eight series
+  that now apply on a branch or its staging branch.
 - Read error reports through a JSON API in error-report-web once it has
   one, and add the other layers' AutoBuilder builds (meta-openembedded,
   meta-virtualization) once their tested commits can be kept.
