@@ -859,14 +859,13 @@ file and line.
 2. This comes before §5.7: it needs no AutoBuilder or error-report-web
    work, and is the smaller first use of the same matching.
 
-**Not decided: where CodeQL alerts go.** Recommended: with the CI
-results, shown and not counted, rather than as findings. CodeQL runs on
-`master`, so an alert appears only once its series has landed, while a
-finding is what a series adds, compared before and after it, before it is
-merged; an alert would arrive after the review it could inform, and
-without the before-and-after comparison. If CodeQL is later run on
-`master-next` as well, its alerts arrive in time, and the question can be
-asked again.
+3. CodeQL alerts go with the CI results, shown and not counted, rather
+   than as findings. CodeQL runs on `master`, so an alert appears only
+   once its series has landed, while a finding is what a series adds,
+   compared before and after it, before it is merged; an alert would
+   arrive after the review it could inform, and without the
+   before-and-after comparison. If CodeQL is later run on `master-next`
+   as well, its alerts arrive in time, and this can be revisited.
 
 ## 6. Publishing
 
