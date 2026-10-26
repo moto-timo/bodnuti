@@ -433,6 +433,7 @@ mod tests {
                 candidates: Vec::new(),
                 duplicate_of: None,
                 ci: Vec::new(),
+                codeql: Vec::new(),
             },
         );
     }

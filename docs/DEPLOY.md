@@ -538,6 +538,12 @@ yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta
 without a token (GitHub allows 60 requests an hour), fetches each new
 run's commit into the clone, and records the run on the series it carried.
 
+CodeQL alerts need a token even for public repositories: a fine-grained
+personal access token with only **Code scanning alerts: Read-only** on the
+GitHub repositories named, in `~/.config/bodnuti/env` (mode 600) as
+`BODNUTI_GITHUB_TOKEN=…`, read by the poll service through
+`EnvironmentFile=%h/.config/bodnuti/env`. Without it, alerts are skipped.
+
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on
 `mathieu/master-next` in openembedded-core-contrib; meta-openembedded's
@@ -622,6 +628,7 @@ Description=Poll lore, check new series, publish reports
 [Service]
 Type=oneshot
 # "-": a failed list must not stop publishing the others.
+EnvironmentFile=-%h/.config/bodnuti/env
 ExecStart=-%h/.local/bin/bodnuti poll
 ExecStart=%h/.local/bin/bodnuti publish
 ```

@@ -381,6 +381,9 @@ pub struct SeriesRecord {
     /// GitHub CI runs that carried the series (designs/PHASE2.md §5.8).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ci: Vec<crate::ci::CiRun>,
+    /// CodeQL alerts on lines the series' patches wrote (§5.8).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub codeql: Vec<crate::ci::CodeqlAlert>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -463,6 +466,7 @@ impl ListState {
                             candidates: Vec::new(),
                             duplicate_of: None,
                             ci: Vec::new(),
+                            codeql: Vec::new(),
                         },
                     );
                 }

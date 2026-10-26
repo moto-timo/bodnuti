@@ -848,16 +848,53 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
     page(&title, "../../", &body, generated)
 }
 
+/// CodeQL alerts on `master` on lines the series' patches wrote, found
+/// after it landed (designs/PHASE2.md §5.8). They do not count towards
+/// the series' result.
+fn codeql_html(record: &SeriesRecord) -> String {
+    if record.codeql.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "<h3>CodeQL</h3>\n<p class=\"muted\">Alerts on master, after the series landed, on \
+         lines its patches wrote.</p>\n<ul class=\"ci\">\n",
+    );
+    for a in &record.codeql {
+        let class = match a.severity.as_str() {
+            "critical" | "high" | "error" => "error",
+            "medium" | "warning" => "warn",
+            _ => "muted",
+        };
+        let _ = writeln!(
+            out,
+            "<li><a href=\"{}\">{} #{}</a> <span class=\"{class}\">{}</span> \
+             <code>{}</code> in <code>{}:{}</code> <span class=\"muted\">(patch {})</span>: {}</li>",
+            escape(&a.url),
+            escape(&a.repo),
+            a.number,
+            escape(&a.severity),
+            escape(&a.rule),
+            escape(&a.path),
+            a.line,
+            a.patch,
+            escape(&a.message),
+        );
+    }
+    out.push_str("</ul>\n");
+    out
+}
+
 /// The GitHub CI runs that carried the series (designs/PHASE2.md §5.8),
 /// newest first. A run tests every patch on the branch at once, so a
 /// failure is the series' own only when two runs tied it to the series.
 fn ci_html(record: &SeriesRecord) -> String {
+    let mut out = codeql_html(record);
     if record.ci.is_empty() {
-        return String::new();
+        return out;
     }
     let mut runs: Vec<&crate::ci::CiRun> = record.ci.iter().collect();
     runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    let mut out = String::from(
+    out.push_str(
         "<h3>GitHub CI</h3>\n<p class=\"muted\">Runs on master-next that carried this series. \
          Each tests every patch on the branch; a failure is shown as this series' only when two \
          runs failed newly carrying it.</p>\n<ul class=\"ci\">\n",

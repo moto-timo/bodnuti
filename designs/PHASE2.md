@@ -906,8 +906,14 @@ patch-id, and records the run on each (`ci` in the series' record). A
 failure that is new against the run of its workflow before, and newly
 carries the series, counts towards it; at the second, the failure is the
 series'. The series page lists the runs, newest first; they do not change
-the series' result. CodeQL alerts wait for a read-only token, since
-GitHub's code scanning API needs one even for public repositories. Checked
+the series' result. CodeQL alerts, built since, need a read-only token
+(`BODNUTI_GITHUB_TOKEN`), since GitHub's code scanning API needs one even
+for public repositories. An alert names the commit it was last found at,
+not the one that introduced it, so its line is blamed at that commit, and
+the commit that wrote it is matched to a series by patch-id; each alert is
+handled once. Of error-report-web's seven open alerts, the one tried blames
+to a commit of 2015, which no checked series carries, so it is shown
+nowhere. Checked
 on 26 October: both layerindex-web repositories' latest runs tested the
 same six patches on top of `master`.
 

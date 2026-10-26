@@ -10,9 +10,15 @@
 //! runs agree: both failed where the run of their workflow before had
 //! passed, and both newly carried the series.
 //!
-//! Runs come from GitHub's public API, without a token. Everything in them
-//! is untrusted: commits are checked to be object names before git sees
-//! them, and URLs to point at github.com.
+//! CodeQL alerts on `master` are attributed the same way, once a series has
+//! landed: the alert's line, blamed at the commit it was found at, names
+//! the commit that wrote it, which is matched to a series by patch-id.
+//!
+//! Runs come from GitHub's public API, without a token; code scanning
+//! alerts need one even for public repositories, read from
+//! `BODNUTI_GITHUB_TOKEN`, and without it they are skipped. Everything from
+//! GitHub is untrusted: commits are checked to be object names and paths to
+//! stay in the tree before git sees them, and URLs to point at github.com.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -72,6 +78,56 @@ struct ApiRun {
     created_at: String,
 }
 
+/// A CodeQL alert as recorded on the series whose patch wrote its line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodeqlAlert {
+    /// The GitHub repository, `owner/name`.
+    pub repo: String,
+    pub number: u64,
+    pub rule: String,
+    /// The security severity (`high`, `medium`), else the rule's.
+    pub severity: String,
+    pub path: String,
+    pub line: u32,
+    pub message: String,
+    pub url: String,
+    /// The series' patch that wrote the line.
+    pub patch: u32,
+}
+
+#[derive(Deserialize)]
+struct ApiAlert {
+    number: u64,
+    html_url: String,
+    rule: ApiRule,
+    most_recent_instance: ApiInstance,
+}
+
+#[derive(Deserialize)]
+struct ApiRule {
+    id: String,
+    severity: Option<String>,
+    security_severity_level: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ApiInstance {
+    commit_sha: String,
+    message: ApiMessage,
+    location: ApiLocation,
+}
+
+#[derive(Deserialize)]
+struct ApiMessage {
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct ApiLocation {
+    path: String,
+    start_line: u32,
+}
+
 /// What `state/ci.json` keeps between polls.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct CiState {
@@ -83,6 +139,10 @@ struct CiState {
     /// <workflow>`. Per repository: two repositories running on the same
     /// push are one test, not two.
     new_failures: BTreeMap<String, u32>,
+    /// The CodeQL alerts already attributed, or found to be no checked
+    /// series', per repository.
+    #[serde(default)]
+    alerts_seen: BTreeMap<String, BTreeSet<u64>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -117,6 +177,24 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
         let clone = config.cache.join(name);
         if !clone.is_dir() {
             continue;
+        }
+        if let Some(token) = token() {
+            match fetch_alerts(slug, &token) {
+                Ok(alerts) => {
+                    let seen = state.alerts_seen.entry(slug.clone()).or_default();
+                    for alert in alerts {
+                        if !seen.insert(alert.number) {
+                            continue;
+                        }
+                        if let Some((series, record)) =
+                            attribute(&clone, &config.state, name, slug, &alert)?
+                        {
+                            add_alert(config, &mut lists, &series, record)?;
+                        }
+                    }
+                }
+                Err(err) => eprintln!("bodnuti: {slug}: CodeQL alerts: {err:#}"),
+            }
         }
         let mut runs = match fetch_runs(slug) {
             Ok(runs) => runs,
@@ -185,22 +263,137 @@ fn fetch_runs(slug: &str) -> Result<Vec<ApiRun>> {
     let url = format!(
         "https://api.github.com/repos/{slug}/actions/runs?branch={BRANCH}&event=push&status=completed&per_page={PER_PAGE}"
     );
-    let mut response = ureq::get(&url)
+    let page: RunsPage =
+        serde_json::from_str(&get(&url, token().as_deref())?).context("parsing GitHub's runs")?;
+    Ok(runs_of(page, slug))
+}
+
+/// The token for GitHub's code scanning API, if the worker has one.
+fn token() -> Option<String> {
+    std::env::var("BODNUTI_GITHUB_TOKEN")
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
+/// A GET of GitHub's API, with the token when there is one.
+fn get(url: &str, token: Option<&str>) -> Result<String> {
+    let mut request = ureq::get(url)
         .header("User-Agent", crate::lore::USER_AGENT)
-        .header("Accept", "application/vnd.github+json")
+        .header("Accept", "application/vnd.github+json");
+    if let Some(token) = token {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let mut response = request
         .config()
         .timeout_global(Some(std::time::Duration::from_secs(60)))
         .build()
         .call()
         .with_context(|| format!("fetching {url}"))?;
-    let page: RunsPage = serde_json::from_str(
-        &response
-            .body_mut()
-            .read_to_string()
-            .context("reading GitHub's answer")?,
-    )
-    .context("parsing GitHub's runs")?;
-    Ok(runs_of(page, slug))
+    response
+        .body_mut()
+        .read_to_string()
+        .context("reading GitHub's answer")
+}
+
+/// The open CodeQL alerts of `slug` found on `master`, with their untrusted
+/// fields checked.
+fn fetch_alerts(slug: &str, token: &str) -> Result<Vec<ApiAlert>> {
+    let url = format!(
+        "https://api.github.com/repos/{slug}/code-scanning/alerts?state=open&ref=refs/heads/master&per_page=100"
+    );
+    let alerts: Vec<ApiAlert> =
+        serde_json::from_str(&get(&url, Some(token))?).context("parsing GitHub's alerts")?;
+    Ok(alerts_of(alerts, slug))
+}
+
+fn alerts_of(alerts: Vec<ApiAlert>, slug: &str) -> Vec<ApiAlert> {
+    let prefix = format!("https://github.com/{slug}/security/code-scanning/");
+    alerts
+        .into_iter()
+        .filter(|a| a.html_url.starts_with(&prefix))
+        .filter(|a| is_object_name(&a.most_recent_instance.commit_sha))
+        .filter(|a| a.most_recent_instance.location.start_line > 0)
+        .filter(|a| safe_path(&a.most_recent_instance.location.path))
+        .collect()
+}
+
+fn is_object_name(sha: &str) -> bool {
+    sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// A relative path inside the tree, not one git could read as an option.
+fn safe_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with(['/', '-'])
+        && path.split('/').all(|p| !p.is_empty() && p != "..")
+}
+
+/// The series whose patch wrote the alert's line, by blaming the line at
+/// the commit the alert was found at; None when no checked series did.
+fn attribute(
+    clone: &Path,
+    state: &Path,
+    name: &str,
+    slug: &str,
+    alert: &ApiAlert,
+) -> Result<Option<(String, CodeqlAlert)>> {
+    let at = &alert.most_recent_instance;
+    if stack(clone, slug, &at.commit_sha)?.is_none() {
+        return Ok(None);
+    }
+    let line = at.location.start_line.to_string();
+    let Ok(blame) = git::run(
+        clone,
+        &[
+            "blame",
+            "--porcelain",
+            "-L",
+            &format!("{line},{line}"),
+            &at.commit_sha,
+            "--",
+            &at.location.path,
+        ],
+    ) else {
+        return Ok(None);
+    };
+    let Some(commit) = blame
+        .split_whitespace()
+        .next()
+        .filter(|c| is_object_name(c))
+    else {
+        return Ok(None);
+    };
+    let show = git::command(clone)
+        .args(["show", "--no-color", commit])
+        .output()
+        .context("running git show")?;
+    let Some((id, _)) = crate::workspace::patch_id_lines(&show.stdout)?
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let Some((series, patches)) = carried(state, name, &[id])?.into_iter().next() else {
+        return Ok(None);
+    };
+    let rule = &alert.rule;
+    let record = CodeqlAlert {
+        repo: slug.to_string(),
+        number: alert.number,
+        rule: rule.id.clone(),
+        severity: rule
+            .security_severity_level
+            .clone()
+            .or_else(|| rule.severity.clone())
+            .unwrap_or_default(),
+        path: at.location.path.clone(),
+        line: at.location.start_line,
+        message: at.message.text.clone(),
+        url: alert.html_url.clone(),
+        patch: patches[0].1,
+    };
+    Ok(Some((series, record)))
 }
 
 /// The runs worth recording: finished pushes, with a commit that is an
@@ -268,6 +461,32 @@ fn carried(
     Ok(out)
 }
 
+/// Adds `alert` to the record of `series` (`<list>/<root>`), once.
+fn add_alert(
+    config: &Config,
+    lists: &mut BTreeMap<String, ListState>,
+    series: &str,
+    alert: CodeqlAlert,
+) -> Result<()> {
+    let Some((list, root)) = series.split_once('/') else {
+        return Ok(());
+    };
+    if !lists.contains_key(list) {
+        lists.insert(list.to_string(), ListState::load(&config.state, list)?);
+    }
+    let Some(record) = lists.get_mut(list).and_then(|s| s.series.get_mut(root)) else {
+        return Ok(());
+    };
+    if !record
+        .codeql
+        .iter()
+        .any(|a| a.repo == alert.repo && a.number == alert.number)
+    {
+        record.codeql.push(alert);
+    }
+    Ok(())
+}
+
 /// Adds `run` to the record of `series` (`<list>/<root>`), once.
 fn add_run(
     config: &Config,
@@ -319,6 +538,90 @@ mod tests {
         .unwrap();
         let runs = runs_of(page, "o/r");
         assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), [3]);
+    }
+
+    #[test]
+    fn keeps_alerts_with_sound_fields_only() {
+        let alert = |n: u64, url: &str, sha: &str, path: &str| {
+            serde_json::json!({"number": n, "html_url": url,
+                "rule": {"id": "py/x", "severity": "error", "security_severity_level": "medium"},
+                "most_recent_instance": {"commit_sha": sha, "message": {"text": "m"},
+                    "location": {"path": path, "start_line": 3}}})
+        };
+        let ok = "https://github.com/o/r/security/code-scanning/";
+        let sha = "a".repeat(40);
+        let alerts: Vec<ApiAlert> = serde_json::from_value(serde_json::json!([
+            alert(1, &format!("{ok}1"), &sha, "Post/views.py"),
+            alert(2, "https://evil.example/2", &sha, "a.py"),
+            alert(3, &format!("{ok}3"), "--output=x", "a.py"),
+            alert(4, &format!("{ok}4"), &sha, "../etc/passwd"),
+            alert(5, &format!("{ok}5"), &sha, "--exec=x"),
+        ]))
+        .unwrap();
+        let kept: Vec<u64> = alerts_of(alerts, "o/r").iter().map(|a| a.number).collect();
+        assert_eq!(kept, [1]);
+    }
+
+    #[test]
+    fn attributes_an_alert_to_the_patch_that_wrote_its_line() {
+        let repo = tempfile::tempdir().unwrap();
+        let r = repo.path();
+        let commit = |text: &str, msg: &str| {
+            std::fs::write(r.join("views.py"), text).unwrap();
+            git::run(r, &["add", "views.py"]).unwrap();
+            git::run(
+                r,
+                &[
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@x",
+                    "commit",
+                    "-qm",
+                    msg,
+                ],
+            )
+            .unwrap();
+            git::run(r, &["rev-parse", "HEAD"]).unwrap()
+        };
+        git::run(r, &["init", "-q", "-b", "master"]).unwrap();
+        commit("a = 1\n", "add views");
+        let patch = commit("a = 1\nb = eval(x)\n", "views: evaluate x");
+        let show = git::command(r).args(["show", &patch]).output().unwrap();
+        let id = crate::workspace::patch_id_lines(&show.stdout)
+            .unwrap()
+            .remove(0)
+            .0;
+        let state = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(state.path().join("patch-ids")).unwrap();
+        std::fs::write(
+            state.path().join("patch-ids").join(&id),
+            "yocto-patches/s@x master 2 error-report-web\n",
+        )
+        .unwrap();
+        let alert: ApiAlert = serde_json::from_value(serde_json::json!({
+            "number": 7, "html_url": "https://github.com/o/r/security/code-scanning/7",
+            "rule": {"id": "py/code-injection", "severity": "error", "security_severity_level": "critical"},
+            "most_recent_instance": {"commit_sha": patch, "message": {"text": "eval"},
+                "location": {"path": "views.py", "start_line": 2}}
+        }))
+        .unwrap();
+        let (series, found) = attribute(r, state.path(), "error-report-web", "o/r", &alert)
+            .unwrap()
+            .unwrap();
+        assert_eq!(series, "yocto-patches/s@x");
+        assert_eq!(
+            (found.patch, found.severity.as_str(), found.line),
+            (2, "critical", 2)
+        );
+        // Line 1 was written before any checked series.
+        let mut old = alert;
+        old.most_recent_instance.location.start_line = 1;
+        assert!(
+            attribute(r, state.path(), "error-report-web", "o/r", &old)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
