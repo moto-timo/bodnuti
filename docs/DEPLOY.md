@@ -515,7 +515,7 @@ route = "subject-tag"
 builders = ["a-full"]
 
 [repos]
-openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = { url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next" } } }
+openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = { url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next", whinlatter = "stable/whinlatter-nut", wrynose = "stable/wrynose-nut", blacksail = "stable/blacksail-nut", scarthgap = "stable/scarthgap-nut", kirkstone = "stable/kirkstone-nut" } } }
 meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut", scarthgap = "anujm/scarthgap", wrynose = "anujm/wrynose" } } }
 bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
@@ -556,7 +556,8 @@ build and its failed steps on each. Without it, nothing is read.
 
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on
-`mathieu/master-next` in openembedded-core-contrib; meta-openembedded's
+`mathieu/master-next` and its stable branches on `stable/<release>-nut`, in
+openembedded-core-contrib; meta-openembedded's
 `master` on `yoe/mut` (the YOE distro's master under test) and its stable
 branches on their maintainer's branch in meta-openembedded-contrib. A
 series that does not apply to its branch is checked on that branch's
@@ -573,6 +574,8 @@ branches named, since the contrib repositories have hundreds:
 
 ```sh
 git -C ~/cache/openembedded-core remote add -t mathieu/master-next \
+    -t stable/whinlatter-nut -t stable/wrynose-nut -t stable/blacksail-nut \
+    -t stable/scarthgap-nut -t stable/kirkstone-nut \
     staging https://git.openembedded.org/openembedded-core-contrib
 git -C ~/cache/meta-openembedded remote add -t yoe/mut -t anujm/scarthgap \
     -t anujm/wrynose staging https://git.openembedded.org/meta-openembedded-contrib
