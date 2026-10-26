@@ -521,8 +521,8 @@ bitbake = "https://git.openembedded.org/bitbake"
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
 meta-yocto = "https://git.yoctoproject.org/meta-yocto"
-layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app", github = ["yoctoproject/layerindex-web", "moto-timo/layerindex-web"] }
-error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app", github = ["moto-timo/error-report-web"] }
+layerindex-web = { url = "https://git.yoctoproject.org/layerindex-web", kind = "django-app", staging = "{branch}-next", github = ["yoctoproject/layerindex-web", "moto-timo/layerindex-web"] }
+error-report-web = { url = "https://git.yoctoproject.org/error-report-web", kind = "django-app", staging = "{branch}-next", github = ["moto-timo/error-report-web"] }
 meta-security = "https://git.yoctoproject.org/meta-security"
 pseudo = { url = "https://git.yoctoproject.org/pseudo", kind = "c" }
 yocto-autobuilder-helper = { url = "https://git.yoctoproject.org/yocto-autobuilder-helper", kind = "python" }
