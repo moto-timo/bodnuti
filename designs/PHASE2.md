@@ -227,7 +227,7 @@ All three tiers are built: tier 1 in §5.2, tier 2 in §5.3, and tier 3, on
 the decision of the applications' maintainer (who is also bodnuti's), in
 §5.5.
 
-### 3.3 Series sent unthreaded (draft)
+### 3.3 Series sent unthreaded
 
 A series is grouped by threading (§3): its patches reply to the cover
 letter, or to patch 1/N. Some are sent without it, each message a thread of
@@ -271,8 +271,9 @@ it records the messages it saw for the root-not-on-lore fallback (§5.0).
 **Across polls.** Members arrive together, within minutes, and the series
 waits `settle_minutes` before it is checked, so a group forms within one
 poll or the next. A candidate whose group was already checked when it
-arrives (it came after the settle time) does not reopen it: it stays a
-series of its own, and its row says which series it belongs with.
+arrives (it came after the settle time, but within the window of the
+group's first message) reopens the group: it joins, and the series is
+checked again with it, as the series it was sent as.
 
 **Trust.** Only messages from one address, with one set of tags, are put
 together; a reply from someone else, or a patch with other tags, never
@@ -280,11 +281,13 @@ joins. The sender address comes from mail, so it can be forged, but a
 forged member only puts the forger's patch into a series it was not part
 of, in a check that runs offline in the container like any other.
 
-**To decide.** The window (ten minutes, against the two the initramfs
-series took); whether a candidate arriving after its group was checked
-should reopen the group for a new check rather than stay apart; and
-whether a group with patches missing after `settle_minutes` (some never
-sent, or lost) is checked as it is, as a threaded series is, or held.
+**Decided.** Settled with the maintainer:
+
+1. The window is ten minutes from the group's first message.
+2. A member arriving after its group was checked reopens it for a new
+   check.
+3. A group still missing patches after `settle_minutes` is checked as it
+   is, as a threaded series is.
 
 ## 4. State
 
