@@ -2,10 +2,10 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 25 October 2026, after the
-first day of the bodnuti phase 2 deployment, the first security scans, the
-addition of CI, the Django application checks and the 0.1.0 and 0.2.0
-releases. The bodnuti repository is public.
+as bodnuti, a standalone low-cost tool. Status as of 26 October 2026, after the
+first days of the bodnuti phase 2 deployment, the first security scans, the
+addition of CI, the Django application checks, the 0.1.0 and 0.2.0
+releases, and the fixes the first live reports called for. The bodnuti repository is public.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -255,6 +255,54 @@ That run found four problems, all fixed:
 - quoted-printable mail caused false patchtest failures;
 - a v2 posted in the v1 thread mixed the two revisions.
 
+### Fixes from the live reports
+
+Reading the published reports on 26 October turned up these, all fixed:
+
+- **Series built on staged patches.** A meta-oe series built on patches
+  staged before `master` failed to apply, and every checker that needs the
+  patched tree was skipped. A series that does not apply to its branch is
+  now checked on the branch's staging branch, named per repository: OE-Core
+  stages `master` on `mathieu/master-next` in openembedded-core-contrib,
+  meta-openembedded `master` on `yoe/mut` and `scarthgap` on
+  `anujm/scarthgap` in meta-openembedded-contrib (`designs/PHASE2.md`
+  §5.6). The check uses the commit just before the series when the staging
+  branch already carries it, and records the target branch commit the
+  staging branch was forked from, since staging branches are rebased at
+  any time. Re-checking the 44 openembedded-devel series whose reports
+  ended in `bodnuti.apply`, three now apply; 31 of the others had since
+  landed, so a re-check could not tell.
+- **A revision sent as a reply.** A `[PATCH v2]` answering patch 11/12 of an
+  OE-Core series was folded into the v1 series and never checked; and as
+  it changed only the author, its patch-id was v1's, so it would have
+  counted as a resend. Such a reply is now a series of its own, a resend
+  must match the mail (author, summary, commit message) as well as the
+  diff, and `bodnuti check` given a Message-ID checks that revision. On
+  the worker the v2 checked clean (patchtest 10 pass, 0 fail). On the site
+  it sits under the patch it revises, and the series' row shows the series
+  as it stands (§6.3).
+- **A resend to another repository.** A `[meta-networking]` series first
+  sent to openembedded-core, and checked against OE-Core there, was then
+  taken for a resend when sent to openembedded-devel, and never checked
+  against meta-openembedded. A resend now has to match the repository as
+  well as the branch, and a resend's row shows its original's result
+  ("resend: clean") instead of only "resend".
+- **Python read as shell.** librsvg's `do_compile_ptest_cargo:prepend`
+  extends a Python task of ptest-cargo.bbclass, and shellcheck failed to
+  parse it, leaving the recipe's shell unchecked. A function whose body is
+  BitBake Python is now skipped like a `python` one; seven functions in
+  OE-Core and meta-openembedded are.
+- **A patch sent as an attachment.** An Outlook mail carried its patch as a
+  base64 attachment and was reported as having no patches. It is still not
+  checked, but the reason now names the attached file and asks for
+  `git send-email`.
+
+Two more sources of evidence about a series are designed and decided, not
+yet built: the Django applications' GitHub CI and CodeQL runs on
+`master-next`, traced to series by patch-id (§5.8), first; then the Yocto
+Project AutoBuilder's builds of staging branches and their error reports,
+for OE-Core and BitBake, whose tested trees poky-ci-archive keeps (§5.7).
+
 ## bodnuti CI and security
 
 bodnuti reads untrusted mail, so its dependencies and image are scanned and
@@ -379,10 +427,17 @@ window held about eight sashiko reviews.
 - Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
   when the repository goes public), and let the worker pull it instead of
   loading a copied image.
-- Deploy the current image on the worker (it carries the Django
-  applications' venvs for tier 3), add meta-rockchip (`DEPLOY.md`), and
-  re-check series with findings for excerpts, style findings and Django's
-  checks.
+- Deploy the current binary and image on the worker, with the
+  `DEPLOY.md` changes: the `staging` remotes and `[repos]` staging tables
+  for openembedded-core and meta-openembedded, `--all` in
+  `bodnuti-fetch.service`, and meta-rockchip. Then re-check the series the
+  fixes above concern (the librsvg upgrade series, the meta-networking
+  resend, the attached patch), link the pycryptodome v2 to the series it
+  revises, and re-check series with findings for excerpts, style findings
+  and Django's checks.
+- Build the GitHub CI evidence for the Django applications (§5.8), then the
+  AutoBuilder evidence for OE-Core and BitBake (§5.7), with error reports
+  read through a JSON API in error-report-web once it has one.
 - Once slsa-framework/source-policies#27 merges, check that sourcetool
   verifies main at SLSA Source Level 3, and tag the next release, the first
   whose tag verifies at that level.
