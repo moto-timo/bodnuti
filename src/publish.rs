@@ -21,6 +21,7 @@ use anyhow::{Context, Result};
 use crate::finding::{Finding, Severity};
 use crate::lore;
 use crate::report::{Report, location, numbered, tool_name};
+use crate::series::{counters, subject_tags};
 use crate::watch::{Config, ListState, SeriesRecord, Status};
 
 /// Seconds in a month, for `retain_months`. The cutoff is approximate; a
@@ -37,6 +38,25 @@ struct Row<'a> {
     list: &'a str,
     record: &'a SeriesRecord,
     report: Option<Report>,
+    /// Revisions of its patches sent as replies, oldest first
+    /// (designs/PHASE2.md §6.3).
+    revisions: Vec<Revision<'a>>,
+}
+
+/// A revision of one patch of a series, sent as a reply: checked as a
+/// series of its own, shown under the patch it revises.
+struct Revision<'a> {
+    /// The number of the patch it revises.
+    patch: u32,
+    row: Row<'a>,
+}
+
+/// The series a revision's own page links back to.
+struct Revised {
+    page: Option<String>,
+    patch: u32,
+    total: u32,
+    subject: String,
 }
 
 /// What a series' row says in the result column.
@@ -106,15 +126,38 @@ impl Row<'_> {
                 // Found upstream before it was checked (§3.1).
                 None if self.record.status == Status::Applied => Outcome::AlreadyApplied,
                 None => Outcome::NotChecked,
-                Some(r) if !r.tool_errors.is_empty() => Outcome::NotChecked,
                 Some(r) => {
-                    let shown: Vec<&Finding> = r
-                        .findings
-                        .iter()
-                        .filter(|f| !already_applied(self.record, f))
-                        .collect();
+                    // The series as it stands: each revised patch's findings
+                    // are its latest revision's (§6.3).
+                    let latest = self.latest();
+                    let reports =
+                        std::iter::once(r).chain(latest.values().filter_map(|v| v.report.as_ref()));
+                    if reports.clone().any(|r| !r.tool_errors.is_empty()) {
+                        return Outcome::NotChecked;
+                    }
+                    let mut hidden = 0;
+                    let mut shown: Vec<&Finding> = Vec::new();
+                    for f in &r.findings {
+                        if f.patch.is_some_and(|k| latest.contains_key(&k)) {
+                            continue;
+                        }
+                        if already_applied(self.record, f) {
+                            hidden += 1;
+                        } else {
+                            shown.push(f);
+                        }
+                    }
+                    for v in latest.values() {
+                        if let Some(rep) = &v.report {
+                            shown.extend(
+                                rep.findings
+                                    .iter()
+                                    .filter(|f| !already_applied(v.record, f)),
+                            );
+                        }
+                    }
                     match shown.len() {
-                        0 if r.findings.is_empty() => Outcome::Clean,
+                        0 if hidden == 0 => Outcome::Clean,
                         0 => Outcome::AlreadyApplied,
                         total => Outcome::Findings {
                             errors: shown
@@ -127,6 +170,40 @@ impl Row<'_> {
                 }
             },
         }
+    }
+
+    /// The latest checked revision of each revised patch.
+    fn latest(&self) -> BTreeMap<u32, &Row<'_>> {
+        let mut latest = BTreeMap::new();
+        for rev in &self.revisions {
+            if rev.row.report.is_some() {
+                latest.insert(rev.patch, &rev.row);
+            }
+        }
+        latest
+    }
+
+    /// `11/12 revised in v2`, for each revised patch; empty without any.
+    fn revised_note(&self) -> String {
+        let mut last: BTreeMap<u32, &Row> = BTreeMap::new();
+        for rev in &self.revisions {
+            last.insert(rev.patch, &rev.row);
+        }
+        last.iter()
+            .map(|(k, row)| {
+                let version = counters(&subject_tags(&row.record.tracked.subject)).0;
+                let waiting = if row.report.is_some() {
+                    ""
+                } else {
+                    ", waiting"
+                };
+                format!(
+                    "{k}/{} revised in v{version}{waiting}",
+                    self.record.tracked.total.max(1)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     fn author(&self) -> Option<&str> {
@@ -197,10 +274,11 @@ pub fn render(config: &Config, states: &BTreeMap<String, ListState>, now: u64) -
                 list,
                 record,
                 report,
+                revisions: Vec::new(),
             });
         }
     }
-    rows.sort_by(|a, b| b.record.tracked.last_seen.cmp(&a.record.tracked.last_seen));
+    let rows = nest_revisions(rows);
 
     let site = config.state.join("site");
     let tmp = config.state.join(".site.tmp");
@@ -223,17 +301,32 @@ pub fn render(config: &Config, states: &BTreeMap<String, ListState>, now: u64) -
         let page = index_page_of(&own, Some(list), &generated);
         write(&tmp.join(list).join("index.html"), &page)?;
     }
-    for row in &rows {
-        let Some(page) = row.page() else { continue };
+    let write_series = |row: &Row, revised: Option<&Revised>| -> Result<()> {
+        let Some(page) = row.page() else {
+            return Ok(());
+        };
         let dir = tmp.join(&page);
         write(
             &dir.join("index.html"),
-            &series_page(config, row, &generated),
+            &series_page(config, row, revised, &generated),
         )?;
         let text = series_dir(&config.state, row).join("report.txt");
         if text.exists() {
             std::fs::copy(&text, dir.join("report.txt"))
                 .with_context(|| format!("copying {}", text.display()))?;
+        }
+        Ok(())
+    };
+    for row in &rows {
+        write_series(row, None)?;
+        for rev in &row.revisions {
+            let revised = Revised {
+                page: row.page(),
+                patch: rev.patch,
+                total: row.record.tracked.total.max(1),
+                subject: row.record.tracked.subject.clone(),
+            };
+            write_series(&rev.row, Some(&revised))?;
         }
     }
     if site.exists() {
@@ -241,6 +334,40 @@ pub fn render(config: &Config, states: &BTreeMap<String, ListState>, now: u64) -
     }
     std::fs::rename(&tmp, &site)?;
     Ok(site)
+}
+
+/// Moves each revision sent as a reply under the series it revises, when
+/// that series is on the site and its report names the patch; a revision
+/// whose series is not stays a row of its own. Newest first.
+fn nest_revisions(rows: Vec<Row<'_>>) -> Vec<Row<'_>> {
+    let (mut revisions, mut rows): (Vec<Row>, Vec<Row>) = rows
+        .into_iter()
+        .partition(|r| r.record.tracked.revises.is_some());
+    revisions.sort_by(|a, b| a.record.tracked.last_seen.cmp(&b.record.tracked.last_seen));
+    for rev in revisions {
+        let Some(of) = rev.record.tracked.revises.as_ref() else {
+            continue;
+        };
+        let found = rows.iter().enumerate().find_map(|(i, p)| {
+            if p.list != rev.list || p.record.tracked.root != of.series {
+                return None;
+            }
+            let patch = p
+                .report
+                .as_ref()?
+                .series
+                .patches
+                .iter()
+                .find(|x| x.message_id.as_deref() == Some(of.message.as_str()))?;
+            Some((i, patch.index))
+        });
+        match found {
+            Some((i, patch)) => rows[i].revisions.push(Revision { patch, row: rev }),
+            None => rows.push(rev),
+        }
+    }
+    rows.sort_by(|a, b| b.record.tracked.last_seen.cmp(&a.record.tracked.last_seen));
+    rows
 }
 
 fn series_dir(state: &Path, row: &Row) -> PathBuf {
@@ -439,6 +566,8 @@ const STYLE: &str = r#"
   table.index td.list, table.index td.author { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .clean { color: var(--ok); } .warn { color: var(--warn); } .error { color: var(--error); }
   code, pre { font: .88rem/1.45 ui-monospace, "SF Mono", Menlo, monospace; }
+  .superseded { opacity: .6; }
+  .revision { border-left: 3px solid var(--line); padding-left: .75rem; margin: .5rem 0; }
   .finding { border: 1px solid var(--line); border-left: 4px solid var(--muted);
              border-radius: 4px; padding: .5rem .75rem; margin: .6rem 0; background: var(--card); }
   .finding.sev-error { border-left-color: var(--error); }
@@ -539,6 +668,12 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
             Some(page) => format!("<a href=\"{prefix}{}\">{subject}</a>", escape(&page)),
             None => subject,
         };
+        let note = row.revised_note();
+        let subject = if note.is_empty() {
+            subject
+        } else {
+            format!("{subject} <span class=\"muted\">({})</span>", escape(&note))
+        };
         let outcome = row.outcome();
         let author = escape(row.author().unwrap_or(""));
         let _ = writeln!(
@@ -558,7 +693,7 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
     page(&title, root, &body, generated)
 }
 
-fn series_page(config: &Config, row: &Row, generated: &str) -> String {
+fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated: &str) -> String {
     let record = row.record;
     let list = escape(row.list);
     let subject = escape(&record.tracked.subject);
@@ -568,6 +703,21 @@ fn series_page(config: &Config, row: &Row, generated: &str) -> String {
         let _ = writeln!(body, "<dt>{key}</dt><dd>{value}</dd>");
     };
     item("List", format!("<a href=\"../\">{list}</a>"));
+    if let Some(of) = revised {
+        let subject = escape(&of.subject);
+        let series = match &of.page {
+            Some(page) => format!("<a href=\"../../{}\">{subject}</a>", escape(page)),
+            None => subject,
+        };
+        item(
+            "Revises",
+            format!("patch {}/{} of {series}", of.patch, of.total),
+        );
+    }
+    let note = row.revised_note();
+    if !note.is_empty() {
+        item("Revisions", escape(&note));
+    }
     item(
         "Thread",
         format!(
@@ -626,7 +776,13 @@ fn series_page(config: &Config, row: &Row, generated: &str) -> String {
     }
     body.push_str("</dl>\n");
     if let Some(report) = &row.report {
-        body.push_str(&findings_html(config, record, row.list, report));
+        body.push_str(&findings_html(
+            config,
+            record,
+            row.list,
+            report,
+            &row.revisions,
+        ));
         body.push_str("<p class=\"muted\"><a href=\"report.txt\">Text report</a></p>\n");
     }
     let title = format!("bodnuti: {subject}");
@@ -634,7 +790,40 @@ fn series_page(config: &Config, row: &Row, generated: &str) -> String {
 }
 
 /// The series' patches, each with its findings and where it landed.
-fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Report) -> String {
+/// A revision under the patch it revises: its subject, linked to its own
+/// page, when it was sent, its result and its findings.
+fn revision_html(rev: &Revision) -> String {
+    let row = &rev.row;
+    let subject = escape(&row.record.tracked.subject);
+    let subject = match row.page() {
+        Some(_) => format!(
+            "<a href=\"../{}/\">{subject}</a>",
+            escape(&row.record.tracked.root)
+        ),
+        None => subject,
+    };
+    let outcome = row.outcome();
+    let mut out = format!(
+        "<div class=\"revision\">\n<p>Revised in {subject}, {}: <span class=\"{}\">{}</span></p>\n",
+        timestamp(&row.record.tracked.last_seen),
+        outcome.class(),
+        outcome.label()
+    );
+    if let Some(report) = &row.report {
+        let findings: Vec<&Finding> = report.findings.iter().collect();
+        out.push_str(&finding_list(row.record, report, &findings));
+    }
+    out.push_str("</div>\n");
+    out
+}
+
+fn findings_html(
+    config: &Config,
+    record: &SeriesRecord,
+    list: &str,
+    report: &Report,
+    revisions: &[Revision],
+) -> String {
     let mut out = String::new();
     // The cover letter is the thread link above.
     for patch in &report.series.patches {
@@ -666,7 +855,24 @@ fn findings_html(config: &Config, record: &SeriesRecord, list: &str, report: &Re
             .iter()
             .filter(|f| f.patch == Some(patch.index))
             .collect();
-        out.push_str(&finding_list(record, report, &findings));
+        let revised: Vec<&Revision> = revisions
+            .iter()
+            .filter(|r| r.patch == patch.index)
+            .collect();
+        if revised.is_empty() {
+            out.push_str(&finding_list(record, report, &findings));
+        } else {
+            // The history in order: what this revision found, then each
+            // later revision (§6.3).
+            if !findings.is_empty() {
+                out.push_str("<div class=\"superseded\">\n<p class=\"muted\">Superseded by a later revision:</p>\n");
+                out.push_str(&finding_list(record, report, &findings));
+                out.push_str("</div>\n");
+            }
+            for rev in revised {
+                out.push_str(&revision_html(rev));
+            }
+        }
         out.push_str(&style_list(record, report, Some(patch.index)));
     }
     let series: Vec<&Finding> = report
@@ -870,6 +1076,7 @@ mod tests {
             list: "openembedded-core",
             record: &rec,
             report: Some(report(vec![])),
+            revisions: Vec::new(),
         };
         let html = index_page(&[row], None, "now");
         assert!(!html.contains("<script>"), "{html}");
@@ -944,6 +1151,7 @@ mod tests {
             list: "l",
             record: &landed,
             report: Some(report(vec![apply_failure()])),
+            revisions: Vec::new(),
         };
         assert_eq!(row.outcome(), Outcome::AlreadyApplied);
         assert_eq!(row.applied(), "applied");
@@ -953,6 +1161,7 @@ mod tests {
             list: "l",
             record: &pending,
             report: Some(report(vec![apply_failure()])),
+            revisions: Vec::new(),
         };
         assert_eq!(
             row.outcome(),
@@ -991,6 +1200,7 @@ mod tests {
                 list: "l",
                 record: &rec,
                 report: None,
+                revisions: Vec::new(),
             };
             assert_eq!(row.outcome(), outcome, "{status:?}");
         }
@@ -1061,5 +1271,82 @@ mod tests {
         // A second run replaces the site.
         render(&config, &states, now).unwrap();
         assert!(!dir.path().join(".site.tmp").exists());
+    }
+
+    #[test]
+    fn nests_a_revision_under_the_patch_it_revises() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = format!(
+            "image = \"i\"\nstate = \"{0}\"\ncache = \"{0}\"\n\
+             [[list]]\nname = \"openembedded-core\"\nrepo = \"openembedded-core\"\n\
+             [repos]\nopenembedded-core = \"https://git.openembedded.org/openembedded-core\"\n",
+            dir.path().display()
+        );
+        let path = dir.path().join("watch.toml");
+        std::fs::write(&path, text).unwrap();
+        let config = Config::load(&path).unwrap();
+        let save = |root: &str, report: &Report| {
+            let d = dir.path().join("series/openembedded-core").join(root);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("report.json"), serde_json::to_vec(report).unwrap()).unwrap();
+        };
+        // v1: its only finding is the AUH author of patch 1.
+        let auh = Finding {
+            tool: Tool::Patchtest,
+            check: "test_mbox.test_non_auh_upgrade".into(),
+            severity: Severity::Error,
+            patch: Some(1),
+            file: None,
+            line: None,
+            message: "Commit message contains AUH email address".into(),
+        };
+        save("1@x", &report(vec![auh]));
+        let v1 = record(Status::Checked, &[]);
+        // v2 of patch 1, sent as a reply to it: clean.
+        save("v2@x", &report(Vec::new()));
+        let mut v2 = record(Status::Checked, &[]);
+        v2.tracked = Tracked {
+            root: "v2@x".into(),
+            subject: "[PATCH v2] x".into(),
+            last_seen: "2026-10-23T11:00:00Z".into(),
+            revises: Some(crate::track::Revises {
+                series: "1@x".into(),
+                message: "1@x".into(),
+            }),
+            ..v2.tracked
+        };
+        let mut state = ListState::default();
+        state.series.insert("1@x".into(), v1);
+        state.series.insert("v2@x".into(), v2);
+        let states = BTreeMap::from([("openembedded-core".to_string(), state)]);
+        let now = lore::parse_time("2026-10-24T00:00:00Z").unwrap();
+        let site = render(&config, &states, now).unwrap();
+
+        let index = std::fs::read_to_string(site.join("openembedded-core/index.html")).unwrap();
+        // One row, for the series as it stands.
+        assert_eq!(
+            index.matches("<td class=\"subject\">").count(),
+            1,
+            "{index}"
+        );
+        assert!(index.contains("(1/1 revised in v2)"), "{index}");
+        assert!(
+            index.contains("<td class=\"result clean\">clean</td>"),
+            "{index}"
+        );
+        let page = std::fs::read_to_string(site.join("openembedded-core/1@x/index.html")).unwrap();
+        assert!(page.contains("Superseded by a later revision"), "{page}");
+        assert!(
+            page.contains("<a href=\"../v2@x/\">[PATCH v2] x</a>"),
+            "{page}"
+        );
+        let v2page =
+            std::fs::read_to_string(site.join("openembedded-core/v2@x/index.html")).unwrap();
+        assert!(
+            v2page.contains(
+                "<dt>Revises</dt><dd>patch 1/1 of <a href=\"../../openembedded-core/1@x/\">"
+            ),
+            "{v2page}"
+        );
     }
 }

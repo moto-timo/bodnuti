@@ -21,6 +21,19 @@ pub struct Tracked {
     /// Patch numbers seen so far (1..=N; the cover letter is not counted).
     pub seen: BTreeSet<u32>,
     pub last_seen: String,
+    /// For a revision of one patch sent as a reply to it, the patch it
+    /// revises (designs/PHASE2.md §6.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revises: Option<Revises>,
+}
+
+/// The patch a revision sent as a reply revises: the root of its series
+/// and the Message-ID of the patch, as first sent. A revision of a
+/// revision revises the same patch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Revises {
+    pub series: String,
+    pub message: String,
 }
 
 impl Tracked {
@@ -71,11 +84,22 @@ impl Tracker {
             // A later revision of a patch sent as a reply to it, such as a
             // [PATCH v2] answering patch 11/12 of a v1 series, is a series of
             // its own, complete on its own.
+            let mut revises = None;
             let reroll = e.in_reply_to.as_ref().is_some_and(|parent| {
-                self.root_of
-                    .get(parent)
-                    .and_then(|r| self.series.get(r))
-                    .is_some_and(|s| counters(&subject_tags(&s.subject)).0 != version)
+                let Some(root) = self.root_of.get(parent) else {
+                    return false;
+                };
+                let Some(s) = self.series.get(root) else {
+                    return false;
+                };
+                if counters(&subject_tags(&s.subject)).0 == version {
+                    return false;
+                }
+                revises = Some(s.revises.clone().unwrap_or_else(|| Revises {
+                    series: root.clone(),
+                    message: parent.clone(),
+                }));
+                true
             });
             if reroll {
                 (index, total) = (1, 1);
@@ -100,6 +124,7 @@ impl Tracker {
                 total,
                 seen: BTreeSet::new(),
                 last_seen: e.updated.clone(),
+                revises: revises.clone(),
             });
             if index == 0 || e.message_id == root {
                 series.subject = e.subject.clone();
@@ -196,9 +221,16 @@ mod tests {
         let v2 = &t.series["v2@x"];
         assert!(v2.complete());
         assert_eq!(v2.subject, "[PATCH v2] b: upgrade");
+        let revises = |id: &str| t.series[id].revises.clone().map(|r| (r.series, r.message));
+        assert_eq!(revises("v2@x"), Some(("0@x".into(), "2@x".into())));
+        assert_eq!(revises("0@x"), None);
         // A reply of the same revision still belongs to its series.
         t.ingest(&[entry("3@x", "[PATCH 2/2] b: upgrade", Some("1@x"), "40")]);
         assert_eq!(t.series.len(), 2);
+        // A v3 answering the v2 revises the same patch.
+        t.ingest(&[entry("v3@x", "[PATCH v3] b: upgrade", Some("v2@x"), "50")]);
+        let revises = |id: &str| t.series[id].revises.clone().map(|r| (r.series, r.message));
+        assert_eq!(revises("v3@x"), Some(("0@x".into(), "2@x".into())));
     }
 
     #[test]

@@ -421,6 +421,7 @@ mod tests {
                     total: 1,
                     seen: BTreeSet::from([1]),
                     last_seen: "2026-10-24T10:00:00Z".into(),
+                    revises: None,
                 },
                 status: Status::Checked,
                 repo: Some("oe".into()),

@@ -1051,6 +1051,13 @@ its own report, and the v1 series is applied once its unrevised patches
 and the revision's patch have all landed. The front page counts the
 series once.
 
+**Built** as designed, except the combined landed status: the series row
+still shows the v1 series' own landed patches, and a revision's own page
+shows its own. A revision whose series is not on the site (aged out, or
+never checked) keeps a row of its own. The v1 findings of a revised patch
+are shown dimmed under "Superseded by a later revision", then each
+revision with its date, result and findings.
+
 **Decided.** The row shows the series as it stands, combined as above,
 rather than the v1 result with a badge for each revision beside it: the
 index answers "where does this series stand", and the series page keeps
