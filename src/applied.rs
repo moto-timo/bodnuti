@@ -431,6 +431,7 @@ mod tests {
                 branch: Some(branch.into()),
                 applied: BTreeMap::new(),
                 candidates: Vec::new(),
+                duplicate_of: None,
             },
         );
     }

@@ -366,6 +366,10 @@ pub struct SeriesRecord {
     /// (designs/PHASE2.md §3.1.1). Absent in older state.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<String>,
+    /// For a resend, the series (`<list>/<root>`) its patches were checked
+    /// in. Absent in older state, where `reason` names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicate_of: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -446,6 +450,7 @@ impl ListState {
                             branch: None,
                             applied: BTreeMap::new(),
                             candidates: Vec::new(),
+                            duplicate_of: None,
                         },
                     );
                 }

@@ -151,15 +151,16 @@ impl Runner<'_> {
         // A resend is a duplicate only when its mail is unchanged too: a
         // revision that fixes only the author or the commit message changes
         // what patchtest's mail checks find.
-        if let Some(earlier) = self.all_known(PATCH_IDS, &ids, list, &root, &branch)?
+        if let Some(earlier) = self.all_known(PATCH_IDS, &ids, list, &root, &repo_name, &branch)?
             && self
-                .all_known(MAIL_IDS, &mails, list, &root, &branch)?
+                .all_known(MAIL_IDS, &mails, list, &root, &repo_name, &branch)?
                 .is_some()
         {
             record.status = Status::Duplicate;
             record.reason = Some(format!(
-                "every patch was already checked for {branch} in {earlier}"
+                "every patch was already checked for {repo_name} {branch} in {earlier}"
             ));
+            record.duplicate_of = Some(earlier);
             return Ok(());
         }
         if route == Route::SubjectTag {
@@ -236,8 +237,8 @@ impl Runner<'_> {
                 &pr.head[..12]
             )
         });
-        self.remember(PATCH_IDS, &ids, list, &root, &branch)?;
-        self.remember(MAIL_IDS, &mails, list, &root, &branch)?;
+        self.remember(PATCH_IDS, &ids, list, &root, &repo_name, &branch)?;
+        self.remember(MAIL_IDS, &mails, list, &root, &repo_name, &branch)?;
         Ok(())
     }
 
@@ -401,22 +402,24 @@ impl Runner<'_> {
             .with_context(|| format!("check produced no report: {}", last_line(&output.stderr)))
     }
 
-    /// The series every patch-id was first checked in for `branch`, if all
-    /// are known from another series. The same patch sent to two branches
-    /// (a backport) is checked for each.
+    /// The series every patch-id was first checked in for `repo`'s
+    /// `branch`, if all are known from another series. The same patch sent
+    /// to two branches (a backport), or to two repositories (a series first
+    /// sent to the wrong list), is checked for each.
     fn all_known(
         &self,
         store: &str,
         ids: &[(String, u32)],
         list: &str,
         root: &str,
+        repo: &str,
         branch: &str,
     ) -> Result<Option<String>> {
         let this = format!("{list}/{root}");
         let mut first = None;
         for (id, _) in ids {
             let owners = read_owners_in(&self.config.state, store, id)?;
-            match owners.iter().find(|o| o.branch.as_deref() == Some(branch)) {
+            match owners.iter().find(|o| o.checked_for(list, repo, branch)) {
                 Some(o) if o.series != this => first = first.or(Some(o.series.clone())),
                 _ => return Ok(None),
             }
@@ -425,13 +428,14 @@ impl Runner<'_> {
     }
 
     /// Records the series as the first one checked with each patch-id for
-    /// `branch`, with the patch's position in it.
+    /// `repo`'s `branch`, with the patch's position in it.
     fn remember(
         &self,
         store: &str,
         ids: &[(String, u32)],
         list: &str,
         root: &str,
+        repo: &str,
         branch: &str,
     ) -> Result<()> {
         let dir = self.config.state.join(store);
@@ -439,7 +443,7 @@ impl Runner<'_> {
         for (id, index) in ids {
             if read_owners_in(&self.config.state, store, id)?
                 .iter()
-                .any(|o| o.branch.as_deref() == Some(branch))
+                .any(|o| o.checked_for(list, repo, branch))
             {
                 continue;
             }
@@ -447,7 +451,7 @@ impl Runner<'_> {
                 .create(true)
                 .append(true)
                 .open(dir.join(id))?;
-            writeln!(file, "{list}/{root} {branch} {index}")?;
+            writeln!(file, "{list}/{root} {branch} {index} {repo}")?;
         }
         Ok(())
     }
@@ -462,6 +466,22 @@ pub struct Owner {
     /// branches were kept.
     pub branch: Option<String>,
     pub index: Option<u32>,
+    /// The repository it was checked against; unknown in records from
+    /// before repositories were kept.
+    pub repo: Option<String>,
+}
+
+impl Owner {
+    /// Whether this check was for `repo`'s `branch`. A record without a
+    /// repository counts for its own list only, which is where such a
+    /// record's series was checked.
+    fn checked_for(&self, list: &str, repo: &str, branch: &str) -> bool {
+        self.branch.as_deref() == Some(branch)
+            && match &self.repo {
+                Some(r) => r == repo,
+                None => self.series.split_once('/').is_some_and(|(l, _)| l == list),
+            }
+    }
 }
 
 /// Every series a patch-id was checked in: one line each, as
@@ -523,6 +543,7 @@ fn read_owners_in(state: &Path, store: &str, id: &str) -> Result<Vec<Owner>> {
                 series: words.next()?.to_string(),
                 branch: words.next().map(String::from),
                 index: words.next().and_then(|i| i.parse().ok()),
+                repo: words.next().map(String::from),
             })
         })
         .collect())
@@ -661,6 +682,26 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
         let mut record = state.series.remove(root).unwrap();
         record.repo = Some("openembedded-core".into());
         record
+    }
+
+    #[test]
+    fn a_resend_is_a_duplicate_only_for_the_same_repository() {
+        let owner = |line: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(dir.path().join(PATCH_IDS)).unwrap();
+            std::fs::write(dir.path().join(PATCH_IDS).join("id"), line).unwrap();
+            read_owners(dir.path(), "id").unwrap().remove(0)
+        };
+        // Checked against OE-Core after being sent to the wrong list.
+        let o = owner("openembedded-core/a@x master 1 openembedded-core\n");
+        assert!(o.checked_for("openembedded-core", "openembedded-core", "master"));
+        assert!(!o.checked_for("openembedded-devel", "meta-openembedded", "master"));
+        assert!(!o.checked_for("openembedded-core", "openembedded-core", "scarthgap"));
+        // An older record, without its repository, counts on its own list.
+        let old = owner("openembedded-core/a@x master 1\n");
+        assert_eq!(old.repo, None);
+        assert!(old.checked_for("openembedded-core", "openembedded-core", "master"));
+        assert!(!old.checked_for("openembedded-devel", "meta-openembedded", "master"));
     }
 
     #[test]
