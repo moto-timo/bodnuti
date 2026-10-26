@@ -1007,6 +1007,60 @@ guard, bodnuti's escaping turns `{` and `}` into character references
 everywhere. Without a `summary.html` (before the first publish) the page
 says so.
 
+### 6.3 Revisions sent as replies
+
+A revision of one patch sent as a reply in its series' thread is checked
+as a series of its own (§3), and so has its own row on the list's index.
+On 26 October, `[PATCH v2] python3-pycryptodome: upgrade 3.24.1 -> 4.2.0`
+answered patch 11/12 of an OE-Core upgrade series, whose only finding was
+that patch's AUH author; the v2 fixed the author and checked clean. The
+index then showed the v1 series with one error and, as an unrelated row,
+a one-patch series that is clean. A reader has to open both to learn that
+the series as it now stands is clean.
+
+**The link.** When the tracker makes a reply its own series because its
+revision differs (§3), it records what the reply revises: the v1 series'
+root and the Message-ID of the patch it answered. The v1 report records
+each patch's Message-ID, so the patch is known by number (11/12). A
+revision of a revision (a v3 answering the v2) revises the same patch of
+the same series.
+
+**The index.** A revision has no row of its own. The v1 series' row shows
+the series as it stands, the latest revision of each patch, and says how
+many patches were revised:
+
+| Series | Result |
+|---|---|
+| [PATCH 01/12] libsoup: upgrade 3.8.0 -> 3.8.1 (11/12 revised in v2) | clean |
+
+Its result is the v1 report's, with the findings of each revised patch
+replaced by those of its latest revision's report: here the AUH error of
+11/12 goes, and v2's none come in, so the row is clean. Tool errors
+combine the same way. While a revision waits to be checked, the row says
+so and keeps the v1 result.
+
+**The series page.** Each revised patch shows, under its v1 findings, a
+block for each revision: its subject, date, result and a link to its own
+report. The v1 findings of a revised patch stay on the page, marked as
+superseded, so the history reads in order. The revision's own page
+stays, and links back to the series it revises.
+
+**What stays apart.** Duplicates and landed matching are per checked
+series, as now: the revision's patch-id and mail id are recorded under
+its own report, and the v1 series is applied once its unrevised patches
+and the revision's patch have all landed. The front page counts the
+series once.
+
+**Decided.** The row shows the series as it stands, combined as above,
+rather than the v1 result with a badge for each revision beside it: the
+index answers "where does this series stand", and the series page keeps
+the history.
+
+**Not covered.** A revision of the whole series (`[PATCH v2 00/12]` with
+all twelve patches) is a new series, as now: it is sent as a new thread,
+and its own row is right. A partial reroll of several patches, each sent
+as a reply to its v1 patch, revises each of them, as above.
+
 ## 7. Testing
 
 - Unit tests for the Atom parser (on a captured feed), series grouping
