@@ -105,7 +105,8 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-      - uses: sigstore/cosign-installer@v4
+      # No moving v4 tag: pinned to the release.
+      - uses: sigstore/cosign-installer@v4.1.2
         if: github.ref_type == 'tag'
       # Keyless: the certificate names this workflow and the tag.
       - name: sign the image
