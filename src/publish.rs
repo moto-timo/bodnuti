@@ -41,6 +41,8 @@ struct Row<'a> {
     /// Revisions of its patches sent as replies, oldest first
     /// (designs/PHASE2.md §6.3).
     revisions: Vec<Revision<'a>>,
+    /// For a resend, its original's result: class and label.
+    original: Option<(&'static str, String)>,
 }
 
 /// A revision of one patch of a series, sent as a reply: checked as a
@@ -172,6 +174,31 @@ impl Row<'_> {
         }
     }
 
+    /// The result column's class and label: a resend shows the result of
+    /// the series its patches were checked in.
+    fn result(&self) -> (&'static str, String) {
+        let outcome = self.outcome();
+        match (&outcome, &self.original) {
+            (Outcome::Resend, Some((class, label))) => (class, format!("resend: {label}")),
+            _ => (outcome.class(), outcome.label()),
+        }
+    }
+
+    /// The series a resend's patches were checked in, `<list>/<root>`.
+    fn duplicate_of(&self) -> Option<&str> {
+        if self.record.status != Status::Duplicate {
+            return None;
+        }
+        self.record.duplicate_of.as_deref().or_else(|| {
+            // Older state names it only at the end of the reason.
+            self.record
+                .reason
+                .as_deref()?
+                .rsplit_once(" in ")
+                .map(|(_, s)| s)
+        })
+    }
+
     /// The latest checked revision of each revised patch.
     fn latest(&self) -> BTreeMap<u32, &Row<'_>> {
         let mut latest = BTreeMap::new();
@@ -275,10 +302,24 @@ pub fn render(config: &Config, states: &BTreeMap<String, ListState>, now: u64) -
                 record,
                 report,
                 revisions: Vec::new(),
+                original: None,
             });
         }
     }
-    let rows = nest_revisions(rows);
+    let mut rows = nest_revisions(rows);
+    let results: BTreeMap<String, (&'static str, String)> = rows
+        .iter()
+        .map(|r| {
+            let o = r.outcome();
+            (
+                format!("{}/{}", r.list, r.record.tracked.root),
+                (o.class(), o.label()),
+            )
+        })
+        .collect();
+    for row in &mut rows {
+        row.original = row.duplicate_of().and_then(|k| results.get(k)).cloned();
+    }
 
     let site = config.state.join("site");
     let tmp = config.state.join(".site.tmp");
@@ -451,14 +492,12 @@ fn summary(rows: &[Row], lists: &[&str], now: u64, generated: &str) -> String {
             Some(page) => format!("<a href=\"{SITE_PATH}{}\">{subject}</a>", escape(&page)),
             None => subject,
         };
-        let outcome = row.outcome();
+        let (class, label) = row.result();
         let _ = writeln!(
             out,
             "<li><span class=\"when\">{}</span> {subject} \
-             <span class=\"result {}\">{}</span></li>",
+             <span class=\"result {class}\">{label}</span></li>",
             timestamp(&row.record.tracked.last_seen),
-            outcome.class(),
-            outcome.label()
         );
     }
     let _ = writeln!(
@@ -674,14 +713,12 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
         } else {
             format!("{subject} <span class=\"muted\">({})</span>", escape(&note))
         };
-        let outcome = row.outcome();
+        let (class, label) = row.result();
         let author = escape(row.author().unwrap_or(""));
         let _ = writeln!(
             body,
             "<td class=\"subject\">{subject}</td><td class=\"wide author\" title=\"{author}\">{author}</td>\
-             <td class=\"result {}\">{}</td><td class=\"wide applied\">{}</td></tr>",
-            outcome.class(),
-            outcome.label(),
+             <td class=\"result {class}\">{label}</td><td class=\"wide applied\">{}</td></tr>",
             row.applied()
         );
     }
@@ -697,7 +734,6 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
     let record = row.record;
     let list = escape(row.list);
     let subject = escape(&record.tracked.subject);
-    let outcome = row.outcome();
     let mut body = format!("<h2>{subject}</h2>\n<dl>\n");
     let mut item = |key: &str, value: String| {
         let _ = writeln!(body, "<dt>{key}</dt><dd>{value}</dd>");
@@ -738,13 +774,16 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
             plural(style, "style finding")
         )
     };
+    let (class, label) = row.result();
+    let label = match row.duplicate_of().filter(|_| row.original.is_some()) {
+        Some(key) if lore::safe_id(key.split_once('/').map_or("", |(_, r)| r)) => {
+            format!("<a href=\"../../{}/\">{label}</a>", escape(key))
+        }
+        _ => label,
+    };
     item(
         "Result",
-        format!(
-            "<span class=\"{}\">{}</span>{style}",
-            outcome.class(),
-            outcome.label()
-        ),
+        format!("<span class=\"{class}\">{label}</span>{style}"),
     );
     if let Some(repo) = &record.repo {
         let branch = record.branch.as_deref().unwrap_or("");
@@ -1077,6 +1116,7 @@ mod tests {
             record: &rec,
             report: Some(report(vec![])),
             revisions: Vec::new(),
+            original: None,
         };
         let html = index_page(&[row], None, "now");
         assert!(!html.contains("<script>"), "{html}");
@@ -1152,6 +1192,7 @@ mod tests {
             record: &landed,
             report: Some(report(vec![apply_failure()])),
             revisions: Vec::new(),
+            original: None,
         };
         assert_eq!(row.outcome(), Outcome::AlreadyApplied);
         assert_eq!(row.applied(), "applied");
@@ -1162,6 +1203,7 @@ mod tests {
             record: &pending,
             report: Some(report(vec![apply_failure()])),
             revisions: Vec::new(),
+            original: None,
         };
         assert_eq!(
             row.outcome(),
@@ -1201,6 +1243,7 @@ mod tests {
                 record: &rec,
                 report: None,
                 revisions: Vec::new(),
+                original: None,
             };
             assert_eq!(row.outcome(), outcome, "{status:?}");
         }
@@ -1271,6 +1314,54 @@ mod tests {
         // A second run replaces the site.
         render(&config, &states, now).unwrap();
         assert!(!dir.path().join(".site.tmp").exists());
+    }
+
+    #[test]
+    fn a_resend_shows_its_original_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = format!(
+            "image = \"i\"\nstate = \"{0}\"\ncache = \"{0}\"\n\
+             [[list]]\nname = \"openembedded-core\"\nrepo = \"openembedded-core\"\n\
+             [repos]\nopenembedded-core = \"https://git.openembedded.org/openembedded-core\"\n",
+            dir.path().display()
+        );
+        let path = dir.path().join("watch.toml");
+        std::fs::write(&path, text).unwrap();
+        let config = Config::load(&path).unwrap();
+        let d = dir.path().join("series/openembedded-core/1@x");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("report.json"),
+            serde_json::to_vec(&report(Vec::new())).unwrap(),
+        )
+        .unwrap();
+        let mut resend = record(Status::Duplicate, &[]);
+        resend.tracked = Tracked {
+            root: "2@x".into(),
+            last_seen: "2026-10-23T12:00:00Z".into(),
+            ..resend.tracked
+        };
+        // Older state names the original only in the reason.
+        resend.reason =
+            Some("every patch was already checked for master in openembedded-core/1@x".into());
+        let mut state = ListState::default();
+        state
+            .series
+            .insert("1@x".into(), record(Status::Checked, &[]));
+        state.series.insert("2@x".into(), resend);
+        let states = BTreeMap::from([("openembedded-core".to_string(), state)]);
+        let now = lore::parse_time("2026-10-24T00:00:00Z").unwrap();
+        let site = render(&config, &states, now).unwrap();
+        let index = std::fs::read_to_string(site.join("openembedded-core/index.html")).unwrap();
+        assert!(
+            index.contains("<td class=\"result clean\">resend: clean</td>"),
+            "{index}"
+        );
+        let page = std::fs::read_to_string(site.join("openembedded-core/2@x/index.html")).unwrap();
+        assert!(
+            page.contains("<a href=\"../../openembedded-core/1@x/\">resend: clean</a>"),
+            "{page}"
+        );
     }
 
     #[test]
