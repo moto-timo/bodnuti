@@ -126,22 +126,27 @@ impl Tracker {
             // [PATCH v2] answering patch 11/12 of a v1 series, is a series of
             // its own, complete on its own.
             let mut revises = None;
-            let reroll = e.in_reply_to.as_ref().is_some_and(|parent| {
-                let Some(root) = self.root_of.get(parent) else {
-                    return false;
-                };
-                let Some(s) = self.series.get(root) else {
-                    return false;
-                };
-                if counters(&subject_tags(&s.subject)).0 == version {
-                    return false;
-                }
-                revises = Some(s.revises.clone().unwrap_or_else(|| Revises {
-                    series: root.clone(),
-                    message: parent.clone(),
-                }));
-                true
-            });
+            // A later revision's cover letter sent in reply to an earlier
+            // one starts a series of its own, as a cover letter does: it
+            // revises the whole series, not one patch.
+            let cover = index == 0 && total > 0;
+            let reroll = !cover
+                && e.in_reply_to.as_ref().is_some_and(|parent| {
+                    let Some(root) = self.root_of.get(parent) else {
+                        return false;
+                    };
+                    let Some(s) = self.series.get(root) else {
+                        return false;
+                    };
+                    if counters(&subject_tags(&s.subject)).0 == version {
+                        return false;
+                    }
+                    revises = Some(s.revises.clone().unwrap_or_else(|| Revises {
+                        series: root.clone(),
+                        message: parent.clone(),
+                    }));
+                    true
+                });
             if reroll {
                 (index, total) = (1, 1);
             }
@@ -399,6 +404,27 @@ mod tests {
             },
         ]);
         assert!(!t.series["0@y"].joined);
+    }
+
+    #[test]
+    fn a_new_revision_s_cover_letter_starts_its_own_series() {
+        let mut t = Tracker::default();
+        t.ingest(&[
+            entry("c1@x", "[PATCH 0/2] spdx: deploy", None, "00"),
+            entry("p1@x", "[PATCH 1/2] spdx: a", Some("c1@x"), "01"),
+            entry("p2@x", "[PATCH 2/2] spdx: b", Some("c1@x"), "02"),
+            // v5, months later, its cover letter a reply to v1's.
+            entry("c5@x", "[PATCH v5 0/3] spdx: deploy", Some("c1@x"), "30"),
+            entry("q1@x", "[PATCH v5 1/3] spdx: a", Some("c5@x"), "31"),
+            entry("q2@x", "[PATCH v5 2/3] spdx: b", Some("c5@x"), "32"),
+        ]);
+        let v5 = &t.series["c5@x"];
+        assert_eq!(v5.total, 3);
+        assert!(v5.revises.is_none());
+        assert!(!v5.complete());
+        t.ingest(&[entry("q3@x", "[PATCH v5 3/3] spdx: c", Some("c5@x"), "33")]);
+        assert!(t.series["c5@x"].complete());
+        assert!(t.series["c1@x"].complete());
     }
 
     #[test]

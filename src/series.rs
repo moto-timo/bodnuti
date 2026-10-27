@@ -461,7 +461,8 @@ impl Series {
     }
 
     fn from_messages(messages: Vec<Vec<u8>>, root: Option<&str>) -> Result<Series> {
-        let mut cover = None;
+        let root = root.map(|r| r.trim_matches(|c| c == '<' || c == '>'));
+        let mut cover: Option<Patch> = None;
         let mut patches = Vec::new();
         for raw in messages {
             let patch = parse_message(raw)?;
@@ -469,7 +470,16 @@ impl Series {
                 continue;
             }
             if patch.is_cover_letter() {
-                cover = Some(patch);
+                // A thread can hold the cover letters of several revisions,
+                // a v5 sent in reply to v1's: the root's is the one wanted.
+                let is_root = root.is_some() && patch.message_id.as_deref() == root;
+                let have_root = root.is_some()
+                    && cover
+                        .as_ref()
+                        .is_some_and(|c| c.message_id.as_deref() == root);
+                if is_root || !have_root {
+                    cover = Some(patch);
+                }
             } else {
                 patches.push(patch);
             }
@@ -482,7 +492,6 @@ impl Series {
         // only patches of the root's revision when the root is one of the
         // patches, else of the cover letter's, or, without one, of the first
         // patch in the input (the root b4 fetched the thread from).
-        let root = root.map(|r| r.trim_matches(|c| c == '<' || c == '>'));
         let (version, total) = patches
             .iter()
             .find(|p| root.is_some() && p.message_id.as_deref() == root)
@@ -784,6 +793,26 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn loads_the_revision_of_a_cover_letter_root() {
+        // v5's cover letter replies to v1's; the thread holds both.
+        let mbox = [
+            message("[PATCH 0/1] spdx", "v1 cover\n"),
+            message("[PATCH 1/1] spdx: a", "one\ndiff --git a/a b/a\n"),
+            message("[PATCH v5 0/2] spdx: deploy", "v5 cover\n"),
+            message("[PATCH v5 1/2] spdx: aa", "one\ndiff --git a/a b/a\n"),
+            message("[PATCH v5 2/2] spdx: bbb", "two\ndiff --git a/b b/b\n"),
+        ]
+        .concat();
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), &mbox).unwrap();
+        let id = "<27@example.org>"; // "[PATCH v5 0/2] spdx: deploy" is 27 bytes
+        let v5 = Series::load_rooted(&[file.path()], id).unwrap();
+        assert_eq!(v5.cover.as_ref().unwrap().version, 5);
+        assert_eq!(v5.patches.len(), 2);
+        assert!(v5.patches.iter().all(|p| p.version == 5));
     }
 
     #[test]

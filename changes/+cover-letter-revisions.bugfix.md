@@ -1,0 +1,1 @@
+**poll:** A new revision whose cover letter replies to an earlier revision's, as an OE-Core SPDX v5 did to its v1, is checked as that revision: its own series, with its own cover letter and patches, instead of as a one-patch revision of the earlier series, checked with the earlier revision's patches.
