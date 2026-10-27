@@ -515,7 +515,7 @@ route = "subject-tag"
 builders = ["a-full"]
 
 [repos]
-openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = { url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next", whinlatter = "stable/whinlatter-nut", wrynose = "stable/wrynose-nut", blacksail = "stable/blacksail-nut", scarthgap = "stable/scarthgap-nut", kirkstone = "stable/kirkstone-nut" } } }
+openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = [{ url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next", whinlatter = "stable/whinlatter-nut", wrynose = "stable/wrynose-nut", blacksail = "stable/blacksail-nut", scarthgap = "stable/scarthgap-nut", kirkstone = "stable/kirkstone-nut" } }, "{branch}-next"] }
 meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut", scarthgap = "anujm/scarthgap", wrynose = "anujm/wrynose" } } }
 bitbake = { url = "https://git.openembedded.org/bitbake", staging = [{ url = "https://git.openembedded.org/bitbake-contrib", branches = { master = "mathieu/master-next" } }, "{branch}-next"] }
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
@@ -557,7 +557,7 @@ build and its failed steps on each. Without it, nothing is read.
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on
 `mathieu/master-next` and its stable branches on `stable/<release>-nut`, in
-openembedded-core-contrib; meta-openembedded's
+openembedded-core-contrib, and `master` also on its own `master-next`; meta-openembedded's
 `master` on `yoe/mut` (the YOE distro's master under test) and its stable
 branches on their maintainer's branch in meta-openembedded-contrib. A
 series that does not apply to its branch is checked on that branch's
@@ -565,8 +565,10 @@ staging branch, just before the series if the staging branch already
 carries it. A staging branch that is missing, or already part of its
 branch, stages nothing. A pattern such as `staging = "{branch}-next"`
 names staging branches in the repository itself instead. A list tries
-each in turn, until the series applies on one: BitBake stages `master` on
-`mathieu/master-next` in bitbake-contrib and on its own `master-next`.
+each in turn, until the series applies on one: OE-Core and BitBake stage
+`master` on `mathieu/master-next` in their contrib repositories, where
+Mathieu Dubois-Briand stages, and on their own `master-next`, where
+Richard Purdie does.
 
 Staging branches are rebased at any time; each check records the commit
 of the target branch the staging branch was forked from, which stays.
