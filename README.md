@@ -100,6 +100,17 @@ gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bod
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
+The image of `main`, `ghcr.io/moto-timo/bodnuti:main` (and `:main-<commit>`),
+is built, attested and signed the same way by the Main image workflow on
+every push that changes what goes into it; its certificate names that
+workflow and `main`:
+
+```
+cosign verify ghcr.io/moto-timo/bodnuti:main \
+  --certificate-identity https://github.com/moto-timo/bodnuti/.github/workflows/main-image.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 The source has SLSA source provenance too: each push to `main` and each
 tag gets a signed source provenance attestation and verification summary,
 kept in git notes, which the

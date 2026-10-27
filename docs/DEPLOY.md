@@ -479,7 +479,7 @@ openembedded-core alone and add the other lists once its reports look
 right:
 
 ```toml
-image = "localhost/bodnuti"
+image = "localhost/bodnuti"   # or ghcr.io/moto-timo/bodnuti:main, see below
 state = "~/state"
 cache = "~/cache"
 settle_minutes = 15
@@ -534,6 +534,21 @@ auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper"
 yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 ```
+
+`image` can name the published image of `main` instead of a local build:
+`ghcr.io/moto-timo/bodnuti:main`, rebuilt for amd64 and arm64 on every push
+that changes what goes into it, attested and signed (README, "Verifying a
+release"). Pull it, and check its signature, before each update:
+
+```sh
+podman pull ghcr.io/moto-timo/bodnuti:main
+cosign verify ghcr.io/moto-timo/bodnuti:main \
+  --certificate-identity https://github.com/moto-timo/bodnuti/.github/workflows/main-image.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The host binary in `~/.local/bin` must come from the same commit, since
+the poll and the check share the series' state: `:main-<commit>` names it.
 
 `github` names the GitHub repositories whose CI and Safety runs on
 `master-next` test the application's patches under review

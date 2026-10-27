@@ -1,0 +1,97 @@
+# The image of main, for a worker that pulls rather than builds: each push
+# that changes what goes into the image builds it for amd64 and arm64 and
+# pushes ghcr.io/<repository>:main and :main-<commit>, with SLSA build
+# provenance, an attested SPDX SBOM per platform and a keyless cosign
+# signature, as the Release workflow does for a release.
+name: Main image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Containerfile
+      - Cargo.toml
+      - Cargo.lock
+      - assets/**
+      - src/**
+      - tests/**
+      - requirements.txt
+      - django/**
+      - .github/workflows/main-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# arm64 builds under QEMU and is slow: a newer push replaces a build of an
+# older one.
+concurrency:
+  group: main-image
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: image (amd64, arm64)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # Sigstore: provenance, SBOMs and the cosign signature
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: short
+        run: echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:main
+            ghcr.io/${{ github.repository }}:main-${{ steps.short.outputs.sha }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      # No moving v4 tag: pinned to the release.
+      - uses: sigstore/cosign-installer@v4.1.2
+      # Keyless: the certificate names this workflow and refs/heads/main.
+      - name: sign the image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@$DIGEST"
+      # trivy reads the pushed image with the login above; an SBOM needs no
+      # vulnerability database.
+      - name: image SBOMs
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          sh .github/install-scanners.sh
+          for arch in amd64 arm64; do
+            trivy image --quiet --format spdx-json --platform "linux/$arch" \
+              -o "bodnuti-main-image-$arch.spdx.json" \
+              "ghcr.io/${{ github.repository }}@$DIGEST"
+          done
+      - uses: actions/attest-sbom@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: bodnuti-main-image-amd64.spdx.json
+          push-to-registry: true
+      - uses: actions/attest-sbom@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: bodnuti-main-image-arm64.spdx.json
+          push-to-registry: true

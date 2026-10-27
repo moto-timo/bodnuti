@@ -1,0 +1,1 @@
+**packaging:** The image of `main` is published as `ghcr.io/moto-timo/bodnuti:main` and `:main-<commit>`, for amd64 and arm64, with build provenance, SPDX SBOMs and a keyless cosign signature, on every push that changes what goes into it, so a worker can pull it instead of building it.
