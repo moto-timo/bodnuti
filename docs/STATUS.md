@@ -350,14 +350,50 @@ apart from its result:
   Against the live AutoBuilder, an OE-Core strace upgrade was found in four
   `a-full` builds on `mathieu/master-next`, the one failure among them a
   `cvelistV5` fetch, classed as infrastructure. Error reports are only
-  linked until error-report-web has a JSON read API.
+  linked until error-report-web has a JSON read API. meta-openembedded is
+  traced too, from Khem Raj's `meta-oe` builder (30 builds in nine days, of
+  `yoe/mut` and `anujm/<release>`): nothing archives its trees, so each
+  poll pins the staging branch tips the clone fetched under
+  `refs/bodnuti/`, and a build's commit is read from there or from its own
+  branch. On the worker the AutoBuilder evidence shows on 35 series, from
+  130 `a-full` builds so far. meta-virtualization's `meta-virt` builds
+  are children of `a-full` that build its own branches, and it stages
+  nothing now, so there is nothing of its own to trace.
 
 Building the AutoBuilder evidence found that patch-ids were computed from
 the raw mail, so a patch the list re-encoded as quoted-printable matched no
-commit: not upstream, not as a resend, not in a build or a CI run. That is
-likely much of why so few series showed as landed. They are read from the
-decoded mail now, and the first poll records every checked series' patch-ids
-again.
+commit: not upstream, not as a resend, not in a build or a CI run. They are
+read from the decoded mail now; the first poll recorded every checked
+series' patch-ids again, and resetting the upstream scan positions rescanned
+the branches with them, matching 131 patches. Landed moved only from 55% to
+56% of all series (240 of 423), so the bug was a small part of the low
+counts; of series older than three days, about 61% have landed, and most of
+the rest look still in review.
+
+### More fixes from the reports
+
+- **Series sent unthreaded.** A wrynose initramfs series came as eight
+  threads, each patch without `In-Reply-To`, and each patch was checked
+  alone, so 2/7 could not apply. Messages with no parent, numbered in one
+  series, from one sender (the lore feed's author), with the same tags,
+  within ten minutes, are now one series, fetched from all their threads
+  (§3.3); a member arriving later reopens it. The initramfs series is one
+  row, clean.
+- **A new revision's cover letter in reply to the old one.** OE-Core's SPDX
+  v5 cover letter replied to v1's, and the series was checked as v1's five
+  patches. It starts its own series now; v5's six patches apply.
+- **Multipart mail.** Patches sent as `multipart/alternative` (the Sweego
+  mailer, the groups.io web poster) made patchtest run no tests and gave
+  wrong patch-ids; their text part is decoded now, and patchtest found a
+  missing commit message in two bitbake-devel series.
+- **Empty shell functions** (`do_compile () {` then `}` in rust's recipe)
+  are valid BitBake but not shell; they get a no-op now, and the recipe is
+  checked.
+- **Staging in two places.** OE-Core and BitBake stage `master` both on
+  `mathieu/master-next` in their contrib repositories and on their own
+  `master-next`; `staging` takes a list, tried in order.
+- **GitHub CI runs that tested nothing**, such as upstream layerindex-web's
+  Safety without a key, show as skipped, not passed.
 
 ## bodnuti CI and security
 
@@ -369,6 +405,13 @@ its parsers fuzzed:
   crates use; crates.io as the only source), trivy on `requirements.txt`
   (the image's Python pins, moved out of the Containerfile so scanners can
   read them), and gitleaks on the git history.
+- A Main image workflow publishes `ghcr.io/moto-timo/bodnuti:main` (and
+  `:main-<commit>`) for amd64 and arm64 on each push that changes the
+  image, with build provenance, SPDX SBOMs and a keyless cosign signature,
+  as releases have. The package is public, and the worker pulls and
+  verifies it, taking its host binary from the same image, instead of
+  building locally. The image builds with Rust 1.99 and carries
+  shellcheck 0.11.0.
 - `make audit-image` scans a built image with trivy, failing on HIGH or
   CRITICAL findings that have a fix. `DEPLOY.md` runs it before an image
   ships.
@@ -480,25 +523,14 @@ window held about eight sashiko reviews.
 
 ## Next steps
 
-- Make the `ghcr.io/moto-timo/bodnuti` image public (packages stay private
-  when the repository goes public), and let the worker pull it instead of
-  loading a copied image.
-- Deploy the current binary and image on the worker, with the
-  `DEPLOY.md` changes: the `staging` remotes and `[repos]` staging tables
-  for openembedded-core and meta-openembedded, `--all` in
-  `bodnuti-fetch.service`, and meta-rockchip. Then re-check the series the
-  fixes above concern (the librsvg upgrade series, the meta-networking
-  resend, the attached patch), link the pycryptodome v2 to the series it
-  revises, and re-check series with findings for excerpts, style findings
-  and Django's checks.
-- Turn on the AutoBuilder evidence with `[autobuilder] builders =
-  ["a-full"]` (`DEPLOY.md`), and add `a-quick` once `a-full` has run for a
-  while. Compare the Landed counts with those before the patch-id fix.
-- Re-check the five reports with duplicated findings and the eight series
-  that now apply on a branch or its staging branch.
+- Add `a-quick` to `[autobuilder] builders` once `a-full` and `meta-oe`
+  have run for a while, and watch the first AutoBuilder failures tied to a
+  series, by recipe and by two builds.
 - Read error reports through a JSON API in error-report-web once it has
-  one, and add the other layers' AutoBuilder builds (meta-openembedded,
-  meta-virtualization) once their tested commits can be kept.
+  one.
+- Watch for the cases only unit-tested so far: a BitBake series rescued by
+  its staging branches, a late member reopening an unthreaded series, and a
+  CodeQL alert on a line a checked series wrote.
 - Once slsa-framework/source-policies#27 merges, check that sourcetool
   verifies main at SLSA Source Level 3, and tag the next release, the first
   whose tag verifies at that level.
