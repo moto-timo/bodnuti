@@ -83,13 +83,13 @@ jobs:
               -o "bodnuti-main-image-$arch.spdx.json" \
               "ghcr.io/${{ github.repository }}@$DIGEST"
           done
-      - uses: actions/attest-sbom@v4
+      - uses: actions/attest@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: bodnuti-main-image-amd64.spdx.json
           push-to-registry: true
-      - uses: actions/attest-sbom@v4
+      - uses: actions/attest@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}

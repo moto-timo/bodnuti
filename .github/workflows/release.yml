@@ -145,14 +145,14 @@ jobs:
               -o "bodnuti-$VERSION-image-$arch.spdx.json" \
               "ghcr.io/${{ github.repository }}@$DIGEST"
           done
-      - uses: actions/attest-sbom@v4
+      - uses: actions/attest@v4
         if: github.ref_type == 'tag'
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: bodnuti-${{ needs.version.outputs.version }}-image-amd64.spdx.json
           push-to-registry: true
-      - uses: actions/attest-sbom@v4
+      - uses: actions/attest@v4
         if: github.ref_type == 'tag'
         with:
           subject-name: ghcr.io/${{ github.repository }}
@@ -186,7 +186,7 @@ jobs:
           pattern: sbom-*
           path: sbom
           merge-multiple: true
-      - uses: actions/attest-sbom@v4
+      - uses: actions/attest@v4
         with:
           subject-path: dist/*.whl
           sbom-path: sbom/bodnuti-${{ needs.version.outputs.version }}.spdx.json
