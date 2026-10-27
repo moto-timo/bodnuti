@@ -531,9 +531,11 @@ window held about eight sashiko reviews.
 - Watch for the cases only unit-tested so far: a BitBake series rescued by
   its staging branches, a late member reopening an unthreaded series, and a
   CodeQL alert on a line a checked series wrote.
-- Once slsa-framework/source-policies#27 merges, check that sourcetool
-  verifies main at SLSA Source Level 3, and tag the next release, the first
-  whose tag verifies at that level.
+- Release 0.3.0 without waiting for slsa-framework/source-policies#27,
+  still open: its tag is the first with tag provenance from the SLSA
+  Source workflow's new pin, which only a tag can try. Once #27 merges,
+  check that sourcetool verifies main at SLSA Source Level 3, and make the
+  release after 0.3.0 the first whose tag verifies at that level.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
