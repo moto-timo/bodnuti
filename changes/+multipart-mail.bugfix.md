@@ -1,0 +1,1 @@
+**check:** A patch sent as a multipart message, a text part and an HTML one as some mailers and the groups.io web poster send, is read from its text part: patchtest checks it instead of running no tests, and its patch-id is its commit's.

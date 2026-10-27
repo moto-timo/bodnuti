@@ -30,6 +30,104 @@ pub struct Patch {
     pub raw: Vec<u8>,
 }
 
+/// A header's value from mail headers, folded lines joined.
+fn header_value(head: &str, name: &str) -> Option<String> {
+    let mut value: Option<String> = None;
+    for line in head.lines() {
+        if let Some(v) = value.as_mut() {
+            if line.starts_with([' ', '\t']) {
+                v.push(' ');
+                v.push_str(line.trim());
+                continue;
+            }
+            break;
+        }
+        if let Some((key, rest)) = line.split_once(':')
+            && key.eq_ignore_ascii_case(name)
+        {
+            value = Some(rest.trim().to_string());
+        }
+    }
+    value
+}
+
+/// A `multipart/*` message as a plain one: the headers without their
+/// Content-Type and Content-Transfer-Encoding, then the first text/plain
+/// part's, decoded to 8bit, and that part's body. None when the message is
+/// not multipart, or its text part is in an encoding not decoded here.
+// ponytail: quoted-printable, 7bit and 8bit parts; base64 is rare for
+// patches, and is left to git am.
+fn flatten_multipart(head: &str, body: &[u8]) -> Option<Vec<u8>> {
+    let ctype = header_value(head, "Content-Type")?;
+    if !ctype.to_ascii_lowercase().starts_with("multipart/") {
+        return None;
+    }
+    let boundary = ctype
+        .split(';')
+        .filter_map(|p| p.trim().split_once('='))
+        .find(|(k, _)| k.trim().eq_ignore_ascii_case("boundary"))
+        .map(|(_, v)| v.trim().trim_matches('"').to_string())?;
+    let delimiter = format!("--{boundary}");
+    let text = String::from_utf8_lossy(body);
+    let mut parts: Vec<String> = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.split_inclusive('\n') {
+        let bare = line.trim_end();
+        if bare == delimiter || bare == format!("{delimiter}--") {
+            if let Some(part) = current.take() {
+                parts.push(part);
+            }
+            if bare == delimiter {
+                current = Some(String::new());
+            }
+            continue;
+        }
+        if let Some(part) = current.as_mut() {
+            part.push_str(line);
+        }
+    }
+    let part = parts.iter().find(|p| {
+        let part_head = p.split_once("\n\n").map_or(p.as_str(), |(h, _)| h);
+        header_value(part_head, "Content-Type")
+            .is_none_or(|t| t.to_ascii_lowercase().starts_with("text/plain"))
+    })?;
+    let (part_head, part_body) = part.split_once("\n\n")?;
+    let cte = header_value(part_head, "Content-Transfer-Encoding")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let decoded = match cte.as_str() {
+        "quoted-printable" => decode_quoted_printable(part_body.as_bytes()),
+        "" | "7bit" | "8bit" => part_body.as_bytes().to_vec(),
+        _ => return None,
+    };
+    let part_type = header_value(part_head, "Content-Type")
+        .unwrap_or_else(|| "text/plain; charset=utf-8".into());
+    let mut out = String::new();
+    let mut skipping = false;
+    for line in head.lines() {
+        if line.starts_with([' ', '\t']) {
+            if !skipping {
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        let key = line.split_once(':').map_or("", |(k, _)| k.trim());
+        skipping = key.eq_ignore_ascii_case("Content-Type")
+            || key.eq_ignore_ascii_case("Content-Transfer-Encoding");
+        if !skipping {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str(&format!(
+        "Content-Type: {part_type}\nContent-Transfer-Encoding: 8bit\n\n"
+    ));
+    let mut out = out.into_bytes();
+    out.extend(decoded);
+    Some(out)
+}
+
 impl Patch {
     /// The commit message: the body before the `---` line or the first
     /// diff.
@@ -59,6 +157,11 @@ impl Patch {
         };
         let (head, body) = (&self.raw[..split + 1], &self.raw[split + 2..]);
         let head_text = String::from_utf8_lossy(head);
+        // A multipart message (a text part and an HTML one, as some mailers
+        // send): its text part, decoded, under the message's own headers.
+        if let Some(flat) = flatten_multipart(&head_text, body) {
+            return flat;
+        }
         let cte = head_text.lines().find(|l| {
             l.to_ascii_lowercase()
                 .starts_with("content-transfer-encoding:")
@@ -849,6 +952,39 @@ mod tests {
         );
         let plain = parse_message(message("[PATCH] x", "A =3D 1").into_bytes()).unwrap();
         assert_eq!(plain.decoded(), plain.raw);
+    }
+
+    #[test]
+    fn decodes_the_text_part_of_a_multipart_patch() {
+        // As the Sweego mailer sends patches: a quoted-printable text part
+        // and an HTML one.
+        let raw = "From x Mon Sep 17 00:00:00 2001\nFrom: Y <y@vates.tech>\n\
+                   Subject: [PATCH] doc: document addpylib\nMIME-Version: 1.0\n\
+                   Content-Type: multipart/alternative;\n boundary=\"-=Part.b9=-\"\n\n\
+                   ---=Part.b9=-\nContent-Type: text/plain; charset=utf-8\n\
+                   Content-Transfer-Encoding: quoted-printable\n\n\
+                   Signed-off-by: Y <y@vates=2Etech>\n---\n\
+                   diff --git a/doc/m=2Erst b/doc/m=2Erst\n--- a/doc/m.rst\n+++ b/doc/m.rst\n\
+                   @@ -1 +1 @@\n-a\n+b =3D c\n\n\
+                   ---=Part.b9=-\nContent-Type: text/html; charset=utf-8\n\n<p>html</p>\n\
+                   ---=Part.b9=---\n";
+        let patch = parse_message(raw.as_bytes().to_vec()).unwrap();
+        let text = String::from_utf8(patch.decoded()).unwrap();
+        assert!(!text.contains("multipart"), "{text}");
+        assert!(!text.contains("<p>html</p>"), "{text}");
+        assert!(
+            text.contains("Subject: [PATCH] doc: document addpylib\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Content-Transfer-Encoding: 8bit\n\nSigned-off-by: Y <y@vates.tech>"),
+            "{text}"
+        );
+        assert!(
+            text.contains("diff --git a/doc/m.rst b/doc/m.rst\n"),
+            "{text}"
+        );
+        assert!(text.contains("+b = c\n"), "{text}");
     }
 
     #[test]
