@@ -61,6 +61,11 @@ fn shell_functions(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
     let mut inside = false;
+    // Where the open function's header is in `out` (`opened`), and whether its body has
+    // a line yet: an empty function (`do_compile () {` then `}`) is valid
+    // BitBake but a shell syntax error, so it gets a `:` on its header line.
+    let mut opened = 0;
+    let mut empty = false;
     // Inside a function whose body is Python, blanked like a `python` one.
     let mut skipping = false;
     let mut found = false;
@@ -84,12 +89,20 @@ fn shell_functions(text: &str) -> Option<String> {
                 if candidate == end {
                     heredoc = None;
                 }
+                empty = false;
                 out.push(line.to_string());
             } else if line.starts_with('}') {
                 inside = false;
+                if empty {
+                    out[opened].push_str(" :;");
+                }
                 out.push("}".to_string());
             } else {
                 heredoc = heredoc_start(line);
+                let code = line.trim();
+                if !code.is_empty() && !code.starts_with('#') {
+                    empty = false;
+                }
                 out.push(without_inline_python(line));
             }
             continue;
@@ -107,6 +120,8 @@ fn shell_functions(text: &str) -> Option<String> {
             out.push(String::new());
         } else if is_function {
             inside = true;
+            empty = true;
+            opened = out.len();
             found = true;
             out.push(format!("bb_function_{n}() {{"));
         } else {
@@ -382,6 +397,19 @@ mod tests {
         let text = "create_wrapper() {\n\tcat <<- EOF > \"$1\"\n\timport os, sys\n\tEOF\n}\n";
         let out = shell_functions(text).unwrap();
         assert!(out.starts_with("bb_function_0() {\n"), "{out}");
+    }
+
+    #[test]
+    fn an_empty_function_is_valid_shell() {
+        // rust_1.99.0.bb: `do_compile () {` then `}`.
+        let text =
+            "do_compile () {\n}\n\ndo_x () {\n    # nothing yet\n}\n\ndo_y () {\n    true\n}\n";
+        let out = shell_functions(text).unwrap();
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), text.lines().count());
+        assert_eq!(lines[0], "bb_function_0() { :;");
+        assert_eq!(lines[3], "bb_function_3() { :;");
+        assert_eq!(lines[7], "bb_function_7() {");
     }
 
     #[test]
