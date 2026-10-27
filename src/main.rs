@@ -145,6 +145,7 @@ fn poll(args: PollArgs) -> Result<()> {
         eprintln!("bodnuti: GitHub CI: {err:#}");
     }
     // AutoBuilder builds of staging branches (designs/PHASE2.md §5.7).
+    autobuilder::pin_staging_tips(&config);
     if let Err(err) = autobuilder::poll(&config, now) {
         eprintln!("bodnuti: AutoBuilder: {err:#}");
     }

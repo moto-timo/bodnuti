@@ -512,7 +512,7 @@ name = "yocto-patches"
 route = "subject-tag"
 
 [autobuilder]
-builders = ["a-full"]
+builders = ["a-full", "meta-oe"]
 
 [repos]
 openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = [{ url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next", whinlatter = "stable/whinlatter-nut", wrynose = "stable/wrynose-nut", blacksail = "stable/blacksail-nut", scarthgap = "stable/scarthgap-nut", kirkstone = "stable/kirkstone-nut" } }, "{branch}-next"] }
@@ -549,10 +549,14 @@ GitHub repositories named, in `~/.config/bodnuti/env` (mode 600) as
 
 `[autobuilder]` names the AutoBuilder's top-level builders whose builds
 are traced to series (`designs/PHASE2.md` §5.7): each poll, at most every
-30 minutes, reads their last ten finished builds, fetches each build's
-OE-Core and BitBake trees from poky-ci-archive into the clones, matches
-their commits on top of their branch to checked series, and records the
-build and its failed steps on each. Without it, nothing is read.
+30 minutes, reads their last ten finished builds, takes each build's
+OE-Core, BitBake and meta-openembedded trees, matches their commits on top
+of their branch to checked series, and records the build and its failed
+steps on each. Without it, nothing is read. `a-full` builds OE-Core's
+staging branches, whose trees poky-ci-archive keeps; `meta-oe` builds
+meta-openembedded's (`yoe/mut`, `anujm/<release>`), which nothing archives,
+so each poll pins the staging branch tips the clones have fetched under
+`refs/bodnuti/seen/` to keep them through rebases and `git gc`.
 
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on

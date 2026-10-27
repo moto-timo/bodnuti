@@ -33,9 +33,15 @@ const API: &str = "https://autobuilder.yoctoproject.org/valkyrie/api/v2";
 const WEB: &str = "https://autobuilder.yoctoproject.org/valkyrie/#";
 const ARCHIVE: &str = "https://git.yoctoproject.org/poky-ci-archive";
 
-/// The repositories whose trees poky-ci-archive keeps, with the name the
-/// AutoBuilder's properties and the archive's tags use for each.
-const LAYERS: [(&str, &str); 2] = [("openembedded-core", "oecore"), ("bitbake", "bitbake")];
+/// The repositories traced, with the name the AutoBuilder's properties use
+/// for each, and whether poky-ci-archive keeps a tag of its tree per build.
+/// A tree without one is read from the clone, which keeps the commits it
+/// fetched from its staging branches, or from the build's own branch.
+const LAYERS: [(&str, &str, bool); 3] = [
+    ("openembedded-core", "oecore", true),
+    ("bitbake", "bitbake", true),
+    ("meta-openembedded", "meta-openembedded", false),
+];
 
 /// How long between looks at the AutoBuilder.
 const INTERVAL_SECS: u64 = 30 * 60;
@@ -159,9 +165,9 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
         return Ok(());
     }
     state.last_poll = now;
-    let layers: Vec<(&str, &str)> = LAYERS
+    let layers: Vec<(&str, &str, bool)> = LAYERS
         .into_iter()
-        .filter(|(repo, _)| config.repos.contains_key(*repo) && config.cache.join(repo).is_dir())
+        .filter(|(repo, _, _)| config.repos.contains_key(*repo) && config.cache.join(repo).is_dir())
         .collect();
     if layers.is_empty() {
         return Ok(());
@@ -175,10 +181,11 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
         };
         let props: String = layers
             .iter()
-            .flat_map(|(_, l)| {
+            .flat_map(|(_, l, _)| {
                 [
                     format!("&property=branch_{l}"),
                     format!("&property=commit_{l}"),
+                    format!("&property=repo_{l}"),
                 ]
             })
             .collect();
@@ -207,9 +214,14 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
                     Vec::new()
                 })
             };
-            for (repo, layer) in &layers {
+            for (repo, layer, archived) in &layers {
+                let tree = Tree {
+                    repo,
+                    layer,
+                    archived: *archived,
+                };
                 record_build(
-                    config, &mut state, &mut lists, builder, id, &build, repo, layer, &failures,
+                    config, &mut state, &mut lists, builder, id, &build, &tree, &failures,
                 )?;
             }
         }
@@ -220,7 +232,44 @@ pub fn poll(config: &Config, now: u64) -> Result<()> {
     std::fs::write(&path, serde_json::to_vec_pretty(&state)?).context("writing autobuilder.json")
 }
 
-/// Records `build`'s stack of `repo` on the series it carried.
+/// One repository's tree in a build.
+struct Tree<'a> {
+    repo: &'a str,
+    layer: &'a str,
+    archived: bool,
+}
+
+/// Keeps every staging branch tip each clone has fetched under
+/// `refs/bodnuti/seen/`, so that the commit a later build names stays in the
+/// clone after the branch is rebased and git gc runs: the AutoBuilder keeps
+/// no archive of meta-openembedded's trees (designs/PHASE2.md §5.7).
+pub fn pin_staging_tips(config: &Config) {
+    for (name, repo) in &config.repos {
+        if repo.staging.is_empty() {
+            continue;
+        }
+        let clone = config.cache.join(name);
+        let Ok(tips) = git::run(
+            &clone,
+            &[
+                "for-each-ref",
+                "--format=%(objectname)",
+                "refs/remotes/staging/",
+                "refs/remotes/origin/*-next",
+            ],
+        ) else {
+            continue;
+        };
+        for tip in tips.lines().filter(|t| is_object_name(t)) {
+            let pin = format!("refs/bodnuti/seen/{tip}");
+            if git::run(&clone, &["rev-parse", "--verify", "--quiet", &pin]).is_err() {
+                let _ = git::run(&clone, &["update-ref", &pin, tip]);
+            }
+        }
+    }
+}
+
+/// Records `build`'s stack of `tree` on the series it carried.
 #[allow(clippy::too_many_arguments)]
 fn record_build(
     config: &Config,
@@ -229,24 +278,44 @@ fn record_build(
     builder: &str,
     builder_id: u64,
     build: &ApiBuild,
-    repo: &str,
-    layer: &str,
+    tree: &Tree,
     failures: &[AbFailure],
 ) -> Result<()> {
-    let (Some(branch), Some(commit), Some(tag)) = (
+    let (repo, layer) = (tree.repo, tree.layer);
+    let (Some(branch), Some(commit)) = (
         build.property(&format!("branch_{layer}")),
         build.property(&format!("commit_{layer}")),
-        build.property("poky-ci-archive_tag"),
     ) else {
         return Ok(());
     };
-    if !is_object_name(commit) || !plain(tag) || !plain(branch) {
+    // A build may name its commit only as HEAD: its tree cannot be traced.
+    if !is_object_name(commit) || !plain(branch) {
         return Ok(());
     }
+    let tag = build
+        .property("poky-ci-archive_tag")
+        .filter(|t| tree.archived && plain(t));
+    let from = build
+        .property(&format!("repo_{layer}"))
+        .and_then(fetch_url)
+        .map(|url| (url, branch));
     let clone = config.cache.join(repo);
-    let Some(stack) = stack(&clone, layer, tag, commit, branch)? else {
+    let Some(stack) = stack(&clone, layer, tag, from, commit, branch)? else {
         return Ok(());
     };
+    // Kept, so that a staging branch's rebase and git gc cannot take the
+    // tree a recorded build tested.
+    let _ = git::run(
+        &clone,
+        &[
+            "update-ref",
+            &format!(
+                "refs/bodnuti/autobuilder/{builder}-{}-{layer}",
+                build.number
+            ),
+            commit,
+        ],
+    );
     if stack.is_empty() {
         return Ok(());
     }
@@ -357,29 +426,65 @@ fn series_mbox(config: &Config, series: &str) -> Option<crate::series::Series> {
     crate::series::Series::load_rooted(&[&mbox], root).ok()
 }
 
+/// The https URL to fetch a build's repository from: the AutoBuilder names
+/// the push URL (`ssh://git@push.openembedded.org/meta-openembedded-contrib`)
+/// of the two hosts it builds from. Anything else is not fetched.
+fn fetch_url(repo: &str) -> Option<String> {
+    let path = repo
+        .strip_prefix("ssh://git@push.openembedded.org/")
+        .map(|p| ("git.openembedded.org", p))
+        .or_else(|| {
+            repo.strip_prefix("ssh://git@push.yoctoproject.org/")
+                .map(|p| ("git.yoctoproject.org", p))
+        })
+        .or_else(|| {
+            repo.strip_prefix("https://git.openembedded.org/")
+                .map(|p| ("git.openembedded.org", p))
+        })
+        .or_else(|| {
+            repo.strip_prefix("https://git.yoctoproject.org/")
+                .map(|p| ("git.yoctoproject.org", p))
+        });
+    let (host, path) = path?;
+    let path = path.trim_end_matches(".git");
+    plain(path).then(|| format!("https://{host}/{path}"))
+}
+
 /// The patch-ids of the commits the build's tree of `layer` has on top of
-/// the branch its staging branch was forked from, fetched from
-/// poky-ci-archive. None when the archive has no such tag, or its commit is
-/// not the one the build names.
+/// the branch its staging branch was forked from. The commit comes from the
+/// clone when it has it, as it does for a staging branch it fetched, else
+/// from poky-ci-archive's tag of the build, else from the build's own
+/// branch (`from`). None when none of them has it, as after a rebase of a
+/// branch the clone never fetched.
 fn stack(
     clone: &Path,
     layer: &str,
-    tag: &str,
+    tag: Option<&str>,
+    from: Option<(String, &str)>,
     commit: &str,
     branch: &str,
 ) -> Result<Option<Vec<String>>> {
     let have = |c: &str| git::run(clone, &["cat-file", "-e", &format!("{c}^{{commit}}")]).is_ok();
-    if !have(commit) {
+    if !have(commit)
+        && let Some(tag) = tag
+    {
         let refspec = format!("refs/tags/{layer}/{tag}");
-        if git::run(
+        let _ = git::run(
             clone,
             &["fetch", "--quiet", "--no-tags", "--", ARCHIVE, &refspec],
-        )
-        .is_err()
-            || !have(commit)
-        {
-            return Ok(None);
-        }
+        );
+    }
+    if !have(commit)
+        && let Some((url, branch)) = &from
+    {
+        let refspec = format!("refs/heads/{branch}");
+        let _ = git::run(
+            clone,
+            &["fetch", "--quiet", "--no-tags", "--", url, &refspec],
+        );
+    }
+    if !have(commit) {
+        return Ok(None);
     }
     let target = target_branch(clone, branch);
     let log = git::command(clone)
@@ -470,17 +575,29 @@ fn failures(build: &ApiBuild, names: &BTreeMap<u64, String>) -> Result<Vec<AbFai
         ))?)?;
         requests.extend(page.buildrequests.into_iter().map(|r| r.buildrequestid));
     }
-    let (Some(lo), Some(hi)) = (requests.first(), requests.last()) else {
-        return Ok(Vec::new());
-    };
-    let children: ApiBuilds = serde_json::from_str(&get(&format!(
-        "{API}/builds?buildrequestid__ge={lo}&buildrequestid__le={hi}&limit=500"
-    ))?)?;
-    let mut out = Vec::new();
-    for child in children.builds {
-        if !requests.contains(&child.buildrequestid) || child.results != Some(2) {
-            continue;
+    // A build that triggers none, such as meta-oe's, failed in its own steps.
+    let failed: Vec<ApiBuild> = match (requests.first(), requests.last()) {
+        (Some(lo), Some(hi)) => {
+            let children: ApiBuilds = serde_json::from_str(&get(&format!(
+                "{API}/builds?buildrequestid__ge={lo}&buildrequestid__le={hi}&limit=500"
+            ))?)?;
+            children
+                .builds
+                .into_iter()
+                .filter(|c| requests.contains(&c.buildrequestid) && c.results == Some(2))
+                .collect()
         }
+        _ => {
+            let own: ApiBuilds =
+                serde_json::from_str(&get(&format!("{API}/builds/{}", build.buildid))?)?;
+            own.builds
+                .into_iter()
+                .filter(|b| b.results == Some(2))
+                .collect()
+        }
+    };
+    let mut out = Vec::new();
+    for child in failed {
         let builder = names
             .get(&child.builderid)
             .cloned()
@@ -515,15 +632,23 @@ fn failure_of(builder: &str, step: &str, url: &str, errors: &str) -> AbFailure {
         .find(|l| l.starts_with("ERROR:"))
         .map(|l| l.chars().take(ERROR_WIDTH).collect())
         .unwrap_or_default();
-    // ERROR: Task (<path>/layers/<layer>/<recipe>.bb:do_<task>) failed ...
+    // ERROR: Task (<path>/<repository>/<recipe>.bb:do_<task>) failed ...,
+    // the repository checked out as layers/openembedded-core in a full
+    // build, or as meta-openembedded beside it in meta-oe's.
     let (recipe, task) = lines
         .iter()
         .find_map(|l| {
             let rest = l.strip_prefix("ERROR: Task (")?;
             let (target, _) = rest.split_once(')')?;
             let (path, task) = target.rsplit_once(':')?;
-            let (_, in_layers) = path.split_once("/layers/")?;
-            let (_, relative) = in_layers.split_once('/')?;
+            let relative = LAYERS
+                .iter()
+                .filter_map(|(repo, _, _)| {
+                    let at = path.rfind(&format!("/{repo}/"))?;
+                    Some((at, &path[at + repo.len() + 2..]))
+                })
+                .max_by_key(|(at, _)| *at)
+                .map(|(_, rest)| rest)?;
             Some((Some(relative.to_string()), Some(task.to_string())))
         })
         .unwrap_or((None, None));
@@ -663,6 +788,17 @@ mod tests {
             "meta/recipes-graphics/piglit"
         );
 
+        // meta-oe's builder checks meta-openembedded out beside the build.
+        let meta_oe = "stdio: ERROR: Task (/srv/pokybuild/yocto-worker/meta-oe/build/\
+            meta-openembedded/meta-oe/recipes-support/pcp/pcp-native_6.3.7.bb:do_compile) \
+            failed with exit code '1'\n";
+        let f = failure_of("meta-oe", "Build targets", "u", meta_oe);
+        assert_eq!(
+            f.recipe.as_deref(),
+            Some("meta-oe/recipes-support/pcp/pcp-native_6.3.7.bb")
+        );
+        assert_eq!(f.task.as_deref(), Some("do_compile"));
+
         // A test failure names no task.
         let f = failure_of("oe-selftest-debian", "Run cmds: oe-selftest", "u", "");
         assert_eq!(failure_key(&f), "oe-selftest-debian|Run cmds: oe-selftest");
@@ -683,6 +819,27 @@ mod tests {
         assert!(dirs.contains("meta/recipes-graphics/piglit"), "{dirs:?}");
         // Not every recipe beside it.
         assert!(!dirs.contains("meta/recipes-graphics"), "{dirs:?}");
+    }
+
+    #[test]
+    fn fetches_a_build_s_repository_over_https() {
+        assert_eq!(
+            fetch_url("ssh://git@push.openembedded.org/meta-openembedded-contrib").as_deref(),
+            Some("https://git.openembedded.org/meta-openembedded-contrib")
+        );
+        assert_eq!(
+            fetch_url("https://git.openembedded.org/openembedded-core-contrib").as_deref(),
+            Some("https://git.openembedded.org/openembedded-core-contrib")
+        );
+        assert_eq!(
+            fetch_url("ssh://git@push.yoctoproject.org/meta-virtualization").as_deref(),
+            Some("https://git.yoctoproject.org/meta-virtualization")
+        );
+        assert_eq!(fetch_url("https://github.com/aws/meta-aws.git"), None);
+        assert_eq!(
+            fetch_url("ssh://git@push.openembedded.org/--upload-pack=x"),
+            None
+        );
     }
 
     #[test]

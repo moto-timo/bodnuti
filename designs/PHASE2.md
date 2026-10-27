@@ -912,9 +912,9 @@ moved on.
 **Decided.** Settled with the maintainer:
 
 1. OE-Core and BitBake first, the repositories poky-ci-archive keeps a tag
-   per build for. meta-openembedded, meta-virtualization and the other
-   layers follow once their tested commits can be kept, since nothing
-   archives them.
+   per build for; meta-openembedded since, its tested commits kept by the
+   clone. meta-virtualization and the other layers follow once their
+   builds are found.
 2. `a-full` builds first, then `a-quick`. The single-layer builders (such
    as `meta-virt`) come with the layers in 1.
 3. A failure tied to a series by the difference alone is shown only once
@@ -941,6 +941,23 @@ first `ERROR:` line and the recipe and task of its failed task; a failed
 series changes is the series' at once; another, once two builds of its
 branch failed so newly carrying the series. The series page lists the
 builds and their failed steps, apart from the series' result.
+
+**meta-openembedded.** Its patches under review are built by the
+`meta-oe` builder (id 81, 30 builds in nine days: 27 of `yoe/mut`, 3 of
+`anujm/scarthgap`), from meta-openembedded-contrib, with no archive of its
+trees. The clone keeps them instead: it fetches the staging branches
+anyway, so it holds each tip it saw; each poll pins those tips under
+`refs/bodnuti/seen/`, so a rebase and `git gc` cannot drop them, and pins
+each traced build's commit under `refs/bodnuti/autobuilder/`. A commit the
+clone lacks is fetched from the build's own branch, its push URL mapped to
+https on the two hosts the AutoBuilder builds from. A build that names its
+commit only as `HEAD`, as some of `meta-oe`'s do, is not traced. `meta-oe`
+triggers no other builds, so its failures are its own failed steps; it
+checks meta-openembedded out beside the build rather than under
+`layers/`, so a failed task's recipe is read relative to the last
+directory named after a traced repository. Tried on the real builder: a
+`yoe/mut` commit, recorded as a checked series, was found in eight of its
+builds, the two that named `HEAD` skipped.
 
 Tried on 27 October against the AutoBuilder: an OE-Core strace upgrade
 was carried by `a-full` 4999, 5001, 5003 and 5004 on
