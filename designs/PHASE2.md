@@ -680,7 +680,13 @@ staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", bran
 
 The clone fetches the named branches only, as remote `staging`. A
 pattern names staging branches in the repository itself instead, by the
-older `<branch>-next` convention: `staging = "{branch}-next"`.
+older `<branch>-next` convention: `staging = "{branch}-next"`. A
+repository can stage a branch in more than one place: BitBake's `master`
+is staged on `mathieu/master-next` in bitbake-contrib (10 commits ahead of
+`master` on 27 October) and on its own `master-next` (9 ahead, 6 of them
+the same). `staging` then takes a list, tried in order until the series
+applies on one; one contrib repository per list, since its branches are
+fetched as the one remote `staging`.
 
 When a series does not apply to the branch it targets (`master`, or a
 stable branch a subject tag names, §5), the check tries once more on that

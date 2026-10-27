@@ -80,9 +80,9 @@ pub struct Repo {
     /// Subject tags besides the repository's name that route to it, such
     /// as `AUH` for auto-upgrade-helper (designs/PHASE2.md §3.1.1).
     pub tags: Vec<String>,
-    /// Where the maintainers stage patches before each branch
-    /// (designs/PHASE2.md §5.6).
-    pub staging: Option<Staging>,
+    /// Where the maintainers stage patches before each branch, tried in
+    /// order (designs/PHASE2.md §5.6).
+    pub staging: Vec<Staging>,
     /// GitHub repositories, `owner/name`, whose CI runs on `master-next`
     /// test this repository's patches under review (designs/PHASE2.md
     /// §5.8).
@@ -114,6 +114,26 @@ pub enum Staging {
     },
 }
 
+/// `staging` as written: one place, or several, tried in order (BitBake
+/// stages on `master-next` and on `mathieu/master-next` in bitbake-contrib).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StagingSpec {
+    Many(Vec<Staging>),
+    One(Staging),
+}
+
+impl Repo {
+    /// The refs of the staging branches for `branch` in the clone, in the
+    /// order they are tried.
+    pub fn staging_refs(&self, branch: &str) -> Vec<String> {
+        self.staging
+            .iter()
+            .filter_map(|s| s.ref_for(branch))
+            .collect()
+    }
+}
+
 impl Staging {
     /// The ref of the staging branch for `branch` in the clone, if there is
     /// one.
@@ -143,7 +163,7 @@ struct RepoTable {
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default)]
-    staging: Option<Staging>,
+    staging: Option<StagingSpec>,
     #[serde(default)]
     github: Vec<String>,
 }
@@ -155,14 +175,18 @@ impl From<RepoSpec> for Repo {
                 url,
                 kind: Kind::Layer,
                 tags: Vec::new(),
-                staging: None,
+                staging: Vec::new(),
                 github: Vec::new(),
             },
             RepoSpec::Table(t) => Repo {
                 url: t.url,
                 kind: t.kind,
                 tags: t.tags,
-                staging: t.staging,
+                staging: match t.staging {
+                    Some(StagingSpec::Many(all)) => all,
+                    Some(StagingSpec::One(one)) => vec![one],
+                    None => Vec::new(),
+                },
                 github: t.github,
             },
         }
@@ -650,21 +674,20 @@ mod tests {
         let config: Config = toml::from_str(&format!(
             "{CONFIG}meta-openembedded = {{ url = \"u\", staging = {{ url = \"c\", branches = \
              {{ master = \"yoe/mut\", scarthgap = \"anujm/scarthgap\" }} }} }}\n\
-             bitbake = {{ url = \"u\", staging = \"{{branch}}-next\" }}\n"
+             bitbake = {{ url = \"u\", staging = [{{ url = \"c\", branches = \
+             {{ master = \"mathieu/master-next\" }} }}, \"{{branch}}-next\"] }}\n"
         ))
         .unwrap();
-        let moe = config.repos["meta-openembedded"].staging.as_ref().unwrap();
-        assert_eq!(moe.ref_for("master").as_deref(), Some("staging/yoe/mut"));
+        let moe = &config.repos["meta-openembedded"];
+        assert_eq!(moe.staging_refs("master"), ["staging/yoe/mut"]);
+        assert_eq!(moe.staging_refs("scarthgap"), ["staging/anujm/scarthgap"]);
+        assert!(moe.staging_refs("wrynose").is_empty());
+        let bb = &config.repos["bitbake"];
         assert_eq!(
-            moe.ref_for("scarthgap").as_deref(),
-            Some("staging/anujm/scarthgap")
+            bb.staging_refs("master"),
+            ["staging/mathieu/master-next", "origin/master-next"]
         );
-        assert_eq!(moe.ref_for("wrynose"), None);
-        let oe = config.repos["bitbake"].staging.as_ref().unwrap();
-        assert_eq!(
-            oe.ref_for("scarthgap").as_deref(),
-            Some("origin/scarthgap-next")
-        );
+        assert_eq!(bb.staging_refs("scarthgap"), ["origin/scarthgap-next"]);
     }
 
     #[test]
@@ -924,7 +947,7 @@ mod tests {
                 url: "u".into(),
                 kind: Kind::Layer,
                 tags: Vec::new(),
-                staging: None,
+                staging: Vec::new(),
                 github: Vec::new(),
             },
         );

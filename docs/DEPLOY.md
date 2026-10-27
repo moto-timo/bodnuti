@@ -517,7 +517,7 @@ builders = ["a-full"]
 [repos]
 openembedded-core = { url = "https://git.openembedded.org/openembedded-core", tags = ["AUH"], staging = { url = "https://git.openembedded.org/openembedded-core-contrib", branches = { master = "mathieu/master-next", whinlatter = "stable/whinlatter-nut", wrynose = "stable/wrynose-nut", blacksail = "stable/blacksail-nut", scarthgap = "stable/scarthgap-nut", kirkstone = "stable/kirkstone-nut" } } }
 meta-openembedded = { url = "https://git.openembedded.org/meta-openembedded", staging = { url = "https://git.openembedded.org/meta-openembedded-contrib", branches = { master = "yoe/mut", scarthgap = "anujm/scarthgap", wrynose = "anujm/wrynose" } } }
-bitbake = "https://git.openembedded.org/bitbake"
+bitbake = { url = "https://git.openembedded.org/bitbake", staging = [{ url = "https://git.openembedded.org/bitbake-contrib", branches = { master = "mathieu/master-next" } }, "{branch}-next"] }
 yocto-docs = "https://git.yoctoproject.org/yocto-docs"
 meta-virtualization = "https://git.yoctoproject.org/meta-virtualization"
 meta-yocto = "https://git.yoctoproject.org/meta-yocto"
@@ -564,7 +564,9 @@ series that does not apply to its branch is checked on that branch's
 staging branch, just before the series if the staging branch already
 carries it. A staging branch that is missing, or already part of its
 branch, stages nothing. A pattern such as `staging = "{branch}-next"`
-names staging branches in the repository itself instead.
+names staging branches in the repository itself instead. A list tries
+each in turn, until the series applies on one: BitBake stages `master` on
+`mathieu/master-next` in bitbake-contrib and on its own `master-next`.
 
 Staging branches are rebased at any time; each check records the commit
 of the target branch the staging branch was forked from, which stays.
@@ -577,6 +579,8 @@ git -C ~/cache/openembedded-core remote add -t mathieu/master-next \
     -t stable/whinlatter-nut -t stable/wrynose-nut -t stable/blacksail-nut \
     -t stable/scarthgap-nut -t stable/kirkstone-nut \
     staging https://git.openembedded.org/openembedded-core-contrib
+git -C ~/cache/bitbake remote add -t mathieu/master-next \
+    staging https://git.openembedded.org/bitbake-contrib
 git -C ~/cache/meta-openembedded remote add -t yoe/mut -t anujm/scarthgap \
     -t anujm/wrynose staging https://git.openembedded.org/meta-openembedded-contrib
 ```

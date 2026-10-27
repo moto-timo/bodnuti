@@ -237,17 +237,11 @@ impl Runner<'_> {
         // A series that does not apply to its branch is checked on the
         // branch's staging branch (designs/PHASE2.md §5.6); a pull request
         // names its own base.
-        let staging = (pull.is_none() && before_landing.is_none())
-            .then(|| {
-                self.config
-                    .repos
-                    .get(&repo_name)?
-                    .staging
-                    .as_ref()?
-                    .ref_for(&branch)
-            })
-            .flatten();
-        let report = self.check(&dir, &repo_name, &root, check_base, staging.as_deref())?;
+        let staging = match self.config.repos.get(&repo_name) {
+            Some(r) if pull.is_none() && before_landing.is_none() => r.staging_refs(&branch),
+            _ => Vec::new(),
+        };
+        let report = self.check(&dir, &repo_name, &root, check_base, &staging)?;
         std::fs::write(dir.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
         std::fs::write(dir.join("report.txt"), report.text())?;
         record.result = Some(CheckResult::of(&report));
@@ -445,7 +439,7 @@ impl Runner<'_> {
         repo: &str,
         root: &str,
         base: Option<&str>,
-        staging: Option<&str>,
+        staging: &[String],
     ) -> Result<Report> {
         let mut cmd = self.container()?;
         cmd.args(["--network", "none", "-v"])
@@ -481,7 +475,7 @@ impl Runner<'_> {
                     .flatten(),
             )
             .args(base.map(|b| ["--base", b]).into_iter().flatten())
-            .args(staging.map(|s| ["--staging", s]).into_iter().flatten())
+            .args(staging.iter().flat_map(|s| ["--staging", s.as_str()]))
             .arg(format!("/in/{root}.mbx"))
             .output()
             .context("starting the container to check the series")?;

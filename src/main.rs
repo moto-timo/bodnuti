@@ -369,9 +369,10 @@ struct CheckArgs {
     /// master-next and scarthgap on scarthgap-next. A series that does not
     /// apply to its branch is checked on the staging branch, at the commit
     /// before the series if it already carries it (designs/PHASE2.md
-    /// §5.6). Not used with --base.
+    /// §5.6). Given more than once, each is tried in order until the series
+    /// applies on one. Not used with --base.
     #[arg(long)]
-    staging: Option<String>,
+    staging: Vec<String>,
     /// oelint-adv release. Default: the base branch name when the base is a
     /// release branch, else latest.
     #[arg(long)]
@@ -657,11 +658,14 @@ fn check(args: CheckArgs) -> Result<Report> {
     let release = args.release.unwrap_or_else(|| release_for(&base));
     // Chosen before any checker runs, so every one sees the same base.
     let mut staged = None;
-    if let (None, Some(staging)) = (&args.base, &args.staging)
-        && let Some((on, how)) = workspace::staged_base(&args.repo, &base, staging, &series)?
-    {
-        base = on;
-        staged = Some(how);
+    if args.base.is_none() {
+        for staging in &args.staging {
+            if let Some((on, how)) = workspace::staged_base(&args.repo, &base, staging, &series)? {
+                base = on;
+                staged = Some(how);
+                break;
+            }
+        }
     }
     let workspace = Workspace::create(&args.repo, &base)?;
     let mut tool_errors = Vec::new();
