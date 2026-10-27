@@ -1,1 +1,0 @@
-**poll:** A series is a resend of another only when both were checked against the same repository: a series first sent to the wrong list, and checked there against the wrong repository, is checked again when it is sent to the right one.

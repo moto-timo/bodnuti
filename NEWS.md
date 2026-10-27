@@ -2,6 +2,36 @@
 
 <!-- towncrier release notes start -->
 
+## bodnuti 0.3.0 (2026-10-26)
+
+### Features
+
+- **check:** A series that does not apply to the branch it targets is checked on that branch's staging branch, named per branch with `staging` in `[repos]`, in a contrib repository (meta-openembedded's `yoe/mut` and `anujm/scarthgap`, OE-Core's `mathieu/master-next`) or as a pattern such as `{branch}-next`, or a list of these tried in order (BitBake's `mathieu/master-next` in bitbake-contrib, then its own `master-next`), or with `--staging`, given once or more: at the commit just before the series if the staging branch already carries it, else at its tip. The report names the staging branch and the target branch commit it was forked from, which outlasts the branch's rebases. A staging branch already part of its branch stages nothing.
+- **packaging:** The image of `main` is published as `ghcr.io/moto-timo/bodnuti:main` and `:main-<commit>`, for amd64 and arm64, with build provenance, SPDX SBOMs and a keyless cosign signature, on every push that changes what goes into it, so a worker can pull it instead of building it.
+- **poll:** A series sent unthreaded, each message a thread of its own, is put together again from the messages that share a sender, the same tags and N, within ten minutes of the first, and checked as one series from all its members' threads. A message that comes after the series was checked reopens it. Before, each patch was checked alone, and a patch that builds on an earlier one could not apply.
+- **poll:** The Django applications' GitHub CI and Safety runs on `master-next` are traced to the series they carried, by patch-id, and listed on each series' page, with a failure shown as the series' own only once two runs failed newly carrying it. A run whose jobs skipped all their own steps, such as a Safety scan without a Safety key, is shown as skipped. A `[repos]` entry names the GitHub repositories with `github`; no token is needed. With a read-only token in `BODNUTI_GITHUB_TOKEN`, CodeQL alerts on `master` are shown on the series whose patch wrote the alert's line.
+- **poll:** Yocto Project AutoBuilder builds of staging branches (`a-full`, named under `[autobuilder]`) are traced to the OE-Core, BitBake and meta-openembedded series they carried, through poky-ci-archive's tag of each build or, for meta-openembedded's `meta-oe` builder, the staging branch commits the clone keeps, and listed on each series' page with their failed steps: a failed fetch as infrastructure, a failure in a recipe the series changes as the series', any other only once two builds agree.
+- **publish:** A resend shows the result of the series its patches were checked in, such as "resend: clean", linked to it, instead of only "resend".
+- **publish:** A revision of one patch sent as a reply, such as a `[PATCH v2]` answering patch 11/12, is shown under the series it revises instead of as a row of its own: the series' row shows the series as it stands, with the revised patch's findings replaced by the latest revision's and a note such as "11/12 revised in v2", and its page shows the superseded findings and each revision under the patch. The revision's own page links back to the series.
+
+### Bug fixes
+
+- **check:** A file that several patches of a series touch is checked once, not once per patch: each of its findings was counted as many times as patches touched it, so the copies could not cancel against the base's and showed as new. A python3 upgrade series with 14 such findings has none.
+- **check:** A patch sent as a multipart message, a text part and an HTML one as some mailers and the groups.io web poster send, is read from its text part: patchtest checks it instead of running no tests, and its patch-id is its commit's.
+- **check:** An empty shell function in a recipe (`do_compile () {` then `}`, as rust's recipe has) no longer makes shellcheck fail to parse it and leave the recipe's shell unchecked.
+- **check:** shellcheck no longer reads BitBake Python as shell: an `:append` or `:prepend` whose body is Python, because the task it extends is defined `python` in a class (librsvg's `do_compile_ptest_cargo:prepend`), is skipped like a `python` function instead of failing to parse and leaving the recipe's shell unchecked.
+- **poll:** A new revision whose cover letter replies to an earlier revision's, as an OE-Core SPDX v5 did to its v1, is checked as that revision: its own series, with its own cover letter and patches, instead of as a one-patch revision of the earlier series, checked with the earlier revision's patches.
+- **poll:** A revision of one patch sent as a reply in its series' thread, such as a `[PATCH v2]` answering patch 11/12 of a v1 series, is checked as a series of its own instead of being folded into the v1 series and never checked. `bodnuti check` given its Message-ID, or the `<Message-ID>.mbx` b4 saves for it, checks that revision too. A resend counts as a duplicate only when its mail is unchanged too, so a revision that fixes only the author or the commit message, whose diff is the same, is checked again.
+- **poll:** A series is a resend of another only when both were checked against the same repository: a series first sent to the wrong list, and checked there against the wrong repository, is checked again when it is sent to the right one.
+- **poll:** A series whose patches had already landed when it was checked, as a re-check or a backfill finds them, is no longer checked against a tree that already has them, which made its patches fail to apply or every finding in a renamed recipe look new. If all have landed it is marked applied without a check; if some have, it is checked against the branch just before the first of them, and its page says so.
+- **poll:** Patch-ids are read from the decoded mail, so a patch the list sent quoted-printable is matched to the commit it became: upstream, as a resend, and in CI runs. Before, its patch-id matched no commit. The first poll records the patch-ids of every checked series again.
+
+### Other changes
+
+- **packaging:** The image builds with Rust 1.99 and carries shellcheck 0.11.0 (from 0.10.0), which is also the default `--shellcheck` command's image.
+- **poll:** A thread whose patch was sent as an attachment rather than inline is still not checked, but its reason now says so, naming the attached file and asking for git send-email, instead of reporting that it has no patches.
+
+
 ## bodnuti 0.2.0 (2026-10-25)
 
 ### Features

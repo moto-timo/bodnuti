@@ -1,1 +1,0 @@
-**poll:** Patch-ids are read from the decoded mail, so a patch the list sent quoted-printable is matched to the commit it became: upstream, as a resend, and in CI runs. Before, its patch-id matched no commit. The first poll records the patch-ids of every checked series again.
