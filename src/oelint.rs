@@ -266,8 +266,12 @@ mod tests {
         assert!(lintable("meta/conf/machine/qemux86-64.conf"));
         assert!(lintable("meta/recipes-x/foo/foo.inc"));
         assert!(!lintable("recipes-demo/iot-gateway/files/nginx.conf"));
-        assert!(!lintable("recipes-demo/iot-gateway/files/mqtt-auth/default.conf"));
-        assert!(!lintable("meta/recipes-core/systemd/systemd/00-create-volatile.conf"));
+        assert!(!lintable(
+            "recipes-demo/iot-gateway/files/mqtt-auth/default.conf"
+        ));
+        assert!(!lintable(
+            "meta/recipes-core/systemd/systemd/00-create-volatile.conf"
+        ));
         assert!(!lintable("meta/files/wic/common.wks.inc"));
         assert!(!lintable("recipes-x/foo/files/conf/app.conf"));
     }
