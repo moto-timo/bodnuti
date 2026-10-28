@@ -69,9 +69,18 @@ pub fn is_style(check: &str) -> bool {
     matches(STYLE, check)
 }
 
-/// Whether oelint-adv understands the file.
+/// Whether the file is BitBake metadata, which oelint-adv understands: not
+/// a recipe's `file://` payload in `files/`, and a `.conf` only under
+/// `conf/`.
 pub fn lintable(path: &str) -> bool {
-    [".bb", ".bbappend", ".inc", ".bbclass", ".conf"]
+    let dirs: Vec<&str> = path.split('/').rev().skip(1).collect();
+    if dirs.contains(&"files") {
+        return false;
+    }
+    if path.ends_with(".conf") {
+        return dirs.contains(&"conf");
+    }
+    [".bb", ".bbappend", ".inc", ".bbclass"]
         .iter()
         .any(|ext| path.ends_with(ext))
 }
@@ -248,5 +257,18 @@ mod tests {
         assert!(lintable("meta/classes-recipe/ptest.bbclass"));
         assert!(!lintable("meta/recipes-x/foo/files/fix.patch"));
         assert!(!lintable("documentation/index.rst"));
+    }
+
+    #[test]
+    fn recipe_payload_is_not_lintable() {
+        assert!(lintable("conf/layer.conf"));
+        assert!(lintable("meta/conf/distro/include/maintainers.inc"));
+        assert!(lintable("meta/conf/machine/qemux86-64.conf"));
+        assert!(lintable("meta/recipes-x/foo/foo.inc"));
+        assert!(!lintable("recipes-demo/iot-gateway/files/nginx.conf"));
+        assert!(!lintable("recipes-demo/iot-gateway/files/mqtt-auth/default.conf"));
+        assert!(!lintable("meta/recipes-core/systemd/systemd/00-create-volatile.conf"));
+        assert!(!lintable("meta/files/wic/common.wks.inc"));
+        assert!(!lintable("recipes-x/foo/files/conf/app.conf"));
     }
 }
