@@ -1,6 +1,7 @@
 # layerindex-web's requirements.txt (git.yoctoproject.org/layerindex-web, master),
 # for its venv in the image (designs/PHASE2.md section 5.5). Database
-# clients are left out: bodnuti runs Django's checks against sqlite.
+# clients are left out: bodnuti runs Django's checks against sqlite. So is
+# its -i line, a Safety package index for its own CI.
 amqp==5.3.1
 asgiref==3.12.1
 beautifulsoup4==4.15.0
@@ -22,13 +23,14 @@ django-registration==5.2.1
 django-reversion==6.3.0
 django-reversion-compare==0.17.0
 django-simple-captcha==0.7.0
-djangorestframework==3.18.0
+djangorestframework==3.18.2
 gitdb==4.0.12
-GitPython==3.1.62
+GitPython==3.2.1
 kombu==5.6.2
 packaging_legacy==23.0.post0
-Pillow==12.3.0
+Pillow==13.0.0
 prompt-toolkit==3.0.53
+pyasyncore==1.0.5
 python-dateutil==2.9.0.post0
 pytz==2026.3.post1
 six==1.17.0
