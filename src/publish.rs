@@ -636,11 +636,17 @@ const STYLE: &str = r#"
     table.index td.when { white-space: normal; } }
 "#;
 
-/// The page frame. `root` is the relative path back to the site root.
-fn page(title: &str, root: &str, body: &str, generated: &str) -> String {
+/// The page frame. `root` is the relative path back to the site root;
+/// `refresh` reloads the page every five minutes, for the indexes.
+fn page(title: &str, root: &str, body: &str, generated: &str, refresh: bool) -> String {
+    let refresh = if refresh {
+        "<meta http-equiv=\"refresh\" content=\"300\">\n"
+    } else {
+        ""
+    };
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
-         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n{refresh}\
          <title>{title}</title>\n<link rel=\"icon\" href=\"{root}logo.svg\" type=\"image/svg+xml\">\n\
          <style>{STYLE}</style>\n</head>\n<body>\n<main>\n\
          <h1><a href=\"{root}\"><img src=\"{root}logo.svg\" alt=\"\" width=\"40\" height=\"40\"> bodnuti</a></h1>\n\
@@ -676,7 +682,7 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
     }
     if rows.is_empty() {
         body.push_str("<p>No series yet.</p>\n");
-        return page("bodnuti", root, &body, generated);
+        return page("bodnuti", root, &body, generated, true);
     }
     // Every column but Series has a fixed width, as on sashiko.dev, so the
     // subject gets the rest of the row instead of wrapping.
@@ -727,7 +733,7 @@ fn index_page_of(rows: &[&Row], list: Option<&str>, generated: &str) -> String {
         Some(name) => format!("bodnuti: {}", escape(name)),
         None => "bodnuti".into(),
     };
-    page(&title, root, &body, generated)
+    page(&title, root, &body, generated, true)
 }
 
 fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated: &str) -> String {
@@ -856,7 +862,7 @@ fn series_page(config: &Config, row: &Row, revised: Option<&Revised>, generated:
     body.push_str(&autobuilder_html(record));
     body.push_str(&ci_html(record));
     let title = format!("bodnuti: {subject}");
-    page(&title, "../../", &body, generated)
+    page(&title, "../../", &body, generated, false)
 }
 
 /// The AutoBuilder builds that carried the series (designs/PHASE2.md
@@ -1314,6 +1320,7 @@ mod tests {
         assert!(!html.contains("<script>"), "{html}");
         assert!(!html.contains("<b>"), "{html}");
         assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("<meta http-equiv=\"refresh\" content=\"300\">"));
     }
 
     #[test]
@@ -1500,8 +1507,14 @@ mod tests {
             "{summary}"
         );
         assert!(!summary.contains("<script>"), "{summary}");
-        assert!(site.join("openembedded-core/index.html").exists());
-        assert!(site.join("openembedded-core/new@x/index.html").exists());
+        // The indexes reload themselves; a series page does not, so a
+        // reader keeps their place.
+        let refresh = "<meta http-equiv=\"refresh\" content=\"300\">";
+        let index = std::fs::read_to_string(site.join("openembedded-core/index.html")).unwrap();
+        assert!(index.contains(refresh), "{index}");
+        let page =
+            std::fs::read_to_string(site.join("openembedded-core/new@x/index.html")).unwrap();
+        assert!(!page.contains(refresh), "{page}");
         assert!(!site.join("openembedded-core/old@x").exists());
         // A second run replaces the site.
         render(&config, &states, now).unwrap();
