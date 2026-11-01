@@ -697,13 +697,19 @@ fn earliest<'a>(repo: &Path, commits: &[&'a str]) -> Option<&'a str> {
 }
 
 /// Paths the series modifies or deletes that do not exist at its base in
-/// `repo`. Added files are skipped: they exist in no tree yet.
+/// `repo`. Paths the series itself creates, by adding or renaming a file
+/// in an earlier patch or this one, are skipped: they exist in no tree yet.
 fn missing_paths(repo: &Path, base: &str, series: &Series) -> Result<Vec<String>> {
     let mut missing = Vec::new();
+    let mut created = std::collections::HashSet::new();
     for patch in &series.patches {
-        let added = patch.added_files();
+        created.extend(patch.added_files());
         for (old, new) in patch.changes() {
-            if added.contains(&new) || missing.contains(&old) {
+            let skip = created.contains(&old) || missing.contains(&old);
+            if old != new {
+                created.insert(new);
+            }
+            if skip {
                 continue;
             }
             // A missing path is the answer sought, not an error to log.
@@ -1108,6 +1114,45 @@ cp "$BODNUTI_TEST_MBOX" "$out/$name"
             ],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn the_path_check_skips_files_an_earlier_patch_creates() {
+        let dir = tempfile::TempDir::new().unwrap();
+        repo_with(dir.path(), "r", "a_1.bb");
+        let repo = dir.path().join("cache/r");
+        let patch = |index, raw: &str| crate::series::Patch {
+            subject: String::new(),
+            message_id: None,
+            tags: vec![],
+            version: 1,
+            index,
+            total: 3,
+            from: None,
+            raw: raw.as_bytes().to_vec(),
+        };
+        // a_1.bb -> a_2.bb -> a_3.bb, as two upgrades in one series; the
+        // second also changes a file the first added.
+        let series = Series {
+            cover: None,
+            patches: vec![
+                patch(
+                    1,
+                    "diff --git a/a_1.bb b/a_2.bb\nsimilarity index 90%\nrename from a_1.bb\nrename to a_2.bb\n\
+                          diff --git a/a/x.patch b/a/x.patch\nnew file mode 100644\n",
+                ),
+                patch(
+                    2,
+                    "diff --git a/a_2.bb b/a_3.bb\nrename from a_2.bb\nrename to a_3.bb\n\
+                          diff --git a/a/x.patch b/a/x.patch\n",
+                ),
+                patch(3, "diff --git a/gone.bb b/gone.bb\n"),
+            ],
+        };
+        assert_eq!(
+            missing_paths(&repo, "HEAD", &series).unwrap(),
+            vec!["gone.bb"]
+        );
     }
 
     #[test]
