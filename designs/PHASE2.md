@@ -127,8 +127,10 @@ seven of about 160 with no repository tag.
    so a branch tag still selects the base.
 2. **Paths.** Before checking, every path the series modifies or deletes
    must exist at the base commit of the selected repository
-   (`git cat-file -e <base>:<path>`). Added files are not checked: they do
-   not exist yet in any repository. A series whose paths do not match is
+   (`git cat-file -e <base>:<path>`). Files the series creates, added or
+   renamed to by that patch or an earlier one, are not checked: they do
+   not exist yet in any repository. A recipe upgraded twice in one series
+   changes, in its second patch, a file its first created. A series whose paths do not match is
    recorded as `unrouted` with the mismatching paths, rather than checked
    against the wrong tree. A series merged before it was checked fails this
    check too, since the merge renamed or removed its files; so a failing
