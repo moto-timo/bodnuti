@@ -196,7 +196,12 @@ statically. It does not need bitbake.
 2. Run on **base** and on **head** (implemented):
    `oelint-adv --quiet --relpaths --release <branch|latest> --outputformat gitlab-codequality --output <file> <files>`
    - oelint-adv reports nothing for a `.inc` or `.conf` file on its own. Each
-     is linted through a stub recipe, outside the tree, that `require`s it.
+     is linted through a stub, outside the tree, that `require`s it: a stub
+     distro or machine configuration for files under `conf/distro/` or
+     `conf/machine/` (in a second run with `--mode all`, whose duplicate
+     findings from both branches of a conditional are dropped), else a stub
+     recipe. Through a recipe, each `RECIPE_MAINTAINER:pn-<recipe>` line of
+     `maintainers.inc` would be reported by `oelint.vars.specific`.
    - oelint-adv also reports problems in classes and includes a recipe pulls
      in. Only findings in touched files are kept.
    - Paths are canonicalized first: on macOS `/var` is a symlink, and a
