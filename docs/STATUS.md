@@ -236,6 +236,13 @@ branch with a slash, as in meta-lts-mixins' `scarthgap/go`, keeps its full
 name. meta-lts-mixins, meta-darwin, meta-rockchip, auto-upgrade-helper and the two
 yocto-metrics repositories are added to the configuration.
 
+Later unrouted series added meta-selinux, meta-tensorflow, meta-zephyr and
+wic (the image tool split out of OE-Core, `kind = "python"`). A ten-patch
+meta-lts-mixins linux-firmware series showed that the path check must also
+skip files an earlier patch of the series added or renamed. And
+`maintainers.inc` showed that `conf/distro/` and `conf/machine/` files must
+be linted as distro and machine configuration, not through a stub recipe.
+
 Deploying found one more problem, now fixed: lore answers a search with no
 matches with 404, so the quiet lists (yocto-docs, yocto-meta-virtualization)
 failed every poll until an empty result was read as no new messages.

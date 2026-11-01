@@ -199,6 +199,10 @@ git clone https://git.yoctoproject.org/meta-rockchip ~/cache/meta-rockchip
 git clone https://git.yoctoproject.org/auto-upgrade-helper ~/cache/auto-upgrade-helper
 git clone https://git.yoctoproject.org/yocto-metrics ~/cache/yocto-metrics
 git clone https://git.yoctoproject.org/yocto-metrics-meta-oe ~/cache/yocto-metrics-meta-oe
+git clone https://git.yoctoproject.org/meta-selinux ~/cache/meta-selinux
+git clone https://git.yoctoproject.org/meta-tensorflow ~/cache/meta-tensorflow
+git clone https://git.yoctoproject.org/meta-zephyr ~/cache/meta-zephyr
+git clone https://git.yoctoproject.org/wic ~/cache/wic
 ```
 
 bodnuti writes temporary worktrees into these clones' `.git` and removes
@@ -533,6 +537,10 @@ meta-rockchip = "https://git.yoctoproject.org/meta-rockchip"
 auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper", kind = "python", tags = ["AUH"] }
 yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
+meta-selinux = "https://git.yoctoproject.org/meta-selinux"
+meta-tensorflow = "https://git.yoctoproject.org/meta-tensorflow"
+meta-zephyr = "https://git.yoctoproject.org/meta-zephyr"
+wic = { url = "https://git.yoctoproject.org/wic", kind = "python" }
 ```
 
 `image` can name the published image of `main` instead of a local build:
@@ -629,7 +637,9 @@ mail checks, shellcheck and cppcheck; the python kind patchtest's mail
 checks, ruff, shellcheck and a JSON parse check (designs/PHASE2.md §5.4).
 meta-security is a layer.
 
-meta-lts-mixins, meta-darwin and meta-rockchip are layers too; meta-lts-mixins' branches
+meta-lts-mixins, meta-darwin, meta-rockchip, meta-selinux, meta-tensorflow
+and meta-zephyr are layers too; wic, the image tool split out of OE-Core,
+is `kind = "python"`; meta-lts-mixins' branches
 carry a topic (`[meta-lts-mixins][scarthgap/go]` checks against
 `scarthgap/go`). yocto-metrics and yocto-metrics-meta-oe hold JSON data,
 which `kind = "python"` checks for valid JSON. `[AUH]` names two
