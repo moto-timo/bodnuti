@@ -4,7 +4,7 @@
 # from a third-party action, so a CI run only ever runs these versions.
 set -eu
 
-TRIVY=0.76.1
+TRIVY=0.76.2
 GITLEAKS=8.30.1
 
 tmp=$(mktemp -d)

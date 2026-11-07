@@ -16,7 +16,7 @@ FROM docker.io/koalaman/shellcheck:v0.11.0 AS shellcheck
 # So does trivy, which scans Django applications' requirements pins. Its
 # database is not in the image: the watcher downloads it daily and mounts it
 # read-only at /trivy.
-FROM docker.io/aquasec/trivy:0.76.1 AS trivy
+FROM docker.io/aquasec/trivy:0.76.2 AS trivy
 
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update \
