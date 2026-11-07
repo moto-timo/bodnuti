@@ -16,5 +16,5 @@ jobs:
     # v0.7.1: v0.1.0's v0.6.2 fails on tag pushes ("evaluating the tag
     # provenance metadata: nil statement"), and v0.1.0 cannot verify
     # v0.7.1's binary, which slsa-framework/actions' attest_actions signs.
-    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@078463f1155c9295ba9e1b41d49ee2623b4415aa # main, 2026-10-04
+    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@1b8a264e688b09fa0befb9b8d1e539a265b28640 # main, 2026-10-04
 
