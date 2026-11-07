@@ -1,5 +1,8 @@
-# Security and version updates for the pinned dependencies. The image's
-# Debian packages are not covered: rebuild the image to pick up their fixes.
+# Security and version updates for the pinned dependencies, among them
+# the Containerfile's base images. The image's Debian packages are not
+# covered: rebuild the image to pick up their fixes. Nor are the scanners
+# pinned in .github/install-scanners.sh: bump trivy there along with the
+# Containerfile.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -11,6 +14,10 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
