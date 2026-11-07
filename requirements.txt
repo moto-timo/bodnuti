@@ -15,4 +15,4 @@ sphinxcontrib-svg2pdfconverter==2.1.0
 PyYAML==6.0.3
 sphinx-lint==1.0.2
 ruff==0.17.4
-djlint==1.47.0
+djlint==1.49.10
