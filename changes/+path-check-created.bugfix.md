@@ -1,1 +1,0 @@
-**poll:** A series whose later patches change files its earlier patches add or rename, such as a recipe upgraded twice in one series, is checked instead of recorded as unrouted: the path check looked for those files at the base, where they do not exist yet. A ten-patch meta-lts-mixins linux-firmware series was unrouted this way.

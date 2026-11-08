@@ -2,6 +2,29 @@
 
 <!-- towncrier release notes start -->
 
+## bodnuti 0.4.0 (2026-11-07)
+
+### Features
+
+- **publish:** The series indexes reload themselves every five minutes, so a page left open shows new series and results.
+
+### Bug fixes
+
+- **check:** Files under `conf/distro/` and `conf/machine/`, such as `maintainers.inc`, are linted by oelint-adv as distro or machine configuration instead of as part of a recipe. A new `RECIPE_MAINTAINER:pn-<recipe>` line no longer reports `oelint.vars.specific` because the recipe it names is not the stub's.
+- **check:** oelint-adv no longer lints a recipe's payload: a `.conf` only under `conf/`, nothing in `files/`. An nginx or Quadlet `.conf` beside a recipe was linted as BitBake.
+- **poll:** A series whose later patches change files its earlier patches add or rename, such as a recipe upgraded twice in one series, is checked instead of recorded as unrouted: the path check looked for those files at the base, where they do not exist yet. A ten-patch meta-lts-mixins linux-firmware series was unrouted this way.
+
+### Security
+
+- **packaging:** The image and CI run trivy 0.76.2, which fixes advisories in its own image (musl, libcurl, brotli) and in the Go modules it bundles (golang.org/x/net, go-jose).
+- **packaging:** The image upgrades its Debian packages when it is built, so it takes Debian security fixes, such as those for zlib CVE-2026-76844 and CVE-2026-85091, without waiting for a new debian:trixie-slim.
+- **packaging:** The layerindex-web venv in the image takes layerindex-web master's pins: Pillow 13.0.0, GitPython 3.2.1 and djangorestframework 3.18.2, fixing their advisories.
+
+### Documentation
+
+- **deploy:** meta-selinux, meta-tensorflow, meta-zephyr and wic, all sent to yocto-patches and unrouted until now, are in the sample `[repos]` and clone list.
+
+
 ## bodnuti 0.3.0 (2026-10-26)
 
 ### Features

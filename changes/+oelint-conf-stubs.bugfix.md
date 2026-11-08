@@ -1,1 +1,0 @@
-**check:** Files under `conf/distro/` and `conf/machine/`, such as `maintainers.inc`, are linted by oelint-adv as distro or machine configuration instead of as part of a recipe. A new `RECIPE_MAINTAINER:pn-<recipe>` line no longer reports `oelint.vars.specific` because the recipe it names is not the stub's.
