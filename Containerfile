@@ -20,7 +20,10 @@ FROM docker.io/koalaman/shellcheck:v0.11.0 AS shellcheck
 FROM docker.io/aquasec/trivy:0.76.2 AS trivy
 
 FROM docker.io/library/debian:trixie-slim
+# Upgrade first: the base image is rebuilt only every few weeks, and a
+# Debian security fix should reach the next build, not wait for it.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends git python3 python3-venv ca-certificates \
       cppcheck \
  && rm -rf /var/lib/apt/lists/*

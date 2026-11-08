@@ -1,0 +1,1 @@
+**packaging:** The image upgrades its Debian packages when it is built, so it takes Debian security fixes, such as those for zlib CVE-2026-76844 and CVE-2026-85091, without waiting for a new debian:trixie-slim.
