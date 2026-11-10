@@ -27,6 +27,10 @@ audit-image:
 		--severity HIGH,CRITICAL --exit-code 1 $(IMAGE)
 
 FUZZ_SECONDS ?= 60
+# cargo-fuzz builds for the triple it was itself built for, so a prebuilt
+# musl cargo-fuzz (cargo-binstall's) cannot build with the sanitizers;
+# build for nightly's host instead.
+FUZZ_TARGET ?= $(shell rustc +nightly -vV | sed -n 's/^host: //p')
 
 .PHONY: fuzz
 
@@ -34,6 +38,6 @@ FUZZ_SECONDS ?= 60
 fuzz:
 	cd fuzz && for t in mbox lore_feed subject request_pull; do \
 		mkdir -p corpus/$$t && \
-		cargo +nightly fuzz run -O $$t corpus/$$t seeds/$$t -- \
+		cargo +nightly fuzz run -O --target $(FUZZ_TARGET) $$t corpus/$$t seeds/$$t -- \
 			-max_total_time=$(FUZZ_SECONDS) -max_len=65536 || exit 1; \
 	done
