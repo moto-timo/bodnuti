@@ -36,6 +36,15 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
 
+  plugin:
+    name: Claude Code plugin tests
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -m unittest discover -s skills/bodnuti/tests -v
+        working-directory: plugins/bodnuti
+
   msrv:
     name: build on rust-version (1.89)
     if: github.event_name != 'schedule'
