@@ -1,0 +1,9 @@
+{
+  "name": "bodnuti",
+  "version": "0.1.0",
+  "description": "Review Yocto Project and OpenEmbedded patch series with bodnuti in a podman or docker container.",
+  "author": {
+    "name": "Tim Orling"
+  },
+  "license": "MIT OR Apache-2.0"
+}

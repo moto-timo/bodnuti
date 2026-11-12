@@ -1,0 +1,16 @@
+{
+  "name": "bodnuti",
+  "owner": {
+    "name": "Tim Orling"
+  },
+  "description": "Claude Code plugin for reviewing Yocto Project and OpenEmbedded patch series with bodnuti",
+  "plugins": [
+    {
+      "name": "bodnuti",
+      "description": "Review Yocto Project and OpenEmbedded patch series with bodnuti in a podman or docker container",
+      "source": "./plugins/bodnuti",
+      "category": "utilities",
+      "tags": ["yocto", "openembedded", "patch-review", "patchtest", "podman", "docker"]
+    }
+  ]
+}
