@@ -11,6 +11,7 @@ mod finding;
 mod git;
 mod json;
 mod kind;
+mod metadata;
 mod oelint;
 mod patchtest;
 mod pins;
@@ -731,6 +732,7 @@ fn check(args: CheckArgs) -> Result<Report> {
     findings.extend(linted.findings);
     if args.kind.is_layer() {
         findings.extend(srcuri::leftover_files(&workspace.path(), &series));
+        findings.extend(metadata::check(&series, &oelint.release));
     }
     findings.sort_by(|a, b| {
         (a.patch, a.severity, &a.file, a.line).cmp(&(b.patch, b.severity, &b.file, b.line))

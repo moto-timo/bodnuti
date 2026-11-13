@@ -1,0 +1,1 @@
+**check:** Layers are now checked for added lines over 200 characters, for LIC_FILES_CHKSUM changes whose commit message has no `License-Update:` line, and for added CVE_CHECK_IGNORE, deprecated for CVE_STATUS after kirkstone. patchtest's metadata suite reports all three, and bodnuti did not.

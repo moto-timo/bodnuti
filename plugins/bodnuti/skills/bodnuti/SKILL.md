@@ -1,6 +1,6 @@
 ---
 name: bodnuti
-description: Review Yocto Project and OpenEmbedded patch series with bodnuti (patchtest, oelint-adv, shellcheck, leftover-file and documentation checks) in a podman or docker container. Use before sending a series to a mailing list, or to check a series posted on lore.
+description: Review Yocto Project and OpenEmbedded patch series with bodnuti (patchtest, oelint-adv, shellcheck, leftover-file, line-length, license, CVE_CHECK_IGNORE and documentation checks) in a podman or docker container. Use before sending a series to a mailing list, or to check a series posted on lore.
 allowed-tools: Read, Bash(${CLAUDE_SKILL_DIR}/scripts/bodnuti_run.py *)
 ---
 

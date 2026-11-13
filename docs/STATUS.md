@@ -59,6 +59,9 @@ series, reporting only what the series adds:
 - oelint-adv, with OE-Core's unenforced style rules suppressed;
 - shellcheck on shell tasks and shipped scripts;
 - a check for patch files left behind after SRC_URI drops them;
+- checks for lines over 200 characters, for LIC_FILES_CHKSUM changes
+  without a `License-Update:` line and for added CVE_CHECK_IGNORE, from
+  patchtest's metadata suite;
 - for yocto-docs and the BitBake manual, the Sphinx build, sphinx-lint,
   check-glossaries and check-confusables.
 

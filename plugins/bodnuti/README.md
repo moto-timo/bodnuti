@@ -3,8 +3,8 @@
 Review Yocto Project and OpenEmbedded patch series with
 [bodnuti](https://github.com/moto-timo/bodnuti) before you send them, or check
 a series posted on lore. bodnuti runs patchtest, oelint-adv, shellcheck, the
-leftover-file check and the documentation checks, and reports only what the
-series adds.
+leftover-file check, the line-length, license and CVE_CHECK_IGNORE checks and
+the documentation checks, and reports only what the series adds.
 
 ## Installation
 
