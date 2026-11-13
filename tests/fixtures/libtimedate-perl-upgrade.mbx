@@ -1,0 +1,142 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from mail-pj1-f54.google.com (mail-pj1-f54.google.com [209.85.216.54])
+ by mx.groups.io with SMTP id smtpd.msgproc02-g2.1611.1794530008736330987
+ for <openembedded-core@lists.openembedded.org>;
+ Thu, 12 Nov 2026 16:33:28 -0800
+Authentication-Results: mx.groups.io;
+ dkim=pass header.i=@gmail.com header.s=20260707 header.b=dLZb4ajS;
+ spf=pass (domain: gmail.com, ip: 209.85.216.54, mailfrom: ticotimo@gmail.com)
+Received: by mail-pj1-f54.google.com with SMTP id 98e67ed59e1d1-3b0b3754f57so320413a91.0
+        for <openembedded-core@lists.openembedded.org>; Thu, 12 Nov 2026 16:33:28 -0800 (PST)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20260707; t=1794530008; x=1795134808; darn=lists.openembedded.org;
+        h=content-transfer-encoding:mime-version:references:in-reply-to
+         :message-id:date:subject:cc:to:from:from:to:cc:subject:date
+         :message-id:reply-to:content-type;
+        bh=d+AmeZZuOrB3dgK0sf5aCA2+88QfXr1k+Q7v1YLneAQ=;
+        b=dLZb4ajSE8FaVnjt6XBDH8GxhYAQ6IsjUHWRX7OydunpqunrCvWchf86xcjCyVSrtq
+         1fDQBUz+BEwB7tUKEYvyx68XCwtXn8MZadD8A5XlQxgHj0IabQhXer2xft+VkqNKj8t3
+         BEEyoNu56RkGatnjKejIqAl/6ewK25fmGRyttWZufB3doQAGcZc2BvtTfhYQBRVLwSva
+         XkPKYZpxd8BJL9l4mRS7OWU/Et//GOoSg1ANAyVIyqRFzRwt4nGYXISXy02XYZPdfZKg
+         tCssyw73qaPj8un4JwaGCAzZksHE16QSAoC9vKATQucKE61QXp0IYL9NTsiQvGXL8bZK
+         PBtQ==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20260707; t=1794530008; x=1795134808;
+        h=content-transfer-encoding:mime-version:references:in-reply-to
+         :message-id:date:subject:cc:to:from:x-gm-gg:x-gm-message-state:from
+         :to:cc:subject:date:message-id:reply-to:content-type;
+        bh=d+AmeZZuOrB3dgK0sf5aCA2+88QfXr1k+Q7v1YLneAQ=;
+        b=ax7YCLMWdbMPLOde5Y6wqkW7T/zYEMVfDfGEEf2kgd3IBmfZSdCm0mY+KWwAeiIilD
+         NKtx0gS/vh03n3c9kO5SJuL4P+z65dv1+9AbTsTJ6GktxySgvwlwkQgp9DrandnLgNZA
+         QgHGIQMOP/Xb8rnkxKkMuLnkByTNxgMOK+QPxqS+jF88841EzsKBk9b+MGikfyssPkW7
+         hqxgZ/meKGOwjGnerlMDSZkN2v+6ZDI/vOyXhoHD+3KmENFw/azPQFAM4+5VCIf+hoKH
+         6IgmeJdcRnEFEK8T+SGR+Sbjumtqbl70hIQ3+7bbtqY4/PIoysO1fqLeInBDtnpzUVuS
+         Njwg==
+X-Gm-Message-State: APuU4Z/Xy+0C7x4wrsgS9JQdjNYxfbaVRF4e9HNctjZmgZrm28of/4gY
+	iFhvYNrL8itCZ/f1KPddflDu9scJMjyfKEaCx7KlyQ8hqa/fFJ8l/dGO6u01yA==
+X-Gm-Gg: AYBFou0oPPj+sNTCv8eQttczxbCrYsMcA+tlF5xLHn61bPKKBx1QNytK0vtMNjuobjQ
+	wEFPbbakJfOCoKnMTgWfAZHpxdEKJLZOVijvo7FYsJYD+75qS/dU8AHMaIqaSGDpWtv/HjNK0S4
+	Tt1SsTrWp+QJoEuLeRVZY+ZqUwMZt9YAGhu4PKkUwNAdJBpungviN4+sJZmRTM7Zojd3v6DDes+
+	4quMX7PhRfrlA1ddT/bn3FKPR4kTHaCZfHaKl5c9Q353PXWr9vWno7WClXImCLcO7pPmb5oKoC3
+	kWhnVTlr9PEIUl0xP5ULshfo95WUpv4SFscZ6bI4AEco0YRPpSHsLyH0J9SuwqrZspbcFC7/aZe
+	SK4jolEDZEGaEh4usfme5NZMscOCy+lk7T4iRuw497G/UdUDaXzJFUDppNFgIsOOUVhZFOZwSjc
+	doM+ZQIgNRXRGh2bDNhWjJddZbGd4OcEugDy3yng7jJGtdSFwl6rWehcvnU5ADigm8f45wZJM+N
+	p+Qoifg9VzMEonr5K9e30UQmNcPsNmIPP8pDBDuteXemOSZU0g2QFzKPZilX5TQcQ/GFmje/Uy1
+	7s+NYyIiQcoXjkzKEWKTVuh+r+zM/H+lWfqmmpIuMVMFarVYue+9UvML
+X-Received: by 2002:a17:90b:1a90:b0:3ac:7378:be04 with SMTP id 98e67ed59e1d1-3b1b0596f1emr636158a91.0.1794530008015;
+        Thu, 12 Nov 2026 16:33:28 -0800 (PST)
+Return-Path: <ticotimo@gmail.com>
+Received: from localhost.localdomain ([69.9.132.159])
+        by smtp.gmail.com with ESMTPSA id 41be03b00d2f7-cddc186fc81sm388932a12.8.2026.11.12.16.33.25
+        (version=TLS1_3 cipher=TLS_CHACHA20_POLY1305_SHA256 bits=256/256);
+        Thu, 12 Nov 2026 16:33:25 -0800 (PST)
+From: Tim Orling <ticotimo@gmail.com>
+X-Google-Original-From: Tim Orling <tim.orling@konsulko.com>
+To: openembedded-core@lists.openembedded.org
+Cc: Tim Orling <tim.orling@konsulko.com>
+Subject: [PATCH 5/5] libtimedate-perl: upgrade 2.30 -> 2.35
+Date: Thu, 12 Nov 2026 16:33:02 -0800
+Message-ID: <20261113003302.20809-6-tim.orling@konsulko.com>
+X-Mailer: git-send-email 2.56.0
+In-Reply-To: <20261113003302.20809-1-tim.orling@konsulko.com>
+References: <20261113003302.20809-1-tim.orling@konsulko.com>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+List-Id: <openembedded-core.lists.openembedded.org>
+X-Webhook-Received: from 45-33-107-173.ip.linodeusercontent.com [45.33.107.173] by lin-tor-korg-lkml-alma10-1 with HTTPS for <openembedded-core@lists.openembedded.org>; Fri, 13 Nov 2026 00:33:36 -0000
+X-Groupsio-URL: https://lists.openembedded.org/g/openembedded-core/message/250137
+Content-Type: text/plain; charset="utf-8"
+
+AUH missed this upgrade because TimeDate is now released by ATOOMIC
+and GBARR's directory stops at 2.30; update SRC_URI accordingly.
+
+The license text moved from README to LICENSE; the terms are unchanged.
+Add POSIX to RDEPENDS, and to the ptest RDEPENDS the modules the new
+tests use, including tzdata-core so t/gh10 can use America/Los_Angeles.
+
+Changes: https://metacpan.org/dist/TimeDate/changes
+
+Tested by building target and native and running ptest on qemux86-64.
+
+AI-Generated: Uses Claude Code (Claude Opus 5.5)
+Signed-off-by: Tim Orling <tim.orling@konsulko.com>
+---
+ ...-perl_2.30.bb => libtimedate-perl_2.35.bb} | 31 ++++++++++++++-----
+ 1 file changed, 23 insertions(+), 8 deletions(-)
+ rename meta/recipes-extended/perl/{libtimedate-perl_2.30.bb => libtimedate-perl_2.35.bb} (31%)
+
+diff --git a/meta/recipes-extended/perl/libtimedate-perl_2.30.bb b/meta/recipes-extended/perl/libtimedate-perl_2.35.bb
+similarity index 31%
+rename from meta/recipes-extended/perl/libtimedate-perl_2.30.bb
+rename to meta/recipes-extended/perl/libtimedate-perl_2.35.bb
+index 028630ba90..269eff7cb4 100644
+--- a/meta/recipes-extended/perl/libtimedate-perl_2.30.bb
++++ b/meta/recipes-extended/perl/libtimedate-perl_2.35.bb
+@@ -1,20 +1,35 @@
+ SUMMARY = "Perl modules useful for manipulating date and time information"
++DESCRIPTION = "This is the perl5 TimeDate distribution. It \
++               requires perl version 5.003 or later."
+ HOMEPAGE = "https://metacpan.org/release/TimeDate"
+-DESCRIPTION = "This is the perl5 TimeDate distribution. It requires perl version 5.003 or later."
++BUGTRACKER = "https://github.com/cpan-authors/TimeDate/issues"
+ SECTION = "libs"
+ # You can redistribute it and/or modify it under the same terms as Perl itself.
+ LICENSE = "Artistic-1.0 OR GPL-1.0-or-later"
+-LIC_FILES_CHKSUM = "file://README;beginline=21;md5=576b7cb41e5e821501a01ed66f0f9d9e"
++LIC_FILES_CHKSUM = "file://LICENSE;md5=785dacdd4fe95b580e7b020d087ce54e"
+ 
+-SRC_URI = "${CPAN_MIRROR}/authors/id/G/GB/GBARR/TimeDate-${PV}.tar.gz"
++SRC_URI = "${CPAN_MIRROR}/authors/id/A/AT/ATOOMIC/TimeDate-${PV}.tar.gz"
++SRC_URI[sha256sum] = "baddd0306ae2e86e9ec28d3de5439e514643e80b3735e43bd0fbb426d73304de"
+ 
+ S = "${UNPACKDIR}/TimeDate-${PV}"
+ 
+ inherit cpan ptest-perl
+ 
+-BBCLASSEXTEND = "native"
+-
+-RDEPENDS:${PN} += "perl-module-carp perl-module-exporter perl-module-strict perl-module-time-local"
+-RDEPENDS:${PN}-ptest += "perl-module-test-more perl-module-utf8"
++RDEPENDS:${PN} += "\
++    perl-module-carp \
++    perl-module-exporter \
++    perl-module-posix \
++    perl-module-strict \
++    perl-module-time-local \
++"
++RDEPENDS:${PN}-ptest += "\
++    perl-module-extutils-makemaker \
++    perl-module-extutils-mm-unix \
++    perl-module-file-spec \
++    perl-module-test-more \
++    perl-module-utf8 \
++    perl-module-warnings \
++    tzdata-core \
++"
+ 
+-SRC_URI[sha256sum] = "75bd254871cb5853a6aa0403ac0be270cdd75c9d1b6639f18ecba63c15298e86"
++BBCLASSEXTEND = "native"
+-- 
+2.56.0
+
+

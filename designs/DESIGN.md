@@ -180,9 +180,10 @@ rest at no cost:
 - Leftover patch files: bodnuti's own check (§3.4a), which works for every
   recipe.
 
-The remaining unique checks, LIC_FILES_CHKSUM changes not mentioned in the
-commit message and CVE_CHECK_IGNORE use, are worth adding later as cheap
-diff-based checks of the same kind, rather than through tinfoil.
+Two more of its checks read only the diff and the commit message: line
+length, and LIC_FILES_CHKSUM changes not mentioned in the commit message.
+A third, CVE_CHECK_IGNORE use, can be made from the diff instead of through
+tinfoil. bodnuti makes all three itself (§3.4b).
 
 ### 3.4 oelint-adv
 
@@ -233,6 +234,77 @@ metadata file in that recipe directory still uses it, and the file is still
 in the directory, bodnuti reports a leftover. It reads the diff and the
 tree, needs no bitbake, and works for every recipe whatever MACHINE parses
 it.
+
+### 3.4b Line length, license changes and CVE_CHECK_IGNORE (implemented)
+
+patchtest's metadata suite is deferred (§3.3), so two of its tests that
+read no recipe go unchecked. Both failed series that bodnuti had passed:
+`test_max_line_length` on `python3-uvloop: enable ptest` (November 2026,
+a 333-character line in `run-ptest`), and
+`test_lic_files_chksum_modified_not_mentioned` on the `libxml-parser-perl`
+and `libtimedate-perl` upgrades in the same month. Neither test calls
+tinfoil. Only the suite's shared setup does, and the license test uses its
+result only to skip a series that modifies no recipe.
+
+bodnuti makes both checks itself, in a module `metadata`, beside the
+leftover-file check (§3.4a) and for the same repositories (`Kind::Layer`).
+Each reads one patch's diff and commit message, so it needs no tree, no
+bitbake and no container, and runs no code from the patch. A finding comes
+from the diff alone, so it is new by construction: there is no base run to
+compare against, as with patchtest's own findings.
+
+**Line length.** An added line in a file whose name does not end in
+`.patch`, longer than 200 characters without its leading `+`, is a finding:
+`bodnuti.metadata.line-length`, an error, with the file and the line number
+in the patched file taken from the hunk header. One finding per line, so
+the author sees every line to fix, where patchtest stops at the first.
+
+patchtest's own rule differs in two ways, both from its pattern
+`pyparsing.Regex(r'\+ ')`, which matches `+ ` anywhere in a line, not a `+`
+at its start:
+
+- It measures any diff line that contains `+ `: added, removed, context
+  and the `+++ b/` header. A long context line with `a + b` in it fails a
+  patch that did not write it.
+- It skips an added line with no `+ ` in it, such as an unindented
+  `+DESCRIPTION = "..."` that has no `+ ` later in its text.
+
+bodnuti checks every added line and nothing else: what the author wrote is
+what they can shorten. The cost is the rare line patchtest fails and bodnuti
+does not, a long removed or context line containing `+ `, which the author
+did not write and patchtest reports by mistake. bodnuti does not copy
+patchtest's mistakes to predict its mail line for line.
+
+**License changes.** A patch that adds or removes a LIC_FILES_CHKSUM line in
+a `.bb`, `.bbappend` or `.inc` file that exists at the base, and whose
+commit message has no line starting `License-Update:`, gets the finding
+`bodnuti.metadata.license-update`, an error, on that file. A line counts
+when its text after the `+` or `-` starts with `LIC_FILES_CHKSUM`, or when
+it contains `;md5=` or `;sha256=`. Those parameters occur only in
+LIC_FILES_CHKSUM: SRC_URI uses `sha256sum`. That matches a checksum changed
+on a continuation line of a multi-line value too. patchtest's pattern
+`AtLineStart("+LIC_FILES_CHKSUM")` misses that case, though it is the
+usual shape of a license change. A recipe that the patch adds is not
+checked, as patchtest skips it too: a new recipe has no license to update.
+
+The finding names the patch, so in a series it is that patch's message that
+must carry the tag. patchtest gets one patch per mbox from bodnuti and
+behaves the same way.
+
+**CVE_CHECK_IGNORE.** Nanbield deprecated CVE_CHECK_IGNORE for CVE_STATUS.
+patchtest's `test_cve_check_ignore` parses each modified recipe and fails
+when the variable is set, except on kirkstone and dunfell, where it is still
+the variable to use. bodnuti reports an added line in a `.bb`, `.bbappend`
+or `.inc` file that assigns CVE_CHECK_IGNORE, with any override, flag or
+operator, as `bodnuti.metadata.cve-check-ignore`, an error, with the file
+and line. It skips a series whose oelint-adv release (§3.4) is kirkstone or
+dunfell. Unlike patchtest it does not report a value the recipe already
+had, or one set in a file the patch does not touch, such as an included
+`.inc`: only what the patch adds is the author's to fix.
+
+Both checks are tested on the real mail that failed: the `python3-uvloop`
+and `libtimedate-perl` patches go into `tests/fixtures/`, each with a
+corrected copy that must pass.
 
 ### 3.5 Shell
 

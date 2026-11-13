@@ -469,7 +469,7 @@ path check still guards against the wrong tree.
 | Checker | layer | django-app |
 |---|---|---|
 | patchtest | mbox and patch suites | mbox suite only (`test_mbox*.py`); the patch suite expects a layer |
-| oelint-adv, docs, leftover-file check | yes | no |
+| oelint-adv, docs, leftover-file and metadata checks (DESIGN.md §3.4b) | yes | no |
 | shellcheck | recipes, classes, scripts | scripts |
 | ruff | no | touched `.py` files |
 | djLint | no | touched templates (`.html` under a `templates/` directory) |

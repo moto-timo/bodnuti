@@ -11,6 +11,10 @@ checks OpenEmbedded already has, and reports only what a patch series adds:
   `/bin/sh`, which is dash on many hosts;
 - **leftover files**: patch files a series drops from `SRC_URI` but leaves in
   the layer;
+- **line length, license changes and CVE_CHECK_IGNORE**: added lines over
+  200 characters, LIC_FILES_CHKSUM changes without a `License-Update:` line,
+  and added CVE_CHECK_IGNORE after kirkstone, as patchtest's metadata suite
+  reports them;
 - **documentation** (yocto-docs, BitBake manual): the Sphinx build,
   sphinx-lint, and yocto-docs' check-glossaries and check-confusables.
 

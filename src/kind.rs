@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     /// A BitBake layer, or BitBake or the Yocto documentation: patchtest,
-    /// oelint-adv, shellcheck, the documentation checks and the
-    /// leftover-file check.
+    /// oelint-adv, shellcheck, the documentation checks, the
+    /// leftover-file check and the line-length, license and
+    /// CVE_CHECK_IGNORE checks.
     #[default]
     Layer,
     /// A Django web application such as layerindex-web: patchtest's mail
@@ -25,7 +26,8 @@ pub enum Kind {
 
 impl Kind {
     /// Whether the layer checks (oelint-adv, the documentation checks, the
-    /// leftover-file check and patchtest's patch suite) apply.
+    /// leftover-file, line-length, license and CVE_CHECK_IGNORE checks and
+    /// patchtest's patch suite) apply.
     pub fn is_layer(self) -> bool {
         self == Kind::Layer
     }
