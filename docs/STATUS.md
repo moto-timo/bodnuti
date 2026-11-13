@@ -2,10 +2,11 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 26 October 2026, after the
-first days of the bodnuti phase 2 deployment, the first security scans, the
-addition of CI, the Django application checks, the 0.1.0 and 0.2.0
-releases, and the fixes the first live reports called for. The bodnuti repository is public.
+as bodnuti, a standalone low-cost tool. Status as of 13 November 2026, after
+the first weeks of the bodnuti phase 2 deployment, the first security scans,
+the addition of CI, the Django application checks, the releases up to 0.4.0,
+the fixes the live reports called for, patchtest's metadata checks and a
+Claude Code plugin. The bodnuti repository is public.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -66,7 +67,10 @@ series, reporting only what the series adds:
   check-glossaries and check-confusables.
 
 It runs on the host, from a container image, or from a Python wheel
-(`pip install`), and uses no model tokens.
+(`pip install`), and uses no model tokens. A Claude Code plugin, in
+`plugins/bodnuti`, runs it on a local series, patch files or a series on
+lore; the repository is its marketplace
+(`/plugin marketplace add moto-timo/bodnuti`).
 
 On the same ten OE-Core defects:
 
@@ -173,7 +177,9 @@ highlighted. The check records those lines in the report, since only it has
 the patched tree. Fixes and tool errors take the same form, and
 `report.txt` has the same blocks in plain text. The index lists one series
 per line, as sashiko.dev's does: every column but the subject has a fixed
-width, long names are cut short, and the page is up to 90rem wide.
+width, long names are cut short, and the page is up to 90rem wide. The
+series indexes reload themselves every five minutes, so a page left open
+shows new series and results.
 
 Matching a landed patch by subject and author now uses the author git am
 records, from an in-body `From:` line when the sender is not the author: a
@@ -202,10 +208,11 @@ in-memory sqlite, in a venv per application built into the image from
 copies of their requirements (`designs/PHASE2.md` §5.5). On
 error-report-web, a patch adding a model field without its migration
 reports exactly that; layerindex-web's checks run clean. The copies keep
-the applications' own pins, so GitHub's Dependabot shows 30 open alerts on
-layerindex-web's (Pillow 12.3.0, djangorestframework 3.18.0, GitPython
-3.1.62), left open on purpose: they close when layerindex-web merges its
-fixes and the copy is refreshed.
+the applications' own pins, so Dependabot alerts on them are fixed in the
+application, not here. layerindex-web master has since pinned Pillow
+13.0.0, GitPython 3.2.1 and djangorestframework 3.18.2, and 0.4.0 took
+those pins, closing the 30 alerts on the copy. Two soupsieve alerts (one
+high, one medium) remain open, to be fixed in layerindex-web.
 
 ### Other repositories on yocto-patches
 
@@ -430,7 +437,12 @@ its parsers fuzzed:
   subject tags. For this, the mail and lore parsers are now a small
   library the binary uses. Two minutes per target, about 5.2 million
   inputs, found no crash.
-- Dependabot checks the Cargo and pip pins and the GitHub Actions weekly.
+- Dependabot checks the Cargo and pip pins, the GitHub Actions and the
+  Containerfile's base images weekly. trivy is pinned twice, in the
+  Containerfile and in `.github/install-scanners.sh`, and Dependabot bumps
+  only the first.
+- The image upgrades its Debian packages when it is built, so it takes
+  Debian's security fixes without waiting for a new debian:trixie-slim.
 
 GitHub Actions runs on every push and pull request: fmt, clippy and the
 tests; a build on rust-version 1.89; `make audit`; the image build, a smoke
@@ -447,7 +459,8 @@ is now on 0.42. The other results:
 - no other Rust or Python dependency findings;
 - no secrets in the bodnuti or bodnuti.dev history;
 - 75 HIGH, 0 CRITICAL findings in the image's Debian trixie packages, none
-  with a Debian fix yet. Rebuilding the image picks the fixes up.
+  with a Debian fix yet. Each image build now upgrades the packages and
+  picks the fixes up.
 
 The worker runs these fixes and upgrades since 25 October 2026.
 
@@ -484,8 +497,14 @@ apart, the front-page summary and the landed-patch fix. Its wheels and
 image carry SLSA build provenance and attested SPDX 2.3 SBOMs (the crates
 from cargo-sbom, the image per platform from trivy, also attached to the
 release), and the image a keyless cosign signature; all of them verify
-from the published artifacts. `main` carries `0.3.0-dev`, and
-`changes/README.md` lists the release steps.
+from the published artifacts. `AGENTS.md` lists the release steps.
+
+bodnuti 0.3.0 (26 October 2026) adds checking on staging branches, the
+signed `:main` image, unthreaded series put together again, and the GitHub
+CI and AutoBuilder evidence, with the fixes from the live reports. bodnuti
+0.4.0 (7 November 2026) lints distro and machine configuration as such,
+stops linting a recipe's payload, reloads the series indexes, and takes
+trivy 0.76.2, Debian's security fixes and layerindex-web's new pins.
 
 The repository also produces SLSA source provenance, set up with the SLSA
 source tool: rulesets keep `main` and every tag from being deleted or
@@ -493,11 +512,13 @@ rewritten, and a workflow writes signed source provenance and a
 verification summary to git notes on each push. Every source control
 except two-party review is met, so the repository is eligible for SLSA
 Source Level 3; it verifies at Level 1 until its policy,
-slsa-framework/source-policies#27, is merged. The `v0.2.0` tag has no tag
-provenance: the workflow's pinned release ran sourcetool v0.6.2, which
-fails on tags, so it is now pinned to slsa-framework/actions' main of
-4 October 2026, with sourcetool v0.7.1, whose tag handling is untried in
-CI until the next tag.
+slsa-framework/source-policies#27, is merged; it is still open. The
+`v0.2.0` tag has no tag provenance: the workflow's pinned release ran
+sourcetool v0.6.2, which fails on tags. The workflow is now pinned to
+slsa-framework/actions v0.2.0, with sourcetool v0.7.2, and Dependabot
+follows its releases. The workflow succeeded on the `v0.3.0` and `v0.4.0`
+tag pushes; that their tags verify is still to be checked with
+sourcetool.
 
 bodnuti.dev's front page replaces the placeholder: what bodnuti checks, the
 watched lists, links to the reports, source, releases and security policy,
@@ -541,18 +562,20 @@ window held about eight sashiko reviews.
 - Watch for the cases only unit-tested so far: a BitBake series rescued by
   its staging branches, a late member reopening an unthreaded series, and a
   CodeQL alert on a line a checked series wrote.
-- Release 0.3.0 without waiting for slsa-framework/source-policies#27,
-  still open: its tag is the first with tag provenance from the SLSA
-  Source workflow's new pin, which only a tag can try. Once #27 merges,
-  check that sourcetool verifies main at SLSA Source Level 3, and make the
-  release after 0.3.0 the first whose tag verifies at that level.
+- Check with sourcetool that the `v0.3.0` and `v0.4.0` tags carry tag
+  provenance. Once slsa-framework/source-policies#27 merges, check that
+  main verifies at SLSA Source Level 3, and make the next release the
+  first whose tag verifies at that level.
+- Watch the new metadata checks (long lines, LIC_FILES_CHKSUM without
+  `License-Update:`, CVE_CHECK_IGNORE) on the live reports for false
+  alarms before 0.5.0.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.
 - Refresh `django/<application>/requirements.txt` from the applications'
   master branches when their pins change, so Django's checks run against
-  current dependencies; for layerindex-web this closes the 30 Dependabot
-  alerts once its fixes land.
+  current dependencies; for layerindex-web this closes the two soupsieve
+  alerts once its fix lands.
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
   defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
