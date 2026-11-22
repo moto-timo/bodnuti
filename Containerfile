@@ -2,7 +2,7 @@
 # macOS, where bitbake does not run). Build with:
 #   docker build -t bodnuti -f Containerfile .
 
-FROM docker.io/library/rust:1.99-slim-trixie AS build
+FROM docker.io/library/rust:1.100-slim-trixie AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY assets ./assets
