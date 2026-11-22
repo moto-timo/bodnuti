@@ -4,7 +4,7 @@ Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 22 November 2026, after
 the first weeks of the bodnuti phase 2 deployment, the first security scans,
-the addition of CI, the Django application checks, the releases up to 0.4.0,
+the addition of CI, the Django application checks, the releases up to 0.5.0,
 the fixes the live reports called for, patchtest's metadata checks, a
 Claude Code plugin and the SLSA source policy. The bodnuti repository is
 public.
@@ -507,6 +507,9 @@ CI and AutoBuilder evidence, with the fixes from the live reports. bodnuti
 0.4.0 (7 November 2026) lints distro and machine configuration as such,
 stops linting a recipe's payload, reloads the series indexes, and takes
 trivy 0.76.2, Debian's security fixes and layerindex-web's new pins.
+bodnuti 0.5.0 (22 November 2026) adds patchtest's metadata checks and the
+Claude Code plugin, takes oelint-adv 9.14.0 and djLint 1.54.0, and is the
+first release made at SLSA Source Level 3.
 
 The repository also produces SLSA source provenance, set up with the SLSA
 source tool: rulesets keep `main` and every tag from being deleted or

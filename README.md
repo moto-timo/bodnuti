@@ -92,7 +92,7 @@ patchtest and set `BODNUTI_OECORE` to it:
 ```
 docker run --rm \
     -v ~/cache/openembedded-core:/repo \
-    ghcr.io/moto-timo/bodnuti:0.4.0 check --repo /repo '<20261023192932.159420-1-peter.marko@siemens.com>'
+    ghcr.io/moto-timo/bodnuti:0.5.0 check --repo /repo '<20261023192932.159420-1-peter.marko@siemens.com>'
 ```
 
 `docker build -t bodnuti -f Containerfile .` builds the image from source.
@@ -127,12 +127,12 @@ crates in the bodnuti binary; the image's, one per platform, its Debian,
 Python and Go packages. The SBOMs are also attached to the GitHub release.
 
 ```
-gh attestation verify bodnuti-0.4.0-py3-none-manylinux_2_28_aarch64.whl --repo moto-timo/bodnuti
-gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.4.0 --repo moto-timo/bodnuti
-cosign verify ghcr.io/moto-timo/bodnuti:0.4.0 \
+gh attestation verify bodnuti-0.5.0-py3-none-manylinux_2_28_aarch64.whl --repo moto-timo/bodnuti
+gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.5.0 --repo moto-timo/bodnuti
+cosign verify ghcr.io/moto-timo/bodnuti:0.5.0 \
   --certificate-identity-regexp '^https://github.com/moto-timo/bodnuti/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.4.0 --repo moto-timo/bodnuti \
+gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.5.0 --repo moto-timo/bodnuti \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
@@ -151,10 +151,11 @@ The source has SLSA source provenance too: each push to `main` and each
 tag gets a signed source provenance attestation and verification summary,
 kept in git notes, which the
 [SLSA source tool](https://github.com/slsa-framework/source-tool) checks
-(tags from `v0.3.0` on also carry tag provenance):
+(tags from `v0.3.0` on also carry tag provenance, and from `v0.5.0` on at
+SLSA Source Level 3):
 
 ```
-sourcetool verify moto-timo/bodnuti --tag v0.4.0
+sourcetool verify moto-timo/bodnuti --tag v0.5.0
 ```
 
 ## License
