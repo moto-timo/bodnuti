@@ -64,6 +64,11 @@ project stands, and `designs/` the design, numbered by section (§3.3, §5.7).
 provenance: never force-push, and never delete or move a tag. A broken
 release is fixed by the next one.
 
+Merge pull requests with a merge commit, never a rebase merge.
+Provenance is computed only for the tip of each push, so a rebase merge
+leaves the earlier commits without it and breaks the provenance chain that
+SLSA Source Level 3 needs.
+
 ## Releasing
 
 1. Set the version in `Cargo.toml`, run `cargo build` and
