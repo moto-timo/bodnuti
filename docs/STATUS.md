@@ -4,7 +4,7 @@ Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
 as bodnuti, a standalone low-cost tool. Status as of 22 November 2026, after
 the first weeks of the bodnuti phase 2 deployment, the first security scans,
-the addition of CI, the Django application checks, the releases up to 0.4.0,
+the addition of CI, the Django application checks, the releases up to 0.5.0,
 the fixes the live reports called for, patchtest's metadata checks, a
 Claude Code plugin and the SLSA source policy. The bodnuti repository is
 public.
@@ -507,6 +507,9 @@ CI and AutoBuilder evidence, with the fixes from the live reports. bodnuti
 0.4.0 (7 November 2026) lints distro and machine configuration as such,
 stops linting a recipe's payload, reloads the series indexes, and takes
 trivy 0.76.2, Debian's security fixes and layerindex-web's new pins.
+bodnuti 0.5.0 (22 November 2026) adds patchtest's metadata checks and the
+Claude Code plugin, takes oelint-adv 9.14.0 and djLint 1.54.0, and is the
+first release made at SLSA Source Level 3.
 
 The repository also produces SLSA source provenance, set up with the SLSA
 source tool: rulesets keep `main` and every tag from being deleted or
@@ -514,7 +517,7 @@ rewritten, and a workflow writes signed source provenance and a
 verification summary to git notes on each push. Every source control
 except two-party review is met, and the repository's policy,
 slsa-framework/source-policies#27, merged on 22 November 2026 with a
-Level 3 target for `main`. main still verifies at Level 1, for two
+Level 3 target for `main`. main verified at Level 1 at first, for two
 reasons found that day:
 
 - Provenance is written only for the tip of each push. Rebase-merging a
@@ -528,11 +531,15 @@ reasons found that day:
   rise above the Level 1 fallback. slsa-framework/source-tool#479 fixes
   this, released in sourcetool v0.7.4 the same day.
 
+With sourcetool v0.7.4, main verifies at SLSA Source Level 3 from the
+#29 merge commit (`667c450`) on, in the workflow and with sourcetool run
+locally. The workflow is on slsa-framework/actions v0.2.1, set to run
+sourcetool v0.7.4, and Dependabot follows the actions' releases.
+
 The `v0.2.0` tag has no tag provenance: the workflow's pinned release ran
-sourcetool v0.6.2, which fails on tags. The workflow is now on
-slsa-framework/actions v0.2.1, set to run sourcetool v0.7.4, and
-Dependabot follows the actions' releases. sourcetool verifies the `v0.3.0` and `v0.4.0` tags,
-which carry tag provenance, and all three tags, at Level 1.
+sourcetool v0.6.2, which fails on tags. The `v0.3.0` and `v0.4.0` tags
+carry tag provenance, and sourcetool verifies all three at Level 1, the
+level main had when they were made.
 
 bodnuti.dev's front page replaces the placeholder: what bodnuti checks, the
 watched lists, links to the reports, source, releases and security policy,
@@ -576,13 +583,11 @@ window held about eight sashiko reviews.
 - Watch for the cases only unit-tested so far: a BitBake series rescued by
   its staging branches, a late member reopening an unthreaded series, and a
   CodeQL alert on a line a checked series wrote.
-- Check that main verifies at SLSA Source Level 3 with sourcetool
-  v0.7.4, and make the next release the first whose tag verifies at that
-  level. Drop the workflow's `version` once slsa-framework/actions
-  defaults to v0.7.4 or later.
+- Drop the SLSA Source workflow's `version` once slsa-framework/actions
+  defaults to sourcetool v0.7.4 or later.
 - Watch the new metadata checks (long lines, LIC_FILES_CHKSUM without
   `License-Update:`, CVE_CHECK_IGNORE) on the live reports for false
-  alarms before 0.5.0.
+  alarms.
 - Score the three unreviewed benchmark entries, and measure sashiko at low
   effort.
 - Sort the 37 extra findings into real issues and false alarms.

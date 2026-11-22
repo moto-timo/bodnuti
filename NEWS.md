@@ -2,6 +2,23 @@
 
 <!-- towncrier release notes start -->
 
+## bodnuti 0.5.0 (2026-11-22)
+
+### Features
+
+- **check:** Layers are now checked for added lines over 200 characters, for LIC_FILES_CHKSUM changes whose commit message has no `License-Update:` line, and for added CVE_CHECK_IGNORE, deprecated for CVE_STATUS after kirkstone. patchtest's metadata suite reports all three, and bodnuti did not.
+- **plugin:** A Claude Code plugin, in `plugins/bodnuti`, runs bodnuti on a local series, patch files or a series on lore. The repository is its marketplace: `/plugin marketplace add moto-timo/bodnuti`.
+
+### Security
+
+- **packaging:** The source verifies at SLSA Source Level 3, and release tags carry tag provenance at that level from 0.5.0 on; `sourcetool verify moto-timo/bodnuti --tag v0.5.0` checks it.
+
+### Other changes
+
+- **check:** oelint-adv 9.14.0 and djLint 1.54.0 in the image, which can change the findings a report shows.
+- **fuzz:** `make fuzz` builds the fuzz targets for the nightly toolchain's host, so a prebuilt musl cargo-fuzz, as CI installs, no longer fails to build them.
+
+
 ## bodnuti 0.4.0 (2026-11-07)
 
 ### Features
