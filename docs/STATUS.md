@@ -2,11 +2,12 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 13 November 2026, after
+as bodnuti, a standalone low-cost tool. Status as of 22 November 2026, after
 the first weeks of the bodnuti phase 2 deployment, the first security scans,
 the addition of CI, the Django application checks, the releases up to 0.4.0,
-the fixes the live reports called for, patchtest's metadata checks and a
-Claude Code plugin. The bodnuti repository is public.
+the fixes the live reports called for, patchtest's metadata checks, a
+Claude Code plugin and the SLSA source policy. The bodnuti repository is
+public.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
 Haiku 5.5.
@@ -211,8 +212,9 @@ reports exactly that; layerindex-web's checks run clean. The copies keep
 the applications' own pins, so Dependabot alerts on them are fixed in the
 application, not here. layerindex-web master has since pinned Pillow
 13.0.0, GitPython 3.2.1 and djangorestframework 3.18.2, and 0.4.0 took
-those pins, closing the 30 alerts on the copy. Two soupsieve alerts (one
-high, one medium) remain open, to be fixed in layerindex-web.
+those pins, closing the 30 alerts on the copy. layerindex-web then moved to
+soupsieve 4.1, and the copy took its pins again on 22 November 2026,
+closing the last four alerts.
 
 ### Other repositories on yocto-patches
 
@@ -510,15 +512,27 @@ The repository also produces SLSA source provenance, set up with the SLSA
 source tool: rulesets keep `main` and every tag from being deleted or
 rewritten, and a workflow writes signed source provenance and a
 verification summary to git notes on each push. Every source control
-except two-party review is met, so the repository is eligible for SLSA
-Source Level 3; it verifies at Level 1 until its policy,
-slsa-framework/source-policies#27, is merged; it is still open. The
-`v0.2.0` tag has no tag provenance: the workflow's pinned release ran
-sourcetool v0.6.2, which fails on tags. The workflow is now pinned to
-slsa-framework/actions v0.2.0, with sourcetool v0.7.2, and Dependabot
-follows its releases. The workflow succeeded on the `v0.3.0` and `v0.4.0`
-tag pushes; that their tags verify is still to be checked with
-sourcetool.
+except two-party review is met, and the repository's policy,
+slsa-framework/source-policies#27, merged on 22 November 2026 with a
+Level 3 target for `main`. main still verifies at Level 1, for two
+reasons found that day:
+
+- Provenance is written only for the tip of each push. Rebase-merging a
+  pull request of several commits (#18, #19) left the others without it
+  and broke the chain each commit's provenance continues. Pull requests are
+  now merged with a merge commit (rebase merging is off, and the workflow
+  passes `allow-merge-commits`), and the chain is whole again from #25.
+- Every level from 1 up needs the `SLSA_SOURCE_SCS_VSA` control, which
+  sourcetool v0.7.3 and earlier set only from a verification summary the
+  commit already has, and on a push it has none yet. So no commit could
+  rise above the Level 1 fallback. slsa-framework/source-tool#479 fixes
+  this; it is not yet in a release.
+
+The `v0.2.0` tag has no tag provenance: the workflow's pinned release ran
+sourcetool v0.6.2, which fails on tags. The workflow is now on
+slsa-framework/actions v0.2.1, with sourcetool v0.7.3, and Dependabot
+follows its releases. sourcetool verifies the `v0.3.0` and `v0.4.0` tags,
+which carry tag provenance, and all three tags, at Level 1.
 
 bodnuti.dev's front page replaces the placeholder: what bodnuti checks, the
 watched lists, links to the reports, source, releases and security policy,
@@ -562,10 +576,10 @@ window held about eight sashiko reviews.
 - Watch for the cases only unit-tested so far: a BitBake series rescued by
   its staging branches, a late member reopening an unthreaded series, and a
   CodeQL alert on a line a checked series wrote.
-- Check with sourcetool that the `v0.3.0` and `v0.4.0` tags carry tag
-  provenance. Once slsa-framework/source-policies#27 merges, check that
-  main verifies at SLSA Source Level 3, and make the next release the
-  first whose tag verifies at that level.
+- Once sourcetool releases slsa-framework/source-tool#479 (v0.7.4 or
+  later), set it as the workflow's `version`, check that main verifies at
+  SLSA Source Level 3, and make the next release the first whose tag
+  verifies at that level.
 - Watch the new metadata checks (long lines, LIC_FILES_CHKSUM without
   `License-Update:`, CVE_CHECK_IGNORE) on the live reports for false
   alarms before 0.5.0.
@@ -574,8 +588,7 @@ window held about eight sashiko reviews.
 - Sort the 37 extra findings into real issues and false alarms.
 - Refresh `django/<application>/requirements.txt` from the applications'
   master branches when their pins change, so Django's checks run against
-  current dependencies; for layerindex-web this closes the two soupsieve
-  alerts once its fix lands.
+  current dependencies.
 - Build and score bodnuti's single-call LLM layer (phase 3) against the six
   defects the deterministic checks miss.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
