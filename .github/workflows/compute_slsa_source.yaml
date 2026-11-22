@@ -14,7 +14,7 @@ jobs:
       id-token: write # meeded to mint yokens for signing
     # v0.2.0 or later: v0.1.0's sourcetool v0.6.2 fails on tag pushes
     # ("evaluating the tag provenance metadata: nil statement").
-    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@3efdf6f2112b1170cb369442620788752df11bca # v0.2.0
+    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@4b2114c4378d0f2bfb0ae99dbb6958bfc44d3a98 # v0.2.1
     # Pull requests land as merge commits: a rebase merge pushes several
     # commits at once, only the tip gets provenance, and the next commit's
     # provenance chain breaks, which caps main below SLSA Source Level 3.
