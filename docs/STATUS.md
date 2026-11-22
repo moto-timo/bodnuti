@@ -526,12 +526,12 @@ reasons found that day:
   sourcetool v0.7.3 and earlier set only from a verification summary the
   commit already has, and on a push it has none yet. So no commit could
   rise above the Level 1 fallback. slsa-framework/source-tool#479 fixes
-  this; it is not yet in a release.
+  this, released in sourcetool v0.7.4 the same day.
 
 The `v0.2.0` tag has no tag provenance: the workflow's pinned release ran
 sourcetool v0.6.2, which fails on tags. The workflow is now on
-slsa-framework/actions v0.2.1, with sourcetool v0.7.3, and Dependabot
-follows its releases. sourcetool verifies the `v0.3.0` and `v0.4.0` tags,
+slsa-framework/actions v0.2.1, set to run sourcetool v0.7.4, and
+Dependabot follows the actions' releases. sourcetool verifies the `v0.3.0` and `v0.4.0` tags,
 which carry tag provenance, and all three tags, at Level 1.
 
 bodnuti.dev's front page replaces the placeholder: what bodnuti checks, the
@@ -576,10 +576,10 @@ window held about eight sashiko reviews.
 - Watch for the cases only unit-tested so far: a BitBake series rescued by
   its staging branches, a late member reopening an unthreaded series, and a
   CodeQL alert on a line a checked series wrote.
-- Once sourcetool releases slsa-framework/source-tool#479 (v0.7.4 or
-  later), set it as the workflow's `version`, check that main verifies at
-  SLSA Source Level 3, and make the next release the first whose tag
-  verifies at that level.
+- Check that main verifies at SLSA Source Level 3 with sourcetool
+  v0.7.4, and make the next release the first whose tag verifies at that
+  level. Drop the workflow's `version` once slsa-framework/actions
+  defaults to v0.7.4 or later.
 - Watch the new metadata checks (long lines, LIC_FILES_CHKSUM without
   `License-Update:`, CVE_CHECK_IGNORE) on the live reports for false
   alarms before 0.5.0.
