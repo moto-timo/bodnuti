@@ -1,7 +1,11 @@
 # bodnuti
 
-Automated review of Yocto Project and OpenEmbedded patches. Phase 1 runs the
-checks OpenEmbedded already has, and reports only what a patch series adds:
+Automated review of Yocto Project and OpenEmbedded patches. bodnuti runs the
+checks OpenEmbedded already has, and reports only what a patch series adds.
+It also watches the OpenEmbedded and Yocto Project lists and publishes a
+report for each series at <https://bodnuti.dev/reports/>.
+
+For layers and BitBake:
 
 - **patchtest** (OE-Core): commit message, shortlog, Signed-off-by, and the
   `Upstream-Status`, `Signed-off-by` and `CVE:` headers of added `.patch` files;
@@ -17,6 +21,17 @@ checks OpenEmbedded already has, and reports only what a patch series adds:
   reports them;
 - **documentation** (yocto-docs, BitBake manual): the Sphinx build,
   sphinx-lint, and yocto-docs' check-glossaries and check-confusables.
+
+For other repositories on the lists, such as the Django applications
+layerindex-web and error-report-web:
+
+- **cppcheck**: its `error` and `warning` findings in the C files a series
+  touches;
+- **ruff** and **djLint**: the Python files and Django templates a series
+  touches;
+- **Django's checks**: `manage.py check` and `makemigrations --check`, in a
+  venv with the application's dependencies;
+- **trivy**: known vulnerabilities in the application's dependency pins.
 
 Each checker runs on the tree before and after the series, so existing
 problems are not blamed on the author. See [`designs/DESIGN.md`](designs/DESIGN.md)
@@ -38,11 +53,16 @@ bodnuti check --repo <layer checkout> <Message-ID | lore URL | mbox files...>
 
 Exit status: 0 clean, 1 findings, 2 a checker could not run or bad input.
 
+`bodnuti poll` and `bodnuti publish` are the watcher's commands; see
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ### With pip
 
-`pyproject.toml` packages the binary as a Python wheel with
-[maturin](https://www.maturin.rs/). The wheel pulls in oelint-adv, b4 and
-patchtest's requirements; the `docs` extra adds Sphinx and sphinx-lint.
+Each [release](https://github.com/moto-timo/bodnuti/releases) has Linux
+wheels for x86_64 and aarch64. The wheel carries the binary and pulls in
+oelint-adv, b4 and patchtest's requirements; the `docs` extra adds Sphinx
+and sphinx-lint. Install one from the release into a venv, or build it with
+[maturin](https://www.maturin.rs/):
 
 ```
 pip install maturin
@@ -59,8 +79,10 @@ it if pip tries to compile pygit2.
 
 ### In a container
 
-The image carries oelint-adv, b4, shellcheck, patchtest's Python
-requirements, and Sphinx with the extensions yocto-docs uses. Mount a clone
+Each release's image is `ghcr.io/moto-timo/bodnuti:<version>`, for amd64 and
+arm64; `:main` follows the main branch. The image carries oelint-adv, b4,
+shellcheck, cppcheck, ruff, djLint, trivy, patchtest's Python requirements,
+and Sphinx with the extensions yocto-docs uses. Mount a clone
 of the layer that bodnuti may write worktrees into, not your working
 checkout. It must not be a `git clone --shared` of a host repository: its
 object alternates point at host paths the container cannot see. For layers
@@ -68,12 +90,12 @@ other than openembedded-core, also mount an openembedded-core checkout for
 patchtest and set `BODNUTI_OECORE` to it:
 
 ```
-docker build -t bodnuti -f Containerfile .
 docker run --rm \
     -v ~/cache/openembedded-core:/repo \
-    bodnuti check --repo /repo '<20261023192932.159420-1-peter.marko@siemens.com>'
+    ghcr.io/moto-timo/bodnuti:0.4.0 check --repo /repo '<20261023192932.159420-1-peter.marko@siemens.com>'
 ```
 
+`docker build -t bodnuti -f Containerfile .` builds the image from source.
 For a server deployment with rootless Podman, a read-only container and no
 network during checks, see [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
@@ -86,6 +108,16 @@ bodnuti at it with `--python`, `--oelint` and `--b4` (or `BODNUTI_PYTHON`,
 `BODNUTI_OELINT`, `BODNUTI_B4`). shellcheck runs from its container image by default; set
 `--shellcheck shellcheck` to use a local binary.
 
+### In Claude Code
+
+The bodnuti plugin checks a series from Claude Code, in the container
+image; see [`plugins/bodnuti/README.md`](plugins/bodnuti/README.md):
+
+```
+/plugin marketplace add moto-timo/bodnuti
+/plugin install bodnuti@bodnuti
+```
+
 ## Verifying a release
 
 Each release's wheels and container image carry SLSA build provenance and
@@ -95,12 +127,12 @@ crates in the bodnuti binary; the image's, one per platform, its Debian,
 Python and Go packages. The SBOMs are also attached to the GitHub release.
 
 ```
-gh attestation verify bodnuti-0.2.0-py3-none-manylinux_2_28_aarch64.whl --repo moto-timo/bodnuti
-gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bodnuti
-cosign verify ghcr.io/moto-timo/bodnuti:0.2.0 \
+gh attestation verify bodnuti-0.4.0-py3-none-manylinux_2_28_aarch64.whl --repo moto-timo/bodnuti
+gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.4.0 --repo moto-timo/bodnuti
+cosign verify ghcr.io/moto-timo/bodnuti:0.4.0 \
   --certificate-identity-regexp '^https://github.com/moto-timo/bodnuti/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.2.0 --repo moto-timo/bodnuti \
+gh attestation verify oci://ghcr.io/moto-timo/bodnuti:0.4.0 --repo moto-timo/bodnuti \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
@@ -118,10 +150,11 @@ cosign verify ghcr.io/moto-timo/bodnuti:main \
 The source has SLSA source provenance too: each push to `main` and each
 tag gets a signed source provenance attestation and verification summary,
 kept in git notes, which the
-[SLSA source tool](https://github.com/slsa-framework/source-tool) checks:
+[SLSA source tool](https://github.com/slsa-framework/source-tool) checks
+(tags from `v0.3.0` on also carry tag provenance):
 
 ```
-sourcetool verify moto-timo/bodnuti --tag v0.2.0
+sourcetool verify moto-timo/bodnuti --tag v0.4.0
 ```
 
 ## License
