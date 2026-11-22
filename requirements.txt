@@ -2,7 +2,7 @@
 # patchtest's mbox and patch suites import, and the Sphinx packages
 # yocto-docs' Pipfile lists, plus sphinx-lint, and ruff and djLint for
 # Django applications.
-oelint-adv==9.12.1
+oelint-adv==9.14.0
 b4==0.16.0
 pyparsing==3.3.3
 unidiff==1.0.1
@@ -12,7 +12,7 @@ Sphinx==9.2.0
 sphinx-rtd-theme==3.1.0
 sphinx-copybutton==0.5.2
 sphinxcontrib-svg2pdfconverter==2.1.0
-PyYAML==6.0.3
+PyYAML==6.0.4
 sphinx-lint==1.0.2
-ruff==0.17.5
-djlint==1.49.10
+ruff==0.17.6
+djlint==1.54.0
