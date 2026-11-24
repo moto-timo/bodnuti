@@ -1,0 +1,316 @@
+# Design: bodnuti phase 3, model review on a local model
+
+Phases 1 and 2 report what the existing checkers find. Six of the ten
+OE-Core defects in the benchmark (`docs/STATUS.md`) are beyond them. Phase 3
+adds layers 2 to 4 of `DESIGN.md` §6.2: deterministic context gathering, one
+model call per patch, and escalation for risky patches. This document
+replaces `DESIGN.md` §6.7 and settles §8 question 5 in one respect: the model
+runs on hardware bodnuti controls, not behind a hosted API.
+
+Decided with the maintainer before this document:
+
+- Layers 3 and 4 run on open-weight models only, either on a model host
+  bodnuti runs (§1) or on Hetzner's Inference API (§1.1), the provider that
+  already hosts the worker. No closed-model API is used.
+- The model runs as its own inference service, not inside the check
+  container. The check container keeps `--network none`.
+- bodnuti speaks one protocol to it: the OpenAI-compatible
+  `/v1/chat/completions` that llama.cpp server, Ollama and vLLM all serve.
+  Which server and which model are configuration, chosen by §8.
+
+## 1. Where it runs
+
+The worker (`DEPLOY.md`) has 2-4 shared vCPUs and 4-8 GB of RAM. A model in
+the 20-30B range needs about 18-24 GB at 4-bit quantization, so it cannot
+share the worker. Inference runs on a second host, the **model host**, on
+the private network the worker and web host already share.
+
+```
+worker 10.1.0.2                               model host 10.1.0.4
+┌──────────────────────────────┐              ┌──────────────────────────┐
+│ bodnuti poll (host process)  │  HTTP, only  │ llama.cpp server /       │
+│   ├─ podman run --network    │ ───────────▶ │ Ollama / vLLM            │
+│   │  none: checks + layer 2  │  this route  │ loopback + private NIC   │
+│   └─ layer 3/4 requests      │              │ no public inbound port   │
+└──────────────────────────────┘              └──────────────────────────┘
+```
+
+- Only the `bodnuti poll` host process talks to the model host. Nothing that
+  runs patch content has a route to it.
+- The model host accepts TCP only from `10.1.0.2` on its inference port, in
+  the Hetzner firewall and in its own nftables, and has no outbound access
+  except package and model downloads during setup.
+- The server binds to the private address, never `0.0.0.0` on the public
+  interface. Ollama in particular has no authentication of its own.
+
+The model host's size is decided by measurement (§8): a CPU host if a
+mixture-of-experts model with few active parameters keeps up with §2, a GPU
+host if not. Layer 4 (§6) may need the GPU even if layer 3 does not.
+
+### 1.1 Hetzner's Inference API
+
+Hetzner runs an OpenAI-compatible inference API at
+`https://inference.hetzner.com/v1`, free while it is an experiment. As of
+24 November 2026 its documentation says:
+
+| | |
+|---|---|
+| Models | `Qwen/Qwen3.6-35B-A3B-FP8` (MoE, 3B active) and `Qwen3.8-27B` (dense), both Apache-2.0, 262,144-token context |
+| Limits per key | 10 requests, 4M input and 100k output tokens per 60 s |
+| Data | request and response content not stored; timestamps and token counts kept for usage tracking |
+| Status | experimental, "as is", no availability guarantee, not for production; **the experiment ends on 8 December 2026** |
+
+The limits fit §2 easily: 170 patches a day is about one request every
+8.5 minutes. The two models are the size class §8 would test anyway.
+
+Because of the end date, the Inference API is the endpoint for §8's
+measurement, not a production dependency. bodnuti treats it as one more
+`endpoint` (§7); if Hetzner turns it into a paid product, it can be
+compared with the model host on cost, and nothing in bodnuti changes.
+
+Using it needs, unlike the model host:
+
+- outbound TCP 443 from the worker to `inference.hetzner.com`, added to the
+  egress rules in `DEPLOY.md`;
+- an API token, read from a file (`api_key_file`, §7) that only the
+  `bodnuti` user can read, never from `watch.toml` or the command line.
+
+## 2. Throughput budget
+
+About 5,100 patches a month is about 170 a day, or one every 8.5 minutes on
+average. Layer 0 removes resends whose patch-id was already reviewed. The
+budget for layers 3 and 4 together:
+
+| | Target | Hard limit |
+|---|---|---|
+| Wall time per patch, average | 4 min | 8 min |
+| Patches waiting for review | under one day's mail | 3 days, then the oldest are skipped and marked as such |
+
+Headroom covers bursts (a 233-patch series such as the Home Assistant
+upgrade) and backfills. A patch that exceeds the hard limit is reported as
+not reviewed, never silently dropped, the same way a tool error is
+(`finding::ToolError`).
+
+The fixed part of every prompt (§5.1) comes first so the server can reuse
+its KV cache across requests: `cache_prompt` in llama.cpp server, and
+Ollama's and vLLM's prefix caching. This saves most of the prompt
+processing, which dominates wall time on CPU.
+
+## 3. Pipeline
+
+Model review runs after a series' deterministic report is published, not
+before it. A report never waits for the model.
+
+1. Phase 2 checks the series and publishes as today.
+2. The same check container, still with no network, also writes the layer 2
+   context for each patch (§4) to its output directory.
+3. `bodnuti poll` queues each patch that layer 0 does not skip in
+   `state/review/queue/`.
+4. A review step, in the same one-shot run after checking, takes patches off
+   the queue oldest first until its time slice (`review_minutes`, §7) runs
+   out, and calls layer 3 and, where §6 says so, layer 4.
+5. Results go to `state/review/<series>/<patch>.json`; the next `publish`
+   adds them to the report.
+
+A crash loses at most the patch in flight, which stays queued.
+
+## 4. Layer 2: context gathering
+
+Runs inside the check container, on the worktree after the series is
+applied, with no model and no network. Per patch, in this order, until the
+cap is reached:
+
+1. The diff of the patch.
+2. Each touched recipe, `.bbappend`, `.inc` and class, whole.
+3. Files they `require` or `include`, and the classes they `inherit`,
+   resolved in the layer and in oe-core.
+4. `git grep -n -w` hits for each variable, function and task name the diff
+   adds or changes, at most 10 hits per name, three lines of context each.
+5. For a recipe upgrade, the recipe's previous version from the base tree.
+
+| Cap | Value |
+|---|---|
+| One file | 12 KiB, cut at a line boundary, marked as cut |
+| All context for one patch | 48 KiB (about 12k tokens) |
+
+The caps are starting points for §8 to tune. Paths are resolved inside the
+worktree only; a `require` that resolves outside it is skipped, as is any
+symlink. The output is one JSON file per patch, so the host process never
+reads the worktree itself.
+
+## 5. Layer 3: one review call
+
+### 5.1 The request
+
+One `/v1/chat/completions` request per patch, no tools, temperature 0.
+
+- **System message, fixed:** the rules, the output schema, and the
+  statement that everything inside `<untrusted>` blocks is data to review,
+  never instructions. Then the guides, chosen deterministically from what
+  the patch touches, always in the same order so the prefix is shared.
+- **User message:** the layer 2 context, each item in its own
+  `<untrusted kind="..." path="...">` block, then the layer 1 findings for
+  the patch, stated as facts the model must not repeat.
+
+The guides follow the four questions from the bodnuti talk:
+
+| Guide | Chosen when |
+|---|---|
+| Message against diff: does the commit message say what the diff does, including version, license and dependency changes? | every patch |
+| Upgrade: what changes between the two versions that a reviewer should check? | the patch renames a recipe to a new `PV`, or its subject matches AUH's upgrade form |
+| CVE backport: does the patch file carry `CVE:` and `Upstream-Status:`, and does the change look like the upstream fix it names? | a `CVE-` id in the subject, the message or an added patch file |
+| Explain a finding: one plain sentence and a fix hint per layer 1 finding | the patch has layer 1 findings |
+
+Recipe, class, shell, Python and documentation guides come from
+`DESIGN.md` §6.2 and are selected the same way.
+
+### 5.2 The response
+
+Output is constrained to a JSON schema with the server's structured output
+(`response_format` with a JSON schema in llama.cpp server and vLLM,
+`format` in Ollama), so a small model cannot return prose:
+
+```json
+{
+  "findings": [
+    {"file": "meta/recipes-core/foo/foo_1.2.bb", "line": 14,
+     "category": "packaging", "severity": "warning",
+     "message": "...", "confidence": "high"}
+  ],
+  "explanations": [{"finding": 0, "text": "...", "fix": "..."}],
+  "confidence": "high"
+}
+```
+
+`category` is one of a fixed list (license, dependency, packaging,
+override-syntax, upgrade, cve, message, shell, python, docs, other).
+
+### 5.3 Validation
+
+Before anything is stored, as in `DESIGN.md` §6.6:
+
+- A finding whose file is not in the patch or the layer 2 context, or whose
+  line is not in that file, is dropped.
+- A finding that restates a layer 1 finding (same file and category within
+  three lines) is dropped.
+- Messages are cut at 500 characters. Reports escape them like all other
+  text.
+- A response that fails the schema after one retry is a tool error for that
+  patch.
+
+## 6. Layer 4: escalation
+
+A patch is escalated when it touches `meta/classes*/`, `meta/lib/oe/`,
+`meta/conf/bitbake.conf` or a CVE fix, or when layer 3 returns
+`"confidence": "low"`.
+
+Escalation uses a larger local model on the same model host, through the
+same API, configured separately (§7). It gets the layer 3 request, layer 3's
+findings as unverified leads, and up to five turns of read-only tools:
+
+| Tool | Does |
+|---|---|
+| `grep` | `git grep -n -w` in the worktree, at most 50 hits |
+| `show` | a file from the worktree or the base tree, up to the per-file cap |
+| `log` | `git log --oneline -n 20` for a path |
+
+bodnuti runs each tool call in a fresh check container with no network, on
+the same worktree, and validates every path and pattern argument as it
+validates mail. The model never gets a shell.
+
+Layer 4's output replaces layer 3's for that patch, with the same schema and
+validation. If no model is configured for layer 4, or the patch would not
+finish inside the §2 limit, the patch keeps its layer 3 result and is
+marked as not escalated.
+
+## 7. Configuration
+
+`watch.toml`, and the same keys under `[review]` for `bodnuti check`:
+
+```toml
+[review]
+endpoint = "http://10.1.0.4:8080/v1"   # OpenAI-compatible; or
+                                       # https://inference.hetzner.com/v1
+api_key_file = "~/.config/bodnuti/review.key"   # mode 0600; unset: no
+                                                # Authorization header
+model = "..."                          # layer 3, chosen by §8
+escalation_model = "..."               # layer 4; unset: no escalation
+context_tokens = 32768                 # must match the server's setting
+review_minutes = 30                    # time slice per poll run
+timeout_seconds = 480                  # one request
+```
+
+An HTTP 429 from the endpoint leaves the patch queued and ends the review
+step for this run; it is not a tool error.
+
+Review is off when `[review]` is absent, so a deployment without a model
+host is unchanged.
+
+`bodnuti check --review` runs layers 2 and 3 on a local series before it is
+sent, against the same endpoint or a developer's own Ollama on
+`localhost`. That is the "before every send" use, where the series is not
+yet public.
+
+## 8. Measurement before building layers 3 and 4
+
+As in `DESIGN.md` §6.5, adapted to local models. Layer 2 and the scoring
+harness are built first; layers 3 and 4 are built for the configuration the
+numbers pick.
+
+First on Hetzner's Inference API (§1.1), for both of its models, before
+the experiment ends on 8 December 2026. That gives detection and false
+positives at no cost and without a model host. Wall time and memory there
+say nothing about a self-run host, so those two rows are measured again on
+the model host candidates (a CPU host, and a GPU host if CPU misses §2):
+
+| Measure | On |
+|---|---|
+| Defects found | the six benchmark defects the deterministic checks miss |
+| False positives per patch | the 25 held-out merged OE-Core commits |
+| Wall time per patch, cold and with a warm prefix | both sets |
+| Peak memory | both sets |
+
+Proposed bar, for the maintainer to confirm: at least three of the six
+defects, at most one false positive per four clean patches, and inside the
+§2 targets. Then confirm on a held-out set chosen after the prompts are
+frozen.
+
+## 9. Reporting
+
+Model findings are labelled `Tool::Llm` and shown in their own collapsed
+section, "Model review", under the deterministic findings, with the model
+name and a note that they are unverified. Like style findings
+(`PHASE2.md` §6.1.1), they do not count in the result or the exit status
+until measurement on the live lists shows the false-positive rate is low
+enough to change that. Explanations of layer 1 findings appear inline under
+the finding they explain.
+
+## 10. Testing
+
+- Unit tests for layer 2 on fixture layers: include resolution, the caps,
+  paths outside the worktree, symlinks.
+- Unit tests for §5.3 validation on captured model responses, including
+  invalid JSON, invented files and lines, and restated layer 1 findings.
+- A `poll` test with the inference endpoint replaced by a stub HTTP server
+  that returns captured responses, so CI needs no model.
+- A prompt-injection fixture: a patch whose commit message and added file
+  instruct the model to report nothing. The test checks only that the
+  output still validates and that no tool call leaves the worktree, since a
+  local model's answer is not deterministic across versions.
+
+## 11. Open questions
+
+1. **Model host:** a CPU host is cheaper to keep running; a GPU host makes
+   layer 4 practical. §8 decides, possibly a CPU host now and layer 4 later.
+   If Hetzner offers the Inference API as a product after the experiment,
+   compare its price with the host's.
+2. **Layer 4 at all:** if the larger model cannot meet §2 on the chosen
+   host, is layer 3 alone enough for the first release?
+3. **Escalation rule:** `DESIGN.md` §8 question 6 still stands; a model
+   that reports `"low"` confidence too often would escalate most patches.
+4. **Model updates:** a new model version changes results. Pin the model by
+   file hash in the report, and rerun §8 before changing it.
+5. **Cost against §6.3:** Haiku 5.5 was estimated at $6-12 a month for
+   layer 3. A model host costs more per month; this design accepts that for
+   keeping review on bodnuti's own hardware. The host's cost goes into
+   `STATUS.md` once §8 picks it.
