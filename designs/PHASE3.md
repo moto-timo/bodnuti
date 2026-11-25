@@ -215,6 +215,9 @@ Before anything is stored, as in `DESIGN.md` §6.6:
   line is not in that file, is dropped.
 - A finding that restates a layer 1 finding (same file within three
   lines; layer 1 findings carry no category to compare) is dropped.
+- A finding the model rates below `min_confidence` (§7, default `high`)
+  is dropped. In §8's measurement this kept false findings under the bar
+  while losing at most one defect.
 - Messages are cut at 500 characters. Reports escape them like all other
   text.
 - A response that fails the schema after one retry is a tool error for that
@@ -266,6 +269,7 @@ thinking = false                       # enable_thinking; unset: the
                                        # model's default
 reasoning_effort = "none"              # none, low, ...: FriendliAI's GLM
                                        # honours this, not enable_thinking
+min_confidence = "high"                # drop model findings rated lower
 ```
 
 `guides`, `thinking` and `reasoning_effort` were added while building
@@ -332,7 +336,59 @@ the finding they explain.
   output still validates and that no tool call leaves the worktree, since a
   local model's answer is not deterministic across versions.
 
-## 11. Open questions
+## 11. Live verification against the lists
+
+Benchmarks age, and every prompt change risks tuning to them. The lists
+answer each review bodnuti makes, later and for free: a patch is merged
+unchanged, or revised, or merged and fixed afterwards. The watcher already
+records all three (`track` links revisions, `applied` matches patch-ids,
+§5.7 of `PHASE2.md`). This section scores model review against them,
+continuously and on patches no prompt was tuned on.
+
+### 11.1 Outcomes
+
+For each reviewed patch, once the list has decided:
+
+| Outcome | Seen by | What a model finding on the patch counts as |
+|---|---|---|
+| Revised: a later revision changed code in the patch | `track` revision link, interdiff of the two versions | **confirmed** if its file and line fall in a hunk the revision changed (±3 lines); otherwise unconfirmed |
+| Merged unchanged: the same patch-id landed | `applied` | **unconfirmed** (the list saw no problem); not proof of a false finding |
+| Merged, later fixed: a commit with `Fixes:` names the landed commit | `applied` plus a `Fixes:` scan of new commits | **confirmed late** if the finding is in a file the fix changed |
+| Undecided after 60 days | | dropped from the scores |
+
+The match is deterministic: file and line against the interdiff or the
+fix, no model as judge. It undercounts (a right finding on a line the
+author fixed elsewhere is missed) and overcounts (a revision that touched
+the line for another reason), so it is a trend measure, not a verdict.
+A sample is read by a person each month.
+
+### 11.2 Scores
+
+Per month and per model configuration (model, prompt version,
+`min_confidence`):
+
+- **Hit rate of findings:** confirmed findings over all findings on
+  decided patches; the live counterpart of false findings per patch.
+- **Catch rate of revisions:** revised patches with at least one
+  confirmed finding, over revised patches whose revision changed code;
+  the live counterpart of defects found.
+- **Noise on accepted patches:** findings per patch merged unchanged.
+
+They are kept in `state/review/outcomes/<yyyy-mm>.json` and shown on a
+page of the site next to the cost, so a change of model or prompt shows
+up as a step in the series. The configuration is recorded with each
+review (§5), so months can mix configurations.
+
+### 11.3 What it needs
+
+- Review on in the watcher (`[review]`), so patches are reviewed when
+  they arrive.
+- The interdiff of a patch and its revision: both are already fetched;
+  apply both to the same base in a worktree, as the checks do.
+- A `Fixes:` scan of commits `applied` already reads.
+- No model calls: the cost is git work on the worker.
+
+## 12. Open questions
 
 1. **Model host:** a CPU host is cheaper to keep running; a GPU host makes
    layer 4 practical. §8 decides, possibly a CPU host now and layer 4 later.
