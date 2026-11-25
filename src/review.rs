@@ -46,6 +46,11 @@ pub struct ReviewConfig {
     /// reasoning. Unset: the model's default.
     #[serde(default)]
     pub thinking: Option<bool>,
+    /// `reasoning_effort` (`none`, `low`, `high`), which FriendliAI's GLM
+    /// models honour where they ignore `enable_thinking`. Unset: the
+    /// model's default.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 impl ReviewConfig {
@@ -61,6 +66,7 @@ impl ReviewConfig {
             timeout_seconds: default_timeout(),
             guides: None,
             thinking: None,
+            reasoning_effort: None,
         }
     }
 }
@@ -272,6 +278,7 @@ pub struct Client {
     key: Option<String>,
     pub model: String,
     thinking: Option<bool>,
+    reasoning_effort: Option<String>,
     /// The server's context; a larger request is logged as at risk.
     context_tokens: u32,
     agent: ureq::Agent,
@@ -280,18 +287,25 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: &ReviewConfig) -> Result<Client> {
+        if let Some(effort) = &config.reasoning_effort
+            && !["none", "minimal", "low", "medium", "high"].contains(&effort.as_str())
+        {
+            bail!("reasoning_effort {effort:?} is not none, minimal, low, medium or high");
+        }
         let key = config
             .api_key_file
             .as_deref()
             .map(|p| read_key(&crate::watch::expand(p)))
             .transpose()?;
-        Ok(Client::with(
+        let mut client = Client::with(
             &config.endpoint,
             key,
             &config.model,
             config.thinking,
             Duration::from_secs(config.timeout_seconds),
-        ))
+        );
+        client.reasoning_effort = config.reasoning_effort.clone();
+        Ok(client)
     }
 
     fn with(
@@ -311,6 +325,7 @@ impl Client {
             key,
             model: model.into(),
             thinking,
+            reasoning_effort: None,
             context_tokens: default_context_tokens(),
             agent,
             format: Cell::new(Format::JsonSchema),
@@ -334,6 +349,9 @@ impl Client {
         }
         if let Some(on) = self.thinking {
             body["chat_template_kwargs"] = json!({"enable_thinking": on});
+        }
+        if let Some(effort) = &self.reasoning_effort {
+            body["reasoning_effort"] = json!(effort);
         }
         body
     }
@@ -360,8 +378,7 @@ impl Client {
                 .map_err(|e| CallError::Failed(format!("reading the answer: {e}")))?;
             match status {
                 200 => {
-                    return reply(&text)
-                        .ok_or_else(|| CallError::Failed("no message in the answer".into()));
+                    return reply(&text).map_err(CallError::Failed);
                 }
                 429 => return Err(CallError::RateLimited),
                 400 if self.format.get() != Format::None => {
@@ -378,13 +395,23 @@ impl Client {
     }
 }
 
-fn reply(text: &str) -> Option<Reply> {
-    let data: Value = serde_json::from_str(text).ok()?;
-    let content = data["choices"][0]["message"]["content"]
-        .as_str()?
-        .to_string();
-    Some(Reply {
-        content,
+fn reply(text: &str) -> Result<Reply, String> {
+    let data: Value =
+        serde_json::from_str(text).map_err(|_| "the answer is not JSON".to_string())?;
+    let choice = &data["choices"][0];
+    let Some(content) = choice["message"]["content"]
+        .as_str()
+        .filter(|c| !c.is_empty())
+    else {
+        return Err(if choice["finish_reason"] == "length" {
+            "the answer was cut at max_tokens before any content; try a lower reasoning_effort"
+                .into()
+        } else {
+            "no message in the answer".into()
+        });
+    };
+    Ok(Reply {
+        content: content.to_string(),
         prompt_tokens: data["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
         completion_tokens: data["usage"]["completion_tokens"].as_u64().unwrap_or(0),
     })
@@ -999,6 +1026,7 @@ mod tests {
 
         let request: Value = serde_json::from_str(&seen.lock().unwrap()[0]).unwrap();
         assert_eq!(request["temperature"], 0);
+        assert!(request.get("reasoning_effort").is_none());
         assert_eq!(request["response_format"]["type"], "json_schema");
         let user = request["messages"][1]["content"].as_str().unwrap();
         assert!(user.contains("<untrusted kind=\"class\" path=\"meta/classes-recipe/x.bbclass\">"));
@@ -1023,6 +1051,27 @@ mod tests {
         assert_eq!(kind(0), "json_schema");
         assert_eq!(kind(1), "json_object");
         assert_eq!(kind(2), "json_object");
+    }
+
+    #[test]
+    fn an_answer_cut_off_while_reasoning_says_so() {
+        let cut = json!({"choices": [{"message": {"content": null}, "finish_reason": "length"}]});
+        let (url, _) = stub(vec![(200, cut.to_string()), (200, cut.to_string())]);
+        let r = review(&client(&url), &ctx(), &[], None).unwrap();
+        let Outcome::NotReviewed { reason } = r.outcome else {
+            panic!("{:?}", r.outcome);
+        };
+        assert!(reason.contains("reasoning_effort"), "{reason}");
+    }
+
+    #[test]
+    fn sends_the_reasoning_effort() {
+        let (url, seen) = stub(vec![ok(&answer(vec![]))]);
+        let mut c = client(&url);
+        c.reasoning_effort = Some("none".into());
+        review(&c, &ctx(), &[], None).unwrap();
+        let request: Value = serde_json::from_str(&seen.lock().unwrap()[0]).unwrap();
+        assert_eq!(request["reasoning_effort"], "none");
     }
 
     #[test]

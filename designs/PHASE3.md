@@ -264,11 +264,15 @@ guides = "..."                         # sashiko's yoctoproject prompts;
                                        # unset: the fixed rules only
 thinking = false                       # enable_thinking; unset: the
                                        # model's default
+reasoning_effort = "none"              # none, low, ...: FriendliAI's GLM
+                                       # honours this, not enable_thinking
 ```
 
-`guides` and `thinking` were added while building layer 3: the guides are
-part of the configuration §8 measured, and reasoning is one of its
-settings.
+`guides`, `thinking` and `reasoning_effort` were added while building
+layer 3: the guides are part of the configuration §8 measured, and
+reasoning is one of its settings. GLM-5.3-Flash ignores `enable_thinking`
+and, at its default effort, can spend all of `max_tokens` reasoning and
+return no answer; `reasoning_effort` limits it.
 
 An HTTP 429 from the endpoint leaves the patch queued and ends the review
 step for this run; it is not a tool error.
