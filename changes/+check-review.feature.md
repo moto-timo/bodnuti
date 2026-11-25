@@ -1,0 +1,1 @@
+**check:** `bodnuti check --review` asks an open-weight model to review each patch of a series before it is sent, with the `[review]` settings of watch.toml or a local endpoint given by `--review-endpoint` and `--review-model`; its findings are shown as unverified and do not change the exit status.

@@ -1366,6 +1366,7 @@ mod tests {
             excerpts: Default::default(),
             staged: None,
             context: Vec::new(),
+            review: Vec::new(),
         }
     }
 

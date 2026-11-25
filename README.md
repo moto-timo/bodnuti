@@ -53,6 +53,36 @@ bodnuti check --repo <layer checkout> <Message-ID | lore URL | mbox files...>
 
 Exit status: 0 clean, 1 findings, 2 a checker could not run or bad input.
 
+### Model review before sending
+
+`--review` also asks an open-weight model to review each patch
+([`designs/PHASE3.md`](designs/PHASE3.md)): bodnuti gathers the patch's
+context (the files it touches, what they require and inherit, where the
+names it changes are used) and sends one request per patch to an
+OpenAI-compatible endpoint. Its findings are listed under "model review",
+marked unverified, and never change the exit status.
+
+The settings are the `[review]` table of `--review-config`, by default
+`~/.config/bodnuti/watch.toml`:
+
+```toml
+[review]
+endpoint = "https://api.friendli.ai/serverless/v1"
+api_key_file = "~/.config/bodnuti/review.key"   # mode 600
+model = "zai-org/GLM-5.3-Flash"
+guides = "~/sashiko/projects/yoctoproject/prompts"   # optional
+```
+
+or a model of your own, which sends no key:
+
+```
+bodnuti check --review --review-endpoint http://localhost:11434/v1 \
+    --review-model qwen3:30b-a3b --repo <layer> <mbox files>
+```
+
+A series not yet sent is private: `--review` sends it, with its context,
+to the endpoint, so choose one whose data terms you accept.
+
 `bodnuti poll` and `bodnuti publish` are the watcher's commands; see
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
 

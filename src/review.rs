@@ -48,6 +48,23 @@ pub struct ReviewConfig {
     pub thinking: Option<bool>,
 }
 
+impl ReviewConfig {
+    /// An endpoint given on the command line, with no key.
+    pub fn local(endpoint: &str) -> ReviewConfig {
+        ReviewConfig {
+            endpoint: endpoint.into(),
+            api_key_file: None,
+            model: String::new(),
+            escalation_model: None,
+            context_tokens: default_context_tokens(),
+            review_minutes: default_review_minutes(),
+            timeout_seconds: default_timeout(),
+            guides: None,
+            thinking: None,
+        }
+    }
+}
+
 fn default_context_tokens() -> u32 {
     32768
 }
@@ -191,6 +208,16 @@ pub struct Review {
 }
 
 impl Review {
+    pub fn not_reviewed(index: u32, model: &str, reason: &str) -> Review {
+        Review::without_answer(
+            index,
+            model,
+            Outcome::NotReviewed {
+                reason: reason.into(),
+            },
+        )
+    }
+
     fn without_answer(index: u32, model: &str, outcome: Outcome) -> Review {
         Review {
             index,

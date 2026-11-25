@@ -423,6 +423,23 @@ struct CheckArgs {
     /// (designs/PHASE3.md §4) into the JSON report.
     #[arg(long)]
     review_context: bool,
+    /// Also review each patch with a model (designs/PHASE3.md §7), with the
+    /// [review] settings of --review-config, or --review-endpoint and
+    /// --review-model. Model findings never change the exit status. The
+    /// series and its context are sent to the endpoint.
+    #[arg(long)]
+    review: bool,
+    /// A TOML file with a [review] table, such as the watcher's watch.toml.
+    #[arg(long, default_value = "~/.config/bodnuti/watch.toml")]
+    review_config: PathBuf,
+    /// An OpenAI-compatible endpoint, such as Ollama's
+    /// http://localhost:11434/v1. Overrides --review-config's, and then
+    /// sends no API key.
+    #[arg(long)]
+    review_endpoint: Option<String>,
+    /// The model to review with. Overrides --review-config's.
+    #[arg(long)]
+    review_model: Option<String>,
     /// The shellcheck command, split on whitespace.
     #[arg(
         long,
@@ -653,6 +670,8 @@ fn sibling(program: &str) -> String {
 }
 
 fn check(args: CheckArgs) -> Result<Report> {
+    // Before any work, so a missing setting fails at once.
+    let review_config = args.review.then(|| review_config(&args)).transpose()?;
     let python = args.python.unwrap_or_else(|| sibling("python3"));
     let b4 = args.b4.unwrap_or_else(|| sibling("b4"));
     let series = match args.input.as_slice() {
@@ -756,7 +775,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         .into_iter()
         .partition(|f| f.tool == Tool::Oelint && oelint::is_style(&f.check));
     let mut context = Vec::new();
-    if args.review_context {
+    if args.review_context || args.review {
         for a in &linted.applied {
             match context::gather(&workspace.path(), a.index, &a.commit) {
                 Ok(c) => context.push(c),
@@ -772,6 +791,32 @@ fn check(args: CheckArgs) -> Result<Report> {
         &findings.iter().chain(&style).cloned().collect::<Vec<_>>(),
     );
 
+    let mut review = Vec::new();
+    if let Some(config) = &review_config {
+        let client = review::Client::new(config)?;
+        for ctx in &context {
+            let layer1: Vec<Finding> = findings
+                .iter()
+                .filter(|f| f.patch == Some(ctx.index))
+                .cloned()
+                .collect();
+            review.push(
+                match review::review(&client, ctx, &layer1, config.guides.as_deref()) {
+                    Ok(r) => r,
+                    Err(review::CallError::RateLimited) => {
+                        review::Review::not_reviewed(ctx.index, &client.model, "rate limited")
+                    }
+                    Err(review::CallError::Failed(e)) => {
+                        review::Review::not_reviewed(ctx.index, &client.model, &e)
+                    }
+                },
+            );
+        }
+        if !args.review_context {
+            context.clear();
+        }
+    }
+
     Ok(Report {
         series,
         base: workspace.base.clone(),
@@ -784,7 +829,50 @@ fn check(args: CheckArgs) -> Result<Report> {
         excerpts,
         staged,
         context,
+        review,
     })
+}
+
+/// The [review] settings for `check --review`: the file's, with the
+/// endpoint and model given on the command line taking precedence. A
+/// different endpoint does not get the file's key.
+fn review_config(args: &CheckArgs) -> Result<review::ReviewConfig> {
+    #[derive(serde::Deserialize)]
+    struct File {
+        review: Option<review::ReviewConfig>,
+    }
+    let path = watch::expand(&args.review_config);
+    let from_file = match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            toml::from_str::<File>(&text)
+                .with_context(|| format!("parsing {}", path.display()))?
+                .review
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let mut config = match (from_file, &args.review_endpoint) {
+        (Some(mut c), Some(endpoint)) => {
+            if c.endpoint != *endpoint {
+                c.api_key_file = None;
+            }
+            c.endpoint = endpoint.clone();
+            c
+        }
+        (Some(c), None) => c,
+        (None, Some(endpoint)) => review::ReviewConfig::local(endpoint),
+        (None, None) => anyhow::bail!(
+            "--review needs a [review] table in {} or --review-endpoint",
+            path.display()
+        ),
+    };
+    if let Some(model) = &args.review_model {
+        config.model = model.clone();
+    }
+    if config.model.is_empty() {
+        anyhow::bail!("--review needs a model: --review-model or model in [review]");
+    }
+    Ok(config)
 }
 
 fn main() -> ExitCode {
@@ -834,6 +922,54 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn review_args(file: &str, endpoint: Option<&str>, model: Option<&str>) -> CheckArgs {
+        let mut argv = vec!["bodnuti", "check", "--repo", ".", "--review"];
+        argv.extend(["--review-config", file]);
+        argv.extend(endpoint.into_iter().flat_map(|e| ["--review-endpoint", e]));
+        argv.extend(model.into_iter().flat_map(|m| ["--review-model", m]));
+        argv.push("x.mbx");
+        match Cli::parse_from(argv).command {
+            Command::Check(args) => *args,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn another_review_endpoint_does_not_get_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("watch.toml");
+        std::fs::write(
+            &file,
+            "image = \"x\"\n[review]\nendpoint = \"https://hosted/v1\"\n\
+             api_key_file = \"/k\"\nmodel = \"big\"\n",
+        )
+        .unwrap();
+        let file = file.to_str().unwrap();
+        let c = review_config(&review_args(file, None, None)).unwrap();
+        assert_eq!(c.api_key_file.as_deref(), Some(Path::new("/k")));
+        let c = review_config(&review_args(
+            file,
+            Some("http://localhost:11434/v1"),
+            Some("m"),
+        ))
+        .unwrap();
+        assert_eq!(c.api_key_file, None);
+        assert_eq!(
+            (c.endpoint.as_str(), c.model.as_str()),
+            ("http://localhost:11434/v1", "m")
+        );
+        let missing = dir.path().join("none.toml");
+        assert!(review_config(&review_args(missing.to_str().unwrap(), None, None)).is_err());
+        assert!(
+            review_config(&review_args(
+                missing.to_str().unwrap(),
+                Some("http://l/v1"),
+                None
+            ))
+            .is_err()
+        );
+    }
 
     fn patch(changes: &str) -> crate::series::Patch {
         let raw = format!("From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] x\n\n{changes}");

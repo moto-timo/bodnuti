@@ -44,6 +44,10 @@ pub struct Report {
     /// gathered only on request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context: Vec<crate::context::PatchContext>,
+    /// Model review of each patch, from `check --review` (designs/PHASE3.md
+    /// §7). Never counted in the result.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review: Vec<crate::review::Review>,
 }
 
 /// A few numbered lines of a file.
@@ -164,6 +168,45 @@ impl Report {
                 // The line of a fix is in the tree before the series, which
                 // the excerpts do not show.
                 out.push_str(&self.text_block(f, "FIXED", false));
+            }
+        }
+        if let Some(model) = self.review.first().map(|r| &r.model) {
+            let _ = writeln!(out, "\nmodel review ({model}; unverified, not counted)");
+            for r in &self.review {
+                let subject = self
+                    .series
+                    .patches
+                    .iter()
+                    .find(|p| p.index == r.index)
+                    .map_or("", |p| p.subject.as_str());
+                let _ = writeln!(out, "\n{subject}");
+                match &r.outcome {
+                    crate::review::Outcome::Reviewed if r.findings.is_empty() => {
+                        let _ = writeln!(out, "  no findings");
+                    }
+                    crate::review::Outcome::Reviewed => {}
+                    crate::review::Outcome::NotReviewed { reason } => {
+                        let _ = writeln!(out, "  not reviewed: {reason}");
+                    }
+                    crate::review::Outcome::Skipped { reason } => {
+                        let _ = writeln!(out, "  skipped: {reason}");
+                    }
+                }
+                for m in &r.findings {
+                    let label = format!("{} {}", severity_label(m.finding.severity), m.confidence);
+                    out.push_str(&self.text_block(&m.finding, &label, false));
+                }
+                for e in &r.explanations {
+                    let at = match (&e.file, e.line) {
+                        (Some(f), Some(l)) => format!(" {f}:{l}"),
+                        (Some(f), None) => format!(" {f}"),
+                        _ => String::new(),
+                    };
+                    let _ = writeln!(out, "\n  about {}{at}: {}", e.check, e.text);
+                    if !e.fix.is_empty() {
+                        let _ = writeln!(out, "      fix: {}", e.fix);
+                    }
+                }
             }
         }
         if !self.tool_errors.is_empty() {
@@ -301,6 +344,7 @@ mod tests {
             excerpts: BTreeMap::new(),
             staged: None,
             context: Vec::new(),
+            review: Vec::new(),
         }
     }
 
