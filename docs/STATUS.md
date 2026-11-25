@@ -619,6 +619,53 @@ How to read this:
 - Six defects are a small set, and the prompts were not tuned. Before
   trusting a number, tune on these and confirm on a held-out set.
 
+### Improving accuracy
+
+The same day, four changes were tried against the false findings, each
+scored on sets not used to choose it:
+
+- **Keep only high-confidence findings** (`min_confidence`, now in
+  `[review]`). On 25 older clean commits picked afterwards: GLM-5.3 at
+  low reasoning 0.00 false findings per patch, GLM-5.3-Flash 0.16, both
+  still finding 4 of the 6 tuning defects.
+- **Prompt v2** (`bench/phase3`, `--prompt v2`): each finding quotes
+  the lines that show it and is dropped if the quote is not in the
+  request; a short list of OE-Core facts behind the recurring false
+  findings; only what the patch introduces or leaves incomplete. On the
+  tuning set it halved false findings without a filter (Flash 0.36 to
+  0.16, GLM-5.3 0.48 to 0.16).
+- **Only changed lines** was rejected on the stored results: false
+  findings already sit near the changes, and it would lose the ICU
+  defect, whose line the version change made wrong without touching it.
+- **Rules learned from the lists:** `lessons.py` distilled 30 review
+  rules from 508 changelogs of resent patches (2023-2025);
+  `--prompt v3` adds them. Being measured.
+
+Two harder test sets were added. `heldout.json` has 30 defects mined
+from OE-Core's `Fixes:` trailers; `history-2026.json` has 19 patches from
+2026 whose v2 changed code after review, so the question is whether the
+model raises what the reviewers raised. Prompt v2, scored once on the
+held-out sets:
+
+| Setup | Filter | Mined defects (judge) | False findings, 25 held-out clean |
+|---|---|---:|---:|
+| v1, GLM-5.3 low | high | 5 / 30 | 0.00 |
+| v2, GLM-5.3 low | medium and high | **8 / 30** | **0.04** |
+| v2, GLM-5.3 low | high | 3 / 30 | 0.00 |
+| v1, GLM-5.3-Flash low | high | 4 / 30 | 0.16 |
+| v2, GLM-5.3-Flash low | medium and high | 5 / 30 | 0.20 |
+
+With v2's evidence rule a high-only filter costs defects, so v2 wants
+`min_confidence = "medium"`. Defects found after merging are much harder
+than the six: many need knowledge the diff does not carry (firmware file
+lists, boot behaviour), and a few judge verdicts are generous. bodnuti
+still sends the v1 prompt; the winner of v2 and v3 will be ported to
+`src/review.rs`.
+
+Ahead: fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`,
+draft) and scoring every review live against what the lists decide
+(`designs/PHASE3.md` §11, design).
+
 ## What it costs
 
 The OE and Yocto lists carry about 5,100 patches a month (sampled from
