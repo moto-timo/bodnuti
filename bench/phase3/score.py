@@ -398,10 +398,18 @@ def build_messages(ctx: Context, guides: Path | None) -> list[dict]:
 
 
 class Endpoint:
-    def __init__(self, url: str, key: str | None, thinking: str | None, timeout: int):
+    def __init__(
+        self,
+        url: str,
+        key: str | None,
+        thinking: str | None,
+        timeout: int,
+        reasoning_effort: str | None = None,
+    ):
         self.url = url.rstrip("/") + "/chat/completions"
         self.key = key
         self.thinking = thinking
+        self.reasoning_effort = reasoning_effort
         self.timeout = timeout
         self.format = "json_schema"
 
@@ -416,6 +424,8 @@ class Endpoint:
             body["response_format"] = {"type": "json_object"}
         if self.thinking:
             body["chat_template_kwargs"] = {"enable_thinking": self.thinking == "on"}
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         headers = {"Content-Type": "application/json"}
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
@@ -425,7 +435,10 @@ class Endpoint:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
                     data = json.load(r)
-                msg = data["choices"][0]["message"]
+                choice = data["choices"][0]
+                msg = choice["message"]
+                if not msg.get("content") and choice.get("finish_reason") == "length":
+                    print("    answer cut at max_tokens, no content", file=sys.stderr)
                 return msg.get("content") or "", data.get("usage", {}), time.monotonic() - start
             except urllib.error.HTTPError as e:
                 detail = e.read().decode(errors="replace")[:300]
@@ -647,6 +660,11 @@ def main() -> int:
         help="send chat_template_kwargs.enable_thinking (Qwen3)",
     )
     ap.add_argument(
+        "--reasoning-effort",
+        help="send reasoning_effort (none, low, high): FriendliAI's reasoning control, "
+        "which GLM honours where it ignores enable_thinking",
+    )
+    ap.add_argument(
         "--all", action="store_true", help="also the four defects the deterministic checks catch"
     )
     ap.add_argument(
@@ -672,7 +690,7 @@ def main() -> int:
     key = (
         args.key_file.read_text().strip() if args.key_file else os.environ.get("BODNUTI_REVIEW_KEY")
     )
-    ep = Endpoint(args.endpoint, key, args.thinking, args.timeout)
+    ep = Endpoint(args.endpoint, key, args.thinking, args.timeout, args.reasoning_effort)
     clean = (
         clean_commits(args.repo, args.clean_rev, args.clean, {e["Commit"][:12] for e in entries})
         if args.clean
@@ -682,7 +700,8 @@ def main() -> int:
     report = [
         "# Phase 3 layer 3 measurement\n\n"
         f"Endpoint `{args.endpoint}`, {time.strftime('%Y-%m-%d %H:%M')}, "
-        f"guides: {'yes' if args.guides else 'no'}, thinking: {args.thinking or 'default'}."
+        f"guides: {'yes' if args.guides else 'no'}, thinking: {args.thinking or 'default'}, "
+        f"reasoning effort: {args.reasoning_effort or 'default'}."
     ]
     for model in args.model:
         out_dir = args.out / re.sub(r"[^\w.\-]", "_", model)

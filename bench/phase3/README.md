@@ -54,6 +54,10 @@ names it accepts; they change during the experiment.
 
 Options worth trying, one at a time:
 
+- `--reasoning-effort none|low|high`: the OpenAI-style reasoning control,
+  which FriendliAI's GLM models honour. GLM-5.3-Flash ignores
+  `--thinking off`, and at its default effort can spend all 8192 output
+  tokens reasoning and return no answer.
 - `--thinking on` and `--thinking off`: Qwen3's reasoning mode. Reasoning
   costs output tokens and time, and may find more.
 - No `--guides`: how much the sashiko review guides add.
