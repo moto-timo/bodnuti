@@ -51,6 +51,14 @@ pub struct ReviewConfig {
     /// model's default.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+    /// Model findings rated below this are dropped (§5.3). The default,
+    /// high, is what kept false findings under the §8 bar.
+    #[serde(default = "default_min_confidence")]
+    pub min_confidence: Confidence,
+}
+
+fn default_min_confidence() -> Confidence {
+    Confidence::High
 }
 
 impl ReviewConfig {
@@ -67,6 +75,7 @@ impl ReviewConfig {
             guides: None,
             thinking: None,
             reasoning_effort: None,
+            min_confidence: default_min_confidence(),
         }
     }
 }
@@ -279,6 +288,7 @@ pub struct Client {
     pub model: String,
     thinking: Option<bool>,
     reasoning_effort: Option<String>,
+    min_confidence: Confidence,
     /// The server's context; a larger request is logged as at risk.
     context_tokens: u32,
     agent: ureq::Agent,
@@ -305,6 +315,7 @@ impl Client {
             Duration::from_secs(config.timeout_seconds),
         );
         client.reasoning_effort = config.reasoning_effort.clone();
+        client.min_confidence = config.min_confidence;
         Ok(client)
     }
 
@@ -326,6 +337,7 @@ impl Client {
             model: model.into(),
             thinking,
             reasoning_effort: None,
+            min_confidence: Confidence::Low,
             context_tokens: default_context_tokens(),
             agent,
             format: Cell::new(Format::JsonSchema),
@@ -543,12 +555,13 @@ struct RawExplanation {
     fix: String,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+/// How sure the model says it is, lowest first so they compare.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, PartialOrd)]
 #[serde(rename_all = "lowercase")]
-enum Confidence {
-    High,
-    Medium,
+pub enum Confidence {
     Low,
+    Medium,
+    High,
 }
 
 impl Confidence {
@@ -590,6 +603,7 @@ fn validate(
     index: u32,
     ctx: &PatchContext,
     layer1: &[Finding],
+    min_confidence: Confidence,
 ) -> (Vec<ModelFinding>, Vec<Explanation>, Vec<String>) {
     let mut known: BTreeMap<&str, Option<u32>> = ctx
         .lines
@@ -629,6 +643,14 @@ fn validate(
                 }
         }) {
             dropped.push(format!("restates layer 1: {path}:{}", line.unwrap_or(0)));
+            continue;
+        }
+        if f.confidence < min_confidence {
+            dropped.push(format!(
+                "below {} confidence: {path}:{}",
+                min_confidence.as_str(),
+                line.unwrap_or(0)
+            ));
             continue;
         }
         kept.push(ModelFinding {
@@ -705,7 +727,8 @@ pub fn review(
             last = "the answer did not match the schema".into();
             continue;
         };
-        let (findings, explanations, dropped) = validate(answer, ctx.index, ctx, layer1);
+        let (findings, explanations, dropped) =
+            validate(answer, ctx.index, ctx, layer1, client.min_confidence);
         return Ok(Review {
             index: ctx.index,
             model: client.model.clone(),
@@ -1072,6 +1095,23 @@ mod tests {
         review(&c, &ctx(), &[], None).unwrap();
         let request: Value = serde_json::from_str(&seen.lock().unwrap()[0]).unwrap();
         assert_eq!(request["reasoning_effort"], "none");
+    }
+
+    #[test]
+    fn drops_findings_below_the_minimum_confidence() {
+        let mut low = finding("meta/classes-recipe/x.bbclass", Some(2));
+        low["confidence"] = json!("medium");
+        let content = answer(vec![finding("meta/classes-recipe/x.bbclass", Some(1)), low]);
+        let (url, _) = stub(vec![ok(&content)]);
+        let mut c = client(&url);
+        c.min_confidence = Confidence::High;
+        let r = review(&c, &ctx(), &[], None).unwrap();
+        assert_eq!(r.findings.len(), 1);
+        assert!(
+            r.dropped[0].starts_with("below high confidence"),
+            "{:?}",
+            r.dropped
+        );
     }
 
     #[test]
