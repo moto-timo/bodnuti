@@ -213,8 +213,8 @@ Before anything is stored, as in `DESIGN.md` §6.6:
 
 - A finding whose file is not in the patch or the layer 2 context, or whose
   line is not in that file, is dropped.
-- A finding that restates a layer 1 finding (same file and category within
-  three lines) is dropped.
+- A finding that restates a layer 1 finding (same file within three
+  lines; layer 1 findings carry no category to compare) is dropped.
 - Messages are cut at 500 characters. Reports escape them like all other
   text.
 - A response that fails the schema after one retry is a tool error for that
@@ -260,7 +260,15 @@ escalation_model = "..."               # layer 4; unset: no escalation
 context_tokens = 32768                 # must match the server's setting
 review_minutes = 30                    # time slice per poll run
 timeout_seconds = 480                  # one request
+guides = "..."                         # sashiko's yoctoproject prompts;
+                                       # unset: the fixed rules only
+thinking = false                       # enable_thinking; unset: the
+                                       # model's default
 ```
+
+`guides` and `thinking` were added while building layer 3: the guides are
+part of the configuration §8 measured, and reasoning is one of its
+settings.
 
 An HTTP 429 from the endpoint leaves the patch queued and ends the review
 step for this run; it is not a tool error.

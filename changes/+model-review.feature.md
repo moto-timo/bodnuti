@@ -1,0 +1,1 @@
+**review:** With a `[review]` table in `watch.toml`, `bodnuti poll` sends each checked patch, with context gathered in the check container, to an OpenAI-compatible endpoint serving an open-weight model, and keeps the validated findings apart from the checks' results.

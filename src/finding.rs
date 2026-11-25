@@ -20,6 +20,8 @@ pub enum Tool {
     Json,
     Cppcheck,
     Django,
+    /// Model review (designs/PHASE3.md §9): shown apart, never counted.
+    Llm,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

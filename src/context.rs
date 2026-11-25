@@ -38,7 +38,7 @@ pub struct PatchContext {
     /// model's file and line (§5.3).
     pub lines: BTreeMap<String, u32>,
     #[serde(skip)]
-    size: usize,
+    pub size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

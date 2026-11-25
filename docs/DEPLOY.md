@@ -46,7 +46,7 @@ Check both behaviours against Hetzner's documentation.
 
 | Port | Proto | Destination | Why |
 |---|---|---|---|
-| 443 | TCP | any | lore.kernel.org (b4), git over https, container registry, Debian, later the Anthropic API |
+| 443 | TCP | any | lore.kernel.org (b4), git over https, container registry, Debian, and with `[review]`, the model endpoint (`api.friendli.ai`) |
 | 80 | TCP | any | Debian mirrors, if apt sources use `http://`; drop it if they use https |
 | 53 | UDP, TCP | Hetzner's recursive resolvers (see the console) | DNS |
 | 123 | UDP | any, or Hetzner's NTP servers | time |
@@ -580,6 +580,36 @@ staging branches, whose trees poky-ci-archive keeps; `meta-oe` builds
 meta-openembedded's (`yoe/mut`, `anujm/<release>`), which nothing archives,
 so each poll pins the staging branch tips the clones have fetched under
 `refs/bodnuti/seen/` to keep them through rebases and `git gc`.
+
+`[review]` turns on model review (`designs/PHASE3.md`): each check also
+gathers each patch's context, inside the same no-network container, and
+the poll then sends patches to an OpenAI-compatible endpoint, oldest
+first, for at most `review_minutes`. Only the poll process talks to the
+endpoint. Model findings appear in a collapsed "Model review" section of
+the report and never count in its result.
+
+```toml
+[review]
+endpoint = "https://api.friendli.ai/serverless/v1"
+api_key_file = "~/.config/bodnuti/review.key"
+model = "zai-org/GLM-5.3-Flash"
+guides = "/home/bodnuti/sashiko/projects/yoctoproject/prompts"
+review_minutes = 30
+```
+
+The key file holds the endpoint's token and nothing else; bodnuti refuses
+it unless only its owner can read it:
+
+```sh
+install -m 600 /dev/null ~/.config/bodnuti/review.key
+$EDITOR ~/.config/bodnuti/review.key
+```
+
+The worker needs outbound 443 to `api.friendli.ai` (table at the top).
+Patches wait in `state/review/queue/`; results go to
+`state/review/<list>/<root>/<patch>.json`. An HTTP 429 leaves the rest
+queued for the next run; a patch that waits more than three days is
+marked skipped.
 
 `staging` names where the maintainers stage the patches they take before
 each branch (`designs/PHASE2.md` §5.6): OE-Core's `master` on

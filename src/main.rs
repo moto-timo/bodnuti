@@ -19,6 +19,7 @@ mod pins;
 mod publish;
 mod pull;
 mod report;
+mod review;
 mod ruff;
 mod runner;
 mod shell;
@@ -150,6 +151,13 @@ fn poll(args: PollArgs) -> Result<()> {
     autobuilder::pin_staging_tips(&config);
     if let Err(err) = autobuilder::poll(&config, now) {
         eprintln!("bodnuti: AutoBuilder: {err:#}");
+    }
+    // Model review after checking, within its time slice (designs/PHASE3.md
+    // §3); a failure is logged and does not fail the poll.
+    if let Some(review) = &config.review
+        && let Err(err) = review::run(review, &config.state, now)
+    {
+        eprintln!("bodnuti: review: {err:#}");
     }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());
