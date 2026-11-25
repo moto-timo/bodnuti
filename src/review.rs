@@ -746,7 +746,6 @@ impl Store {
     }
 
     /// The reviews of a series' patches, by index.
-    #[allow(dead_code)] // read by the report, next
     pub fn results(&self, list: &str, root: &str) -> BTreeMap<u32, Review> {
         std::fs::read_dir(self.dir.join(list).join(root))
             .into_iter()

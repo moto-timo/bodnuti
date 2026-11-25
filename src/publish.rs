@@ -21,6 +21,7 @@ use anyhow::{Context, Result};
 use crate::finding::{Finding, Severity};
 use crate::lore;
 use crate::report::{Report, location, numbered, tool_name};
+use crate::review::{self, Explanation, Review};
 use crate::series::{counters, subject_tags};
 use crate::watch::{Config, ListState, SeriesRecord, Status};
 
@@ -626,6 +627,7 @@ const STYLE: &str = r#"
   details.style { margin: .4rem 0 .8rem; }
   details.style > summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
   details.style[open] > summary { margin-bottom: .2rem; }
+  p.explain { margin: -.4rem 0 .8rem 1rem; font-size: .9rem; }
   .excerpt .ln { display: inline-block; min-width: 3.5em; padding-right: .8rem; text-align: right;
                  color: var(--muted); user-select: none; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; }
@@ -1062,8 +1064,15 @@ fn findings_html(
     revisions: &[Revision],
 ) -> String {
     let mut out = String::new();
+    let reviews = if lore::safe_id(&record.tracked.root) {
+        crate::review::Store::new(&config.state).results(list, &record.tracked.root)
+    } else {
+        Default::default()
+    };
     // The cover letter is the thread link above.
     for patch in &report.series.patches {
+        let review = reviews.get(&patch.index);
+        let notes = review.map_or(&[][..], |r| &r.explanations[..]);
         let subject = escape(&patch.subject);
         let title = match &patch.message_id {
             Some(id) => format!("<a href=\"{}\">{subject}</a>", escape(&lore_url(list, id))),
@@ -1097,7 +1106,7 @@ fn findings_html(
             .filter(|r| r.patch == patch.index)
             .collect();
         if revised.is_empty() {
-            out.push_str(&finding_list(record, report, &findings));
+            out.push_str(&finding_list_noted(record, report, &findings, notes));
         } else {
             // The history in order: what this revision found, then each
             // later revision (§6.3).
@@ -1111,6 +1120,9 @@ fn findings_html(
             }
         }
         out.push_str(&style_list(record, report, Some(patch.index)));
+        if let Some(review) = review {
+            out.push_str(&model_review_html(report, review));
+        }
     }
     let series: Vec<&Finding> = report
         .findings
@@ -1154,6 +1166,17 @@ fn findings_html(
 }
 
 fn finding_list(record: &SeriesRecord, report: &Report, findings: &[&Finding]) -> String {
+    finding_list_noted(record, report, findings, &[])
+}
+
+/// The findings, each followed by the model's explanation of it, if any
+/// (designs/PHASE3.md §9).
+fn finding_list_noted(
+    record: &SeriesRecord,
+    report: &Report,
+    findings: &[&Finding],
+    notes: &[Explanation],
+) -> String {
     let mut out = String::new();
     for f in findings {
         if already_applied(record, f) {
@@ -1171,8 +1194,67 @@ fn finding_list(record: &SeriesRecord, report: &Report, findings: &[&Finding]) -
         };
         let badge = format!("{:?}", f.severity).to_lowercase();
         out.push_str(&finding_block(report, f, &badge, class, true));
+        for n in notes
+            .iter()
+            .filter(|n| n.check == f.check && n.file == f.file && n.line == f.line)
+        {
+            let fix = if n.fix.trim().is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " <span class=\"muted\">Fix:</span> {}",
+                    escape(n.fix.trim())
+                )
+            };
+            let _ = writeln!(
+                out,
+                "<p class=\"explain\"><span class=\"muted\">Model, unverified:</span> {}{fix}</p>",
+                escape(n.text.trim())
+            );
+        }
     }
     out
+}
+
+/// A patch's model review, collapsed under its deterministic findings and
+/// marked unverified (designs/PHASE3.md §9). Never part of the result.
+fn model_review_html(report: &Report, review: &Review) -> String {
+    let model = escape(&review.model);
+    let (summary, body) = match &review.outcome {
+        review::Outcome::Reviewed => {
+            let mut body = String::new();
+            for m in &review.findings {
+                let class = match m.finding.severity {
+                    Severity::Error => "sev-error",
+                    Severity::Warning => "sev-warn",
+                    Severity::Info => "sev-info",
+                };
+                let badge = format!(
+                    "{}, {} confidence",
+                    format!("{:?}", m.finding.severity).to_lowercase(),
+                    m.confidence
+                );
+                body.push_str(&finding_block(report, &m.finding, &badge, class, false));
+            }
+            if review.findings.is_empty() {
+                body.push_str("<p class=\"muted\">No findings.</p>\n");
+            }
+            (plural(review.findings.len(), "finding"), body)
+        }
+        review::Outcome::NotReviewed { reason } => (
+            "not reviewed".to_string(),
+            format!("<p class=\"muted\">Not reviewed: {}</p>\n", escape(reason)),
+        ),
+        review::Outcome::Skipped { reason } => (
+            "skipped".to_string(),
+            format!("<p class=\"muted\">Skipped: {}</p>\n", escape(reason)),
+        ),
+    };
+    format!(
+        "<details class=\"style model\"><summary>Model review ({model}): {summary}</summary>\n\
+         <p class=\"muted\">Found by a model and not verified; not counted in the result.</p>\n\
+         {body}</details>\n"
+    )
 }
 
 /// A patch's style findings (`patch` None: the series'), collapsed in a
@@ -1322,6 +1404,85 @@ mod tests {
         assert!(!html.contains("<b>"), "{html}");
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("<meta http-equiv=\"refresh\" content=\"300\">"));
+    }
+
+    fn model_review(outcome: review::Outcome) -> Review {
+        let mut f = apply_failure();
+        f.tool = Tool::Llm;
+        f.check = "llm.dependency".into();
+        f.severity = Severity::Warning;
+        f.file = Some("a.bb".into());
+        f.line = Some(3);
+        f.message = "missing <script>alert(1)</script> dependency".into();
+        Review {
+            index: 1,
+            model: "glm<b>".into(),
+            outcome,
+            findings: vec![review::ModelFinding {
+                finding: f,
+                category: "dependency".into(),
+                confidence: "high".into(),
+            }],
+            explanations: vec![],
+            dropped: vec![],
+            prompt_tokens: 0,
+            completion_tokens: 0,
+        }
+    }
+
+    #[test]
+    fn model_review_is_collapsed_escaped_and_marked_unverified() {
+        let r = report(vec![]);
+        let html = model_review_html(&r, &model_review(review::Outcome::Reviewed));
+        assert!(
+            html.starts_with(
+                "<details class=\"style model\"><summary>Model review (glm&lt;b&gt;): 1 finding</summary>"
+            ),
+            "{html}"
+        );
+        assert!(html.contains("not verified"), "{html}");
+        assert!(html.contains("warning, high confidence"), "{html}");
+        assert!(html.contains("<span class=\"tool\">llm</span>"), "{html}");
+        assert!(
+            !html.contains("<script>") && !html.contains("<b>"),
+            "{html}"
+        );
+
+        let not = model_review(review::Outcome::NotReviewed {
+            reason: "HTTP 500".into(),
+        });
+        let html = model_review_html(&r, &not);
+        assert!(html.contains("): not reviewed</summary>"), "{html}");
+        assert!(html.contains("Not reviewed: HTTP 500"), "{html}");
+        let skipped = model_review(review::Outcome::Skipped {
+            reason: "waited".into(),
+        });
+        assert!(model_review_html(&r, &skipped).contains("): skipped</summary>"));
+    }
+
+    #[test]
+    fn explanations_follow_the_finding_they_explain() {
+        let f = apply_failure();
+        let r = report(vec![f.clone()]);
+        let rec = record(Status::Checked, &[]);
+        let note = Explanation {
+            check: f.check.clone(),
+            file: f.file.clone(),
+            line: f.line,
+            text: "It <i>conflicts</i>.".into(),
+            fix: "Rebase.".into(),
+        };
+        let other = Explanation {
+            check: "other".into(),
+            ..note.clone()
+        };
+        let html = finding_list_noted(&rec, &r, &[&f], &[note, other]);
+        let block = html.find("<div class=\"finding").unwrap();
+        let explain = html.find("<p class=\"explain\">").expect("no explanation");
+        assert!(block < explain, "{html}");
+        assert_eq!(html.matches("class=\"explain\"").count(), 1, "{html}");
+        assert!(html.contains("It &lt;i&gt;conflicts&lt;/i&gt;."), "{html}");
+        assert!(html.contains("Fix:</span> Rebase."), "{html}");
     }
 
     #[test]
