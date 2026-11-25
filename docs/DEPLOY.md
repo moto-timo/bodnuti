@@ -515,6 +515,18 @@ repo = "meta-virtualization"
 name = "yocto-patches"
 route = "subject-tag"
 
+[[list]]
+name = "yocto-meta-arm"
+repo = "meta-arm"
+
+[[list]]
+name = "yocto-meta-ti"
+repo = "meta-ti"
+
+[[list]]
+name = "yocto-meta-arago"
+repo = "meta-arago"
+
 [autobuilder]
 builders = ["a-full", "meta-oe"]
 
@@ -538,6 +550,9 @@ auto-upgrade-helper = { url = "https://git.yoctoproject.org/auto-upgrade-helper"
 yocto-metrics = { url = "https://git.yoctoproject.org/yocto-metrics", kind = "python" }
 yocto-metrics-meta-oe = { url = "https://git.yoctoproject.org/yocto-metrics-meta-oe", kind = "python" }
 meta-selinux = "https://git.yoctoproject.org/meta-selinux"
+meta-arm = "https://git.yoctoproject.org/meta-arm"
+meta-ti = "https://git.yoctoproject.org/meta-ti"
+meta-arago = "https://git.yoctoproject.org/meta-arago"
 meta-tensorflow = "https://git.yoctoproject.org/meta-tensorflow"
 meta-zephyr = "https://git.yoctoproject.org/meta-zephyr"
 wic = { url = "https://git.yoctoproject.org/wic", kind = "python" }
