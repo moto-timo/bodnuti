@@ -93,6 +93,46 @@ number in that file as it is after the patch, or null.
 Answer with JSON only, matching this schema:
 """
 
+# Prompt v2: evidence quotes and OE facts (bodnuti issue: false findings).
+SCHEMA_V2 = json.loads(json.dumps(SCHEMA))
+SCHEMA_V2["properties"]["findings"]["items"]["properties"]["evidence"] = {"type": "string"}
+SCHEMA_V2["properties"]["findings"]["items"]["required"].append("evidence")
+
+SYSTEM_CORE_V2 = SYSTEM_CORE.replace(
+    "Answer with JSON only, matching this schema:\n",
+    """\
+Report only what this patch introduces, or a change it leaves incomplete
+(a caller, a dependency, a file list it should have updated). Do not report
+problems in code the patch does not change, unless the patch makes them
+worse.
+
+For each finding, `evidence` must quote, exactly and on its own lines,
+the line or lines in the request that show the defect. A finding whose
+quote is not in the request is discarded.
+
+Rate `confidence` "high" only when the quoted lines show the defect by
+themselves and you are sure of the BitBake semantics involved. If you
+would need to see a file that is not in the request to be sure, use
+"medium" or "low".
+
+BitBake and OE-Core facts that reviewers often get wrong:
+- bb.utils.contains(var, "a b", t, f, d) returns t only when every word
+  is set; it is the normal way to require several features.
+- PACKAGES =+ "x" puts x first, so x claims its files before ${PN} does.
+- bitbake.conf and the core configuration always set variables such as
+  SOURCE_DATE_EPOCH, TUNE_PKGARCH, DEPLOY_DIR_IMAGE and WORKDIR; do not
+  report them as possibly unset.
+- do_deploy installs into ${DEPLOYDIR}; deploy.bbclass copies that into
+  ${DEPLOY_DIR_IMAGE}.
+- Before reporting a missing build dependency, check DEPENDS, the
+  inherited classes and PACKAGECONFIG in the request; classes add many.
+- oe-selftest removes the test_recipe.inc and selftest.inc files a test
+  writes.
+
+Answer with JSON only, matching this schema:
+""",
+)
+
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
     r = subprocess.run(
@@ -478,8 +518,29 @@ def parse(text: str) -> dict | None:
         return None
 
 
-def validate(answer: dict, ctx: Context) -> tuple[list[dict], list[dict]]:
-    """§5.3: keep findings that cite a file and line present in the request."""
+LEVELS = {"low": 0, "medium": 1, "high": 2}
+EVIDENCE = False  # prompt v2: each finding quotes lines from the request
+
+
+def _norm(line: str) -> str:
+    line = line.strip()
+    if line[:1] in "+-":
+        line = line[1:].strip()
+    return " ".join(line.split())
+
+
+def quoted(evidence: str, ctx: Context) -> bool:
+    """Whether every non-empty line of evidence is in the request."""
+    want = [_norm(x) for x in str(evidence).splitlines() if _norm(x)]
+    if not want:
+        return False
+    have = "\n".join(_norm(x) for t in [ctx.diff, *(i[2] for i in ctx.items)] for x in t.splitlines())
+    return all(w in have for w in want)
+
+
+def validate(answer: dict, ctx: Context, min_confidence: str = "low") -> tuple[list[dict], list[dict]]:
+    """§5.3: keep findings that cite a file and line present in the request,
+    at or above min_confidence."""
     known = dict(ctx.files)
     for m in re.finditer(r"^\+\+\+ b/(\S+)", ctx.diff, re.M):
         known.setdefault(m.group(1), "")
@@ -494,6 +555,10 @@ def validate(answer: dict, ctx: Context) -> tuple[list[dict], list[dict]]:
             dropped.append({**f, "dropped": "file not in request"})
         elif isinstance(line, int) and known[path] and line > known[path].count("\n") + 1:
             dropped.append({**f, "dropped": "line past end of file"})
+        elif EVIDENCE and not quoted(f.get("evidence", ""), ctx):
+            dropped.append({**f, "dropped": "evidence not in request"})
+        elif LEVELS.get(f.get("confidence"), 0) < LEVELS[min_confidence]:
+            dropped.append({**f, "dropped": f"below {min_confidence} confidence"})
         else:
             kept.append({**f, "file": path})
     return kept, dropped
@@ -582,7 +647,7 @@ def run_one(args, ep, model, commit, out_dir, entry=None) -> dict:
     if answer is None:
         rec.update(error="unparseable", findings=[], dropped=[])
     else:
-        rec["findings"], rec["dropped"] = validate(answer, ctx)
+        rec["findings"], rec["dropped"] = validate(answer, ctx, args.min_confidence)
         rec["confidence"] = answer.get("confidence")
     if entry:
         want = fixed_files(args.repo, entry["Fixed-by"])
@@ -675,6 +740,18 @@ def main() -> int:
         help="also review the N most recent clean commits for false positives",
     )
     ap.add_argument("--clean-rev", default="origin/master")
+    ap.add_argument(
+        "--prompt",
+        choices=["v1", "v2"],
+        default="v1",
+        help="v2 asks for an evidence quote, checked verbatim, and adds OE facts",
+    )
+    ap.add_argument(
+        "--min-confidence",
+        choices=["low", "medium", "high"],
+        default="low",
+        help="drop findings the model rates below this (bodnuti's min_confidence)",
+    )
     ap.add_argument("--timeout", type=int, default=480)
     ap.add_argument(
         "--dry-run",
@@ -683,6 +760,9 @@ def main() -> int:
     )
     ap.add_argument("--out", type=Path, default=Path("results"))
     args = ap.parse_args()
+    if args.prompt == "v2":
+        global SYSTEM_CORE, SCHEMA, EVIDENCE
+        SYSTEM_CORE, SCHEMA, EVIDENCE = SYSTEM_CORE_V2, SCHEMA_V2, True
 
     entries = json.loads(args.benchmark.read_text())
     if not args.all:
@@ -701,7 +781,9 @@ def main() -> int:
         "# Phase 3 layer 3 measurement\n\n"
         f"Endpoint `{args.endpoint}`, {time.strftime('%Y-%m-%d %H:%M')}, "
         f"guides: {'yes' if args.guides else 'no'}, thinking: {args.thinking or 'default'}, "
-        f"reasoning effort: {args.reasoning_effort or 'default'}."
+        f"reasoning effort: {args.reasoning_effort or 'default'}, "
+        f"min confidence: {args.min_confidence}, clean from: {args.clean_rev}, "
+        f"prompt: {args.prompt}."
     ]
     for model in args.model:
         out_dir = args.out / re.sub(r"[^\w.\-]", "_", model)

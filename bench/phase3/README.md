@@ -54,6 +54,12 @@ names it accepts; they change during the experiment.
 
 Options worth trying, one at a time:
 
+- `--prompt v2`: each finding must quote the lines that show it, and is
+  dropped if the quote is not in the request; the prompt adds OE-Core
+  facts reviewers often get wrong, and asks for only what the patch
+  introduces or leaves incomplete.
+- `--min-confidence high`: drop findings the model rates lower, as
+  bodnuti's `min_confidence` does. Dropped findings stay in the JSON.
 - `--reasoning-effort none|low|high`: the OpenAI-style reasoning control,
   which FriendliAI's GLM models honour. GLM-5.3-Flash ignores
   `--thinking off`, and at its default effort can spend all 8192 output
@@ -63,6 +69,22 @@ Options worth trying, one at a time:
 - No `--guides`: how much the sashiko review guides add.
 - `--all`: also the four defects the deterministic checks catch, to see
   whether the model would duplicate them.
+
+## A held-out set
+
+The six benchmark defects are what the prompts are tuned on. `heldout.json`
+holds 30 more, mined from OE-Core's `Fixes:` trailers with `mine.py` and
+with three cosmetic ones removed; score a frozen configuration on it once,
+with `--benchmark bench/phase3/heldout.json --all`. For clean commits not
+used in tuning, add `--clean-rev origin/master~100`.
+
+```sh
+python3 bench/phase3/mine.py --repo openembedded-core \
+    --exclude sashiko/projects/yoctoproject/benchmarks/benchmark_tiny.json > mined.json
+```
+
+Each entry's problem description is the fixing commit's message, so the
+judge compares findings with what the fix says.
 
 ## Reading the results
 
