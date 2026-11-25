@@ -70,13 +70,24 @@ stay inside the work directory and nothing reaches a shell.
   Same family as measured, so the gain is the adapter's.
 - **Training:** LoRA, a few GPU-hours on a rented GPU; the data and the
   scripts live in `bench/`, outside the bodnuti binary.
-- **Serving:** an OpenAI-compatible endpoint that loads the adapter:
+- **Serving:** a separate endpoint for the trained model, so the hosted
+  serverless models stay as the fallback and a comparison: an
+  OpenAI-compatible endpoint that loads the adapter:
   FriendliAI dedicated endpoints (to confirm with FriendliAI: LoRA
   support, price), or the model host of `PHASE3.md` §1 with vLLM and
   `--enable-lora`. Serverless per-token pricing (~$11 a month) does not
   apply to a dedicated endpoint, which bills for GPU time.
 
-## 5. Open questions for the maintainer
+## 5. A prompt learned from the same history
+
+Before any training, the same changelogs can teach the prompt:
+`bench/phase3/lessons.py` collects code changelogs of resent patches
+from a period before the test period and has a model distil the rules
+reviewers keep applying; `score.py --prompt v3 --lessons` adds them to
+the system prompt. It needs no GPU and no new endpoint, and its result
+is the baseline a trained adapter has to beat.
+
+## 6. Open questions for the maintainer
 
 1. **Consent:** the archives are public, but training on contributors'
    and reviewers' text is a community question. Ask the OE and Yocto

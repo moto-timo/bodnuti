@@ -742,9 +742,15 @@ def main() -> int:
     ap.add_argument("--clean-rev", default="origin/master")
     ap.add_argument(
         "--prompt",
-        choices=["v1", "v2"],
+        choices=["v1", "v2", "v3"],
         default="v1",
-        help="v2 asks for an evidence quote, checked verbatim, and adds OE facts",
+        help="v2 asks for an evidence quote, checked verbatim, and adds OE facts; "
+        "v3 is v2 plus the rules in --lessons",
+    )
+    ap.add_argument(
+        "--lessons",
+        type=Path,
+        help="review rules distilled by lessons.py, for --prompt v3",
     )
     ap.add_argument(
         "--min-confidence",
@@ -760,9 +766,20 @@ def main() -> int:
     )
     ap.add_argument("--out", type=Path, default=Path("results"))
     args = ap.parse_args()
-    if args.prompt == "v2":
+    if args.prompt in ("v2", "v3"):
         global SYSTEM_CORE, SCHEMA, EVIDENCE
         SYSTEM_CORE, SCHEMA, EVIDENCE = SYSTEM_CORE_V2, SCHEMA_V2, True
+    if args.prompt == "v3":
+        if not args.lessons:
+            ap.error("--prompt v3 needs --lessons")
+        rules = [ln for ln in args.lessons.read_text().splitlines() if ln.startswith("- ")]
+        SYSTEM_CORE = SYSTEM_CORE.replace(
+            "Answer with JSON only, matching this schema:\n",
+            "What OE reviewers have repeatedly asked authors to fix (from the lists' "
+            "history; apply them only where the request shows the problem):\n"
+            + "\n".join(rules)
+            + "\n\nAnswer with JSON only, matching this schema:\n",
+        )
 
     entries = json.loads(args.benchmark.read_text())
     if not args.all:

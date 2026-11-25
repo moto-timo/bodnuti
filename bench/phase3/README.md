@@ -86,6 +86,23 @@ python3 bench/phase3/mine.py --repo openembedded-core \
 Each entry's problem description is the fixing commit's message, so the
 judge compares findings with what the fix says.
 
+## Replaying the lists' reviews
+
+`history.py` pairs patches resent as v2 or v3 with their v1, applies each
+v1 to the branch as it was when it was sent (kept under `refs/bench/v1/`
+in the clone), and writes entries whose problem description is the v2
+changelog: the judge then asks whether the model raised what the
+reviewers raised. `history-2026.json` holds 19 such pairs from
+openembedded-core, June to October 2026, after removing pairs whose v2
+changed nothing in the code; its commits exist only in the clone that
+built it, so rebuild with `history.py` and curate the same way.
+
+`lessons.py` collects code changelogs of resent patches from an earlier
+period and has a model distil the rules reviewers keep applying;
+`lessons-2023-2025.md` is its output for openembedded-core and
+openembedded-devel, 2023 to 2025. `--prompt v3 --lessons <file>` adds
+them to the v2 prompt.
+
 ## Reading the results
 
 - **Found (judge)** asks a model whether any finding names the known
