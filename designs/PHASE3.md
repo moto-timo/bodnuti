@@ -155,8 +155,10 @@ cap is reached:
 
 The caps are starting points for §8 to tune. Paths are resolved inside the
 worktree only; a `require` that resolves outside it is skipped, as is any
-symlink. The output is one JSON file per patch, so the host process never
-reads the worktree itself.
+symlink. The output is one JSON object per patch, carried in the check's
+JSON report (`bodnuti check --review-context`) on the same path out of the
+container as every other result; the host process writes each to the
+review queue as a file, and never reads the worktree itself.
 
 ## 5. Layer 3: one review call
 

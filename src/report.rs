@@ -40,6 +40,10 @@ pub struct Report {
     /// checked on its staging branch (designs/PHASE2.md §5.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staged: Option<Staged>,
+    /// Layer 2 context per patch for model review (designs/PHASE3.md §4),
+    /// gathered only on request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<crate::context::PatchContext>,
 }
 
 /// A few numbered lines of a file.
@@ -296,6 +300,7 @@ mod tests {
             style: Vec::new(),
             excerpts: BTreeMap::new(),
             staged: None,
+            context: Vec::new(),
         }
     }
 

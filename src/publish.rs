@@ -1283,6 +1283,7 @@ mod tests {
             style: vec![],
             excerpts: Default::default(),
             staged: None,
+            context: Vec::new(),
         }
     }
 

@@ -3,6 +3,7 @@
 mod applied;
 mod autobuilder;
 mod ci;
+mod context;
 mod cppcheck;
 mod django;
 mod djlint;
@@ -410,6 +411,10 @@ struct CheckArgs {
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
     oecore: Option<PathBuf>,
+    /// Also gather the context model review needs for each patch
+    /// (designs/PHASE3.md §4) into the JSON report.
+    #[arg(long)]
+    review_context: bool,
     /// The shellcheck command, split on whitespace.
     #[arg(
         long,
@@ -742,6 +747,18 @@ fn check(args: CheckArgs) -> Result<Report> {
     let (style, findings): (Vec<Finding>, Vec<Finding>) = findings
         .into_iter()
         .partition(|f| f.tool == Tool::Oelint && oelint::is_style(&f.check));
+    let mut context = Vec::new();
+    if args.review_context {
+        for a in &linted.applied {
+            match context::gather(&workspace.path(), a.index, &a.commit) {
+                Ok(c) => context.push(c),
+                Err(err) => tool_errors.push(ToolError {
+                    tool: Tool::Bodnuti,
+                    message: format!("review context for patch {}: {err:#}", a.index),
+                }),
+            }
+        }
+    }
     let excerpts = report::excerpts(
         &workspace.path(),
         &findings.iter().chain(&style).cloned().collect::<Vec<_>>(),
@@ -758,6 +775,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         style,
         excerpts,
         staged,
+        context,
     })
 }
 
