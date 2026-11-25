@@ -452,7 +452,7 @@ input. This lets CI and scripts gate on the result.
    [`PHASE2.md`](PHASE2.md). Email replies stay opt-in per list, start in
    dry-run, and need the list owners' agreement.
 3. **LLM review at a low token rate:** see §6, and [`PHASE3.md`](PHASE3.md)
-   for the design being built, on local models.
+   for the design being built, on open-weight models.
 
 ## 6. Phase 3: LLM review at a low token rate
 
@@ -544,8 +544,9 @@ the layer 2 context is dropped.
 ### 6.7 Implementation
 
 Superseded by [`PHASE3.md`](PHASE3.md): layers 3 and 4 run on
-open-weight models behind an OpenAI-compatible endpoint (a model host or
-Hetzner's Inference API), not on the Claude API. Phase 3 still does not reuse sashiko's engine.
+open-weight models behind an OpenAI-compatible endpoint (a hosted
+open-weight endpoint such as FriendliAI, or a model host), not on the
+Claude API. Phase 3 still does not reuse sashiko's engine.
 
 ## 7. Testing
 

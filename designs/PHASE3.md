@@ -1,11 +1,12 @@
-# Design: bodnuti phase 3, model review on a local model
+# Design: bodnuti phase 3, model review on open-weight models
 
 Phases 1 and 2 report what the existing checkers find. Six of the ten
 OE-Core defects in the benchmark (`docs/STATUS.md`) are beyond them. Phase 3
 adds layers 2 to 4 of `DESIGN.md` §6.2: deterministic context gathering, one
 model call per patch, and escalation for risky patches. This document
 replaces `DESIGN.md` §6.7 and settles §8 question 5 in one respect: the model
-runs on hardware bodnuti controls, not behind a hosted API.
+is open-weight, behind any endpoint that serves the OpenAI-compatible API,
+not a closed-model API.
 
 Decided with the maintainer before this document:
 
@@ -47,33 +48,52 @@ The model host's size is decided by measurement (§8): a CPU host if a
 mixture-of-experts model with few active parameters keeps up with §2, a GPU
 host if not. Layer 4 (§6) may need the GPU even if layer 3 does not.
 
-### 1.1 Hetzner's Inference API
+### 1.1 Hosted open-weight endpoints
 
-Hetzner runs an OpenAI-compatible inference API at
-`https://inference.hetzner.com/v1`, free while it is an experiment. As of
-24 November 2026 its documentation says:
+A hosted service that serves open-weight models behind the same
+OpenAI-compatible API needs no model host. bodnuti treats each one as one
+more `endpoint` (§7), so moving between them, or to the model host, changes
+configuration only.
+
+**FriendliAI serverless** is the endpoint for §8's measurement and, if the
+numbers and the cost hold, for production. As of 25 November 2026:
 
 | | |
 |---|---|
-| Models | `Qwen/Qwen3.6-35B-A3B-FP8` (MoE, 3B active) and `Qwen3.8-27B` (dense), both Apache-2.0, 262,144-token context |
-| Limits per key | 10 requests, 4M input and 100k output tokens per 60 s |
-| Data | request and response content not stored; timestamps and token counts kept for usage tracking |
-| Status | experimental, "as is", no availability guarantee, not for production; **the experiment ends on 8 December 2026** |
+| Base URL | `https://api.friendli.ai/serverless/v1`, bearer token |
+| Models measured | `zai-org/GLM-5.3-Flash` and `google/gemma-4-31B-it` (dense, Gemma terms); both with reasoning that can be switched off, structured output, and 262k-1M tokens of context |
+| Price per MTok, input / output | GLM-5.3-Flash $0.15 / $0.50 (cached input $0.03); gemma-4-31B-it $0.14 / $0.40 |
+| Data | zero data retention by default: request and response content is not kept beyond processing, and is not used for training |
 
-The limits fit §2 easily: 170 patches a day is about one request every
-8.5 minutes. The two models are the size class §8 would test anyway.
+Neither Qwen model of the earlier plan is served; FriendliAI offered these
+two instead, as the models already running. The larger
+`zai-org/GLM-5.3` ($1.26 / $3.96) is the candidate for layer 4.
 
-Because of the end date, the Inference API is the endpoint for §8's
-measurement, not a production dependency. bodnuti treats it as one more
-`endpoint` (§7); if Hetzner turns it into a paid product, it can be
-compared with the model host on cost, and nothing in bodnuti changes.
+Billing is per token, so it is measured against `DESIGN.md` §6.3's budget
+rather than a host's monthly price. At about 12k input and 1k output tokens
+per patch, either model costs about $0.002 a patch, or $10-12 a month for
+5,100 patches: the same as the Haiku 5.5 estimate there. Reasoning output
+adds to that, and §8 measures it. GLM-5.3 for layer 4 on 15% of patches
+would add about $15-35 a month, depending on how many tool turns it takes.
 
-Using it needs, unlike the model host:
+**Hetzner's Inference API** (`https://inference.hetzner.com/v1`) serves
+`Qwen/Qwen3.6-35B-A3B-FP8` and `Qwen3.8-27B` free, with no content stored,
+but as an experiment that ends on 8 December 2026. It is an alternative
+for measurement until then; nothing is built that depends on it.
 
-- outbound TCP 443 from the worker to `inference.hetzner.com`, added to the
+**The model host** (§1) is the fallback, if a hosted endpoint's price,
+terms or availability change.
+
+Using a hosted endpoint needs, unlike the model host:
+
+- outbound TCP 443 from the worker to the endpoint's host, added to the
   egress rules in `DEPLOY.md`;
 - an API token, read from a file (`api_key_file`, §7) that only the
   `bodnuti` user can read, never from `watch.toml` or the command line.
+
+A request carries the patch and its context. List patches are public, but
+`bodnuti check --review` on an unsent series sends private work, so a
+developer chooses its endpoint knowing the provider's data terms.
 
 ## 2. Throughput budget
 
@@ -204,7 +224,7 @@ A patch is escalated when it touches `meta/classes*/`, `meta/lib/oe/`,
 `meta/conf/bitbake.conf` or a CVE fix, or when layer 3 returns
 `"confidence": "low"`.
 
-Escalation uses a larger local model on the same model host, through the
+Escalation uses a larger open-weight model on the same endpoint, through the
 same API, configured separately (§7). It gets the layer 3 request, layer 3's
 findings as unverified leads, and up to five turns of read-only tools:
 
@@ -253,15 +273,15 @@ yet public.
 
 ## 8. Measurement before building layers 3 and 4
 
-As in `DESIGN.md` §6.5, adapted to local models. Layer 2 and the scoring
+As in `DESIGN.md` §6.5, adapted to open-weight models. Layer 2 and the scoring
 harness are built first; layers 3 and 4 are built for the configuration the
 numbers pick.
 
-First on Hetzner's Inference API (§1.1), for both of its models, before
-the experiment ends on 8 December 2026. That gives detection and false
-positives at no cost and without a model host. Wall time and memory there
-say nothing about a self-run host, so those two rows are measured again on
-the model host candidates (a CPU host, and a GPU host if CPU misses §2):
+First on FriendliAI serverless (§1.1), for both models. That gives
+detection, false positives and tokens per patch, and so the cost, without a
+model host. Wall time and memory there say nothing about a self-run host,
+so those two rows are measured again on the model host candidates (a CPU
+host, and a GPU host if CPU misses §2) only if §1.1's fallback is taken:
 
 | Measure | On |
 |---|---|
@@ -302,8 +322,8 @@ the finding they explain.
 
 1. **Model host:** a CPU host is cheaper to keep running; a GPU host makes
    layer 4 practical. §8 decides, possibly a CPU host now and layer 4 later.
-   If Hetzner offers the Inference API as a product after the experiment,
-   compare its price with the host's.
+   Only needed if a hosted endpoint (§1.1) does not hold on cost, terms
+   or availability.
 2. **Layer 4 at all:** if the larger model cannot meet §2 on the chosen
    host, is layer 3 alone enough for the first release?
 3. **Escalation rule:** `DESIGN.md` §8 question 6 still stands; a model
@@ -311,6 +331,7 @@ the finding they explain.
 4. **Model updates:** a new model version changes results. Pin the model by
    file hash in the report, and rerun §8 before changing it.
 5. **Cost against §6.3:** Haiku 5.5 was estimated at $6-12 a month for
-   layer 3. A model host costs more per month; this design accepts that for
-   keeping review on bodnuti's own hardware. The host's cost goes into
-   `STATUS.md` once §8 picks it.
+   layer 3. FriendliAI's per-token price for the two measured models lands
+   in the same range (§1.1); §8 measures the real token counts, and the
+   chosen configuration's cost goes into `STATUS.md`. A model host costs
+   more per month, accepted only as the fallback.
