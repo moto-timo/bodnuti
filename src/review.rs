@@ -133,7 +133,7 @@ const CATEGORIES: [&str; 11] = [
 ];
 
 /// The prompt version, the same as bench/phase3/score.py's.
-pub const PROMPT: &str = "v2.2";
+pub const PROMPT: &str = "v2.3";
 
 const SYSTEM_CORE: &str = "\
 You review one patch to an OpenEmbedded / Yocto Project layer.
@@ -601,6 +601,79 @@ fn guides(dir: Option<&Path>, paths: &[&str]) -> String {
         .join("\n\n")
 }
 
+/// All review rules of one patch, at most.
+const RULES_CAP: usize = 24 * 1024;
+
+/// The review rules in `dir/rules/*.md` that a patch's diff selects
+/// (§5.1). Each file starts with `<!-- select: TOKENS -->`: `.ext` and
+/// `path=TEXT` match a file the diff changes (any of them; none means any
+/// file), and every other token is text one of the changed lines must
+/// contain (any of them; none means always). A file without the line is
+/// never sent. Files go in name order until RULES_CAP.
+fn rules(dir: &Path, diff: &str) -> String {
+    let files: Vec<&str> = diff
+        .lines()
+        .filter_map(|l| l.strip_prefix("+++ b/").or(l.strip_prefix("--- a/")))
+        .map(str::trim_end)
+        .collect();
+    let changed: Vec<&str> = diff
+        .lines()
+        .filter(|l| {
+            (l.starts_with('+') || l.starts_with('-'))
+                && !l.starts_with("+++")
+                && !l.starts_with("---")
+        })
+        .collect();
+    let mut names: Vec<_> = std::fs::read_dir(dir.join("rules"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "md"))
+        .collect();
+    names.sort();
+    let mut out = String::new();
+    for path in names {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some((first, body)) = text.split_once('\n') else {
+            continue;
+        };
+        let Some(select) = first
+            .strip_prefix("<!-- select:")
+            .and_then(|s| s.strip_suffix("-->"))
+        else {
+            continue;
+        };
+        let (mut on_file, mut on_text) = (Vec::new(), Vec::new());
+        for token in select.split_whitespace() {
+            if token.starts_with('.') || token.starts_with("path=") {
+                on_file.push(token);
+            } else {
+                on_text.push(token);
+            }
+        }
+        let file_ok = on_file.is_empty()
+            || files.iter().any(|f| {
+                on_file.iter().any(|t| match t.strip_prefix("path=") {
+                    Some(part) => f.contains(part),
+                    None => f.ends_with(t),
+                })
+            });
+        let text_ok = on_text.is_empty()
+            || changed
+                .iter()
+                .any(|l| on_text.iter().any(|t| l.contains(t)));
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let block = format!("## Rules: {name}\n\n{body}\n\n");
+        if file_ok && text_ok && out.len() + block.len() <= RULES_CAP {
+            out.push_str(&block);
+        }
+    }
+    out
+}
+
 /// Attribute values inside `<untrusted ...>` cannot close the tag.
 fn attr(s: &str) -> String {
     s.replace(['"', '<', '>', '\n'], "_")
@@ -612,9 +685,21 @@ pub fn messages(ctx: &PatchContext, layer1: &[Finding], guides_dir: Option<&Path
     let paths: Vec<&str> = ctx.lines.keys().map(String::as_str).collect();
     let system = format!(
         "{SYSTEM_CORE}{}\n\nThe guides below mention a git_grep tool; you do not have it, \
-         its results are already in the request.\n\n{}",
+         its results are already in the request.\n\n{}{}",
         schema(),
-        guides(guides_dir, &paths)
+        guides(guides_dir, &paths),
+        guides_dir.map_or(String::new(), |d| {
+            let r = rules(d, &ctx.diff);
+            if r.is_empty() {
+                r
+            } else {
+                format!(
+                    "\n\n# Review rules from maintainers' past reviews\n\n\
+                     Report a rule's problem only when its trigger is in the patch and none \
+                     of its \"do not report when\" cases applies.\n\n{r}"
+                )
+            }
+        })
     );
     let mut blocks = vec![format!(
         "<untrusted kind=\"patch\">\n{}</untrusted>",
@@ -1298,6 +1383,31 @@ mod tests {
         assert_eq!(kind(0), "json_schema");
         assert_eq!(kind(1), "json_object");
         assert_eq!(kind(2), "json_object");
+    }
+
+    #[test]
+    fn rules_are_chosen_by_the_files_and_lines_a_patch_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let rules = dir.path().join("rules");
+        std::fs::create_dir(&rules).unwrap();
+        let write = |name: &str, text: &str| std::fs::write(rules.join(name), text).unwrap();
+        write(
+            "a-pkgconfig.md",
+            "<!-- select: .bb PACKAGECONFIG -->\nPC rule\n",
+        );
+        write("b-headers.md", "<!-- select: .patch -->\nheader rule\n");
+        write("c-oeqa.md", "<!-- select: path=oeqa -->\nqa rule\n");
+        write("d-unselected.md", "no select line\n");
+        let diff = "--- a/meta/recipes-foo/foo/foo_1.0.bb\n+++ b/meta/recipes-foo/foo/foo_1.0.bb\n\
+                    @@ -1 +1 @@\n LICENSE = \"MIT\"\n+PACKAGECONFIG ??= \"x\"\n";
+        let r = super::rules(dir.path(), diff);
+        assert!(r.contains("PC rule") && !r.contains("<!-- select"));
+        assert!(!r.contains("header rule") && !r.contains("qa rule") && !r.contains("no select"));
+        let r = super::rules(
+            dir.path(),
+            "+++ b/meta/lib/oeqa/selftest/cases/x.py\n+x = 1\n",
+        );
+        assert_eq!(r, "## Rules: c-oeqa.md\n\nqa rule\n\n\n");
     }
 
     #[test]

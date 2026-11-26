@@ -487,6 +487,15 @@ finding and the tools when the applied commit is at hand (three turns).
 A confirmation whose quote is in neither the request nor a tool's
 output counts as refuted.
 
+Review rules (draft): markdown files in `rules/` inside the guides
+directory, each rule condensed from at least two maintainer comments on
+the lists that the author acted on in v2, with the quotes, a trigger and
+a "do not report when" case. Each file's first line,
+`<!-- select: .bb PACKAGECONFIG -->`, says which changed files and
+changed lines select it, so a patch gets only the rules it touches, at
+most 24 KiB. They are plain markdown on purpose: any other review tool
+or agent can load the same rules.
+
 ### 13.2 Measured on a labelled set, locally
 
 The 26 November findings, read by hand, become a test set: 40 patches
