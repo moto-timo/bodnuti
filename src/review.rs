@@ -778,7 +778,8 @@ pub fn review(
             }
         };
         // Sizes, tokens, time and model only: never the key or the prompt.
-        println!(
+        // On stderr: check --json writes the report to stdout.
+        eprintln!(
             "review: patch {}: {}, request {size} B, {} prompt + {} completion tokens, {:.1}s",
             ctx.index,
             client.model,
