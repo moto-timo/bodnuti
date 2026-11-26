@@ -55,6 +55,14 @@ pub struct ReviewConfig {
     /// high, is what kept false findings under the §8 bar.
     #[serde(default = "default_min_confidence")]
     pub min_confidence: Confidence,
+    /// Room for the answer, reasoning included: a local model that
+    /// reasons needs more than the default.
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+}
+
+fn default_max_tokens() -> u32 {
+    8192
 }
 
 fn default_min_confidence() -> Confidence {
@@ -76,6 +84,7 @@ impl ReviewConfig {
             thinking: None,
             reasoning_effort: None,
             min_confidence: default_min_confidence(),
+            max_tokens: default_max_tokens(),
         }
     }
 }
@@ -355,6 +364,7 @@ pub struct Client {
     pub model: String,
     thinking: Option<bool>,
     reasoning_effort: Option<String>,
+    max_tokens: u32,
     pub(crate) min_confidence: Confidence,
     /// The server's context; a larger request is logged as at risk.
     context_tokens: u32,
@@ -383,6 +393,7 @@ impl Client {
         );
         client.reasoning_effort = config.reasoning_effort.clone();
         client.min_confidence = config.min_confidence;
+        client.max_tokens = config.max_tokens;
         Ok(client)
     }
 
@@ -404,6 +415,7 @@ impl Client {
             model: model.into(),
             thinking,
             reasoning_effort: None,
+            max_tokens: default_max_tokens(),
             min_confidence: Confidence::Low,
             context_tokens: default_context_tokens(),
             agent,
@@ -416,7 +428,7 @@ impl Client {
             "model": self.model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": 8192,
+            "max_tokens": self.max_tokens,
         });
         if let Some(tools) = tools {
             // Structured output and tool calls do not mix on every server;
