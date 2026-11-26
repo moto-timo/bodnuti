@@ -786,7 +786,10 @@ fn check(args: CheckArgs) -> Result<Report> {
     if args.review_context || args.review {
         for a in &linted.applied {
             match context::gather(&workspace.path(), a.index, &a.commit) {
-                Ok(c) => context.push(c),
+                Ok(mut c) => {
+                    context::add_series(&mut c, &series);
+                    context.push(c)
+                }
                 Err(err) => tool_errors.push(ToolError {
                     tool: Tool::Bodnuti,
                     message: format!("review context for patch {}: {err:#}", a.index),

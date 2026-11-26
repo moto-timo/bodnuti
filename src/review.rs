@@ -113,7 +113,7 @@ const CATEGORIES: [&str; 11] = [
 ];
 
 /// The prompt version, the same as bench/phase3/score.py's.
-pub const PROMPT: &str = "v2";
+pub const PROMPT: &str = "v2.1";
 
 const SYSTEM_CORE: &str = "\
 You review one patch to an OpenEmbedded / Yocto Project layer.
@@ -163,6 +163,18 @@ BitBake and OE-Core facts that reviewers often get wrong:
   inherited classes and PACKAGECONFIG in the request; classes add many.
 - oe-selftest removes the test_recipe.inc and selftest.inc files a test
   writes.
+- In OE, HOST is the machine the recipe's output runs on: RUST_HOST_SYS
+  is the target triple for a target recipe, and cargo builds with
+  --target ${RUST_HOST_SYS}.
+- In a backported patch file, the From line carries the hash of the
+  local cherry-pick, so it differs from the upstream commit that
+  Upstream-Status names; that is normal.
+- BitBake tracks functions of oe.* modules named in vardeps, such as
+  oe.utils.foo, like variables.
+- A layer's master branch builds against OE-Core and BitBake master;
+  the cover letter or the series may say which change a patch needs.
+- A patch that refreshes an existing patch file (a version upgrade) is
+  not the place to report what that file already lacked.
 
 Answer with JSON only, matching this schema:
 ";
@@ -747,6 +759,18 @@ fn validate(
             dropped.push(format!("restates layer 1: {path}:{}", line.unwrap_or(0)));
             continue;
         }
+        // The same defect reported twice, in other words.
+        if kept.iter().any(|k: &ModelFinding| {
+            k.finding.file.as_deref() == Some(path)
+                && match (k.finding.line, line) {
+                    (Some(a), Some(b)) => a.abs_diff(b) <= RESTATE_LINES,
+                    (None, None) => true,
+                    _ => false,
+                }
+        }) {
+            dropped.push(format!("repeats a finding: {path}:{}", line.unwrap_or(0)));
+            continue;
+        }
         if !quoted(&f.evidence, ctx) {
             dropped.push(format!(
                 "evidence not in request: {path}:{}",
@@ -1238,7 +1262,7 @@ mod tests {
 
     #[test]
     fn drops_findings_below_the_minimum_confidence() {
-        let mut low = finding("meta/classes-recipe/x.bbclass", Some(2));
+        let mut low = finding("meta/recipes-foo/foo/foo_1.0.bb", Some(15));
         low["confidence"] = json!("medium");
         let content = answer(vec![finding("meta/classes-recipe/x.bbclass", Some(1)), low]);
         let (url, _) = stub(vec![ok(&content)]);
@@ -1255,7 +1279,7 @@ mod tests {
 
     #[test]
     fn drops_findings_whose_evidence_is_not_in_the_request() {
-        let mut invented = finding("meta/classes-recipe/x.bbclass", Some(2));
+        let mut invented = finding("meta/recipes-foo/foo/foo_1.0.bb", Some(15));
         invented["evidence"] = json!("RDEPENDS:${PN} = \"bash\"");
         let mut spaced = finding("meta/classes-recipe/x.bbclass", Some(1));
         spaced["evidence"] = json!("  x()   {\n");
@@ -1328,6 +1352,22 @@ mod tests {
         );
         assert!(second["tools"].is_array());
         assert!(second.get("response_format").is_none());
+    }
+
+    #[test]
+    fn drops_a_second_finding_on_the_same_lines() {
+        let content = answer(vec![
+            finding("meta/classes-recipe/x.bbclass", Some(1)),
+            finding("meta/classes-recipe/x.bbclass", Some(3)),
+        ]);
+        let (url, _) = stub(vec![ok(&content)]);
+        let r = review(&client(&url), &ctx(), &[], None).unwrap();
+        assert_eq!(r.findings.len(), 1);
+        assert!(
+            r.dropped[0].starts_with("repeats a finding"),
+            "{:?}",
+            r.dropped
+        );
     }
 
     #[test]

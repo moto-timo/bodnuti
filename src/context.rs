@@ -16,6 +16,8 @@ use crate::git;
 
 /// One file of context, cut at a line boundary.
 const FILE_CAP: usize = 12 * 1024;
+/// The cover letter and the series' subjects.
+const SERIES_CAP: usize = 4 * 1024;
 /// All context items of one patch, the diff not counted.
 const CONTEXT_CAP: usize = 48 * 1024;
 /// `git grep` hits kept per name.
@@ -75,6 +77,42 @@ impl PatchContext {
             .entry(path.into())
             .or_insert(text.lines().count() as u32);
     }
+}
+
+/// The cover letter and the subjects of the other patches, so a patch is
+/// reviewed as part of its series (a dependency named in the cover letter,
+/// a caller changed in a later patch). Nothing for a single patch.
+pub fn add_series(ctx: &mut PatchContext, series: &crate::series::Series) {
+    if series.patches.len() < 2 && series.cover.is_none() {
+        return;
+    }
+    let mut text = String::new();
+    if let Some(cover) = &series.cover {
+        text.push_str(&format!(
+            "Cover letter: {}\n\n{}\n\n",
+            cover.subject,
+            cover.commit_message()
+        ));
+    }
+    text.push_str("Patches of the series:\n");
+    for p in &series.patches {
+        let mark = if p.index == ctx.index {
+            " (this patch)"
+        } else {
+            ""
+        };
+        text.push_str(&format!("{}/{} {}{mark}\n", p.index, p.total, p.summary()));
+    }
+    // The series comes first, and outside the per-patch cap: it is short
+    // once cut.
+    ctx.items.insert(
+        0,
+        Item {
+            kind: "series".into(),
+            path: String::new(),
+            text: cap(&text, SERIES_CAP),
+        },
+    );
 }
 
 /// `text` cut to at most `limit` bytes at a line boundary, marked as cut.
