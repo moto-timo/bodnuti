@@ -1,6 +1,10 @@
 # Design draft: fine-tuning layer 3 on the lists' review history
 
-Status: draft, for the maintainer to decide. Nothing here is built.
+Status: draft. Decided on 26 November 2026 (maintainer): train without
+asking the OE and Yocto maintainers first; the adapter and the dataset
+stay private for now; train locally, on a workstation with an AMD
+Radeon RX 7600 XT (16 GB, gfx1102, ROCm, PyTorch 2.9 for ROCm 6.4), so
+no hosted tokens are needed for training or for review.
 
 Layer 3 (`PHASE3.md` §5) asks a general open-weight model to review an
 OE patch. Measured in `docs/STATUS.md`, it finds most of the six benchmark
@@ -87,7 +91,23 @@ reviewers keep applying; `score.py --prompt v3 --lessons` adds them to
 the system prompt. It needs no GPU and no new endpoint, and its result
 is the baseline a trained adapter has to beat.
 
-## 6. Open questions for the maintainer
+## 6. Local training (decided)
+
+- **Base model:** gemma4 12B, the largest Gemma 4 that a 4-bit LoRA
+  fits in 16 GB with requests cut to about 8k tokens. The local
+  baseline to beat is gemma4 26B-A4B with reasoning, untrained, which
+  found the three pillow bugs of 26 November with no false finding at
+  about 17 minutes a patch on a laptop GPU; and untrained gemma4 12B.
+- **Labels without a hosted model:** a defect example's target names
+  the file and the lines the v2 changed (from the interdiff) and the
+  changelog sentence as the message; the evidence is v1's line there.
+  A clean example's target is the empty list.
+- **Serving:** the adapter merged and converted to GGUF, run in ollama
+  on the laptop or the workstation.
+- **Test:** the 40 patches of 26 November with their hand-checked
+  verdicts, which are never trained on.
+
+## 7. Open questions for the maintainer
 
 1. **Consent:** the archives are public, but training on contributors'
    and reviewers' text is a community question. Ask the OE and Yocto
