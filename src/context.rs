@@ -37,6 +37,10 @@ pub struct PatchContext {
     /// Line counts of every file the request names, for validating a
     /// model's file and line (§5.3).
     pub lines: BTreeMap<String, u32>,
+    /// The commit git am made of the patch, for layer 4's tools (§6).
+    /// Absent in contexts queued before it was recorded.
+    #[serde(default)]
+    pub commit: String,
     #[serde(skip)]
     pub size: usize,
 }
@@ -86,7 +90,7 @@ fn cap(text: &str, limit: usize) -> String {
 
 /// `path` normalized inside the tree, or None if it is absolute, empty or
 /// climbs out of it.
-fn inside(path: &str) -> Option<String> {
+pub(crate) fn inside(path: &str) -> Option<String> {
     if path.starts_with('/') || path.contains(['\0', '\n', '\\']) {
         return None;
     }
@@ -105,7 +109,7 @@ fn inside(path: &str) -> Option<String> {
 
 /// The text of a regular file at `rev`, or None if it is missing, outside
 /// the tree, a symlink or a submodule.
-fn blob(tree: &Path, rev: &str, path: &str) -> Option<String> {
+pub(crate) fn blob(tree: &Path, rev: &str, path: &str) -> Option<String> {
     let path = inside(path)?;
     let entry = git::run(
         tree,
@@ -129,7 +133,7 @@ fn blob(tree: &Path, rev: &str, path: &str) -> Option<String> {
 }
 
 /// Raw stdout of git, which may hold anything a patch put in the tree.
-fn git_out(tree: &Path, args: &[&str]) -> Result<String> {
+pub(crate) fn git_out(tree: &Path, args: &[&str]) -> Result<String> {
     let out = git::command(tree).args(args).output()?;
     if !out.status.success() {
         bail!(
@@ -173,6 +177,7 @@ pub fn gather(tree: &Path, index: u32, commit: &str) -> Result<PatchContext> {
     let mut ctx = PatchContext {
         index,
         diff,
+        commit: commit.to_string(),
         ..Default::default()
     };
     let mut texts = BTreeMap::new();
@@ -447,7 +452,7 @@ fn changed_names(diff: &str) -> Vec<String> {
 
 // ponytail: searches the whole tree, not oe-core's meta/ and scripts/
 // only as the bench does, so layers with other top directories work.
-const EXCLUDE: &str = ":!meta/files/common-licenses";
+pub(crate) const EXCLUDE: &str = ":!meta/files/common-licenses";
 
 fn too_common(tree: &Path, rev: &str, name: &str) -> bool {
     let Ok(out) = git_out(tree, &["grep", "-c", "-w", "-e", name, rev, "--", EXCLUDE]) else {

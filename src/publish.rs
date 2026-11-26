@@ -1428,6 +1428,10 @@ mod tests {
             dropped: vec![],
             prompt_tokens: 0,
             completion_tokens: 0,
+            confidence: None,
+            prompt: "v2".into(),
+            min_confidence: "medium".into(),
+            escalation: None,
         }
     }
 

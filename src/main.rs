@@ -8,6 +8,7 @@ mod cppcheck;
 mod django;
 mod djlint;
 mod docs;
+mod escalate;
 mod finding;
 mod git;
 mod json;
@@ -794,6 +795,15 @@ fn check(args: CheckArgs) -> Result<Report> {
     let mut review = Vec::new();
     if let Some(config) = &review_config {
         let client = review::Client::new(config)?;
+        let escalation = match &config.escalation_model {
+            Some(model) => {
+                let mut c = review::Client::new(config)?;
+                c.model = model.clone();
+                Some(c)
+            }
+            None => None,
+        };
+        let tree = workspace.path();
         for ctx in &context {
             let layer1: Vec<Finding> = findings
                 .iter()
@@ -802,7 +812,25 @@ fn check(args: CheckArgs) -> Result<Report> {
                 .collect();
             review.push(
                 match review::review(&client, ctx, &layer1, config.guides.as_deref()) {
-                    Ok(r) => r,
+                    Ok(r) => match escalate::wants(ctx, &r) {
+                        Some(why) => escalate::run(
+                            escalation.as_ref(),
+                            &review::Queued {
+                                list: String::new(),
+                                root: String::new(),
+                                patch_id: None,
+                                queued: 0,
+                                layer1: layer1.clone(),
+                                context: ctx.clone(),
+                                repo: Some(tree.clone()),
+                            },
+                            r,
+                            &why,
+                            config.guides.as_deref(),
+                            std::time::Instant::now() + std::time::Duration::from_secs(3600),
+                        ),
+                        None => r,
+                    },
                     Err(review::CallError::RateLimited) => {
                         review::Review::not_reviewed(ctx.index, &client.model, "rate limited")
                     }

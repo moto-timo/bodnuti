@@ -112,6 +112,9 @@ const CATEGORIES: [&str; 11] = [
     "other",
 ];
 
+/// The prompt version, the same as bench/phase3/score.py's.
+pub const PROMPT: &str = "v2";
+
 const SYSTEM_CORE: &str = "\
 You review one patch to an OpenEmbedded / Yocto Project layer.
 
@@ -249,6 +252,19 @@ pub struct Review {
     pub prompt_tokens: u64,
     #[serde(default)]
     pub completion_tokens: u64,
+    /// The model's confidence in the whole review, which layer 4 reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<String>,
+    /// The prompt version and min_confidence, so live scores (§11) can
+    /// tell configurations apart. Empty in older results.
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub min_confidence: String,
+    /// Why layer 4 reviewed the patch, or why it did not although it
+    /// should have (§6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escalation: Option<String>,
 }
 
 impl Review {
@@ -272,6 +288,10 @@ impl Review {
             dropped: Vec::new(),
             prompt_tokens: 0,
             completion_tokens: 0,
+            confidence: None,
+            prompt: PROMPT.into(),
+            min_confidence: String::new(),
+            escalation: None,
         }
     }
 }
@@ -286,6 +306,10 @@ pub struct Queued {
     pub queued: u64,
     pub layer1: Vec<Finding>,
     pub context: PatchContext,
+    /// The clone the patch was checked in, where layer 4's tools read
+    /// `context.commit` (§6). Absent in older queue entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -303,10 +327,12 @@ pub enum CallError {
     Failed(String),
 }
 
-struct Reply {
-    content: String,
-    prompt_tokens: u64,
-    completion_tokens: u64,
+pub(crate) struct Reply {
+    pub(crate) content: String,
+    /// The tool calls of the assistant message, as sent.
+    pub(crate) tool_calls: Vec<Value>,
+    pub(crate) prompt_tokens: u64,
+    pub(crate) completion_tokens: u64,
 }
 
 /// One endpoint and model. Remembers which structured-output form the
@@ -317,7 +343,7 @@ pub struct Client {
     pub model: String,
     thinking: Option<bool>,
     reasoning_effort: Option<String>,
-    min_confidence: Confidence,
+    pub(crate) min_confidence: Confidence,
     /// The server's context; a larger request is logged as at risk.
     context_tokens: u32,
     agent: ureq::Agent,
@@ -373,20 +399,26 @@ impl Client {
         }
     }
 
-    fn body(&self, messages: &Value) -> Value {
+    fn body(&self, messages: &Value, tools: Option<&Value>) -> Value {
         let mut body = json!({
             "model": self.model,
             "messages": messages,
             "temperature": 0,
             "max_tokens": 8192,
         });
-        match self.format.get() {
-            Format::JsonSchema => {
-                body["response_format"] = json!({"type": "json_schema", "json_schema":
+        if let Some(tools) = tools {
+            // Structured output and tool calls do not mix on every server;
+            // the answer is parsed from the text either way.
+            body["tools"] = tools.clone();
+        } else {
+            match self.format.get() {
+                Format::JsonSchema => {
+                    body["response_format"] = json!({"type": "json_schema", "json_schema":
                     {"name": "review", "schema": schema(), "strict": true}});
+                }
+                Format::JsonObject => body["response_format"] = json!({"type": "json_object"}),
+                Format::None => {}
             }
-            Format::JsonObject => body["response_format"] = json!({"type": "json_object"}),
-            Format::None => {}
         }
         if let Some(on) = self.thinking {
             body["chat_template_kwargs"] = json!({"enable_thinking": on});
@@ -399,8 +431,17 @@ impl Client {
 
     /// One answer, stepping down the structured-output form on HTTP 400.
     fn chat(&self, messages: &Value) -> Result<Reply, CallError> {
+        self.chat_with(messages, None)
+    }
+
+    /// One answer, offering `tools` when given (layer 4, §6).
+    pub(crate) fn chat_with(
+        &self,
+        messages: &Value,
+        tools: Option<&Value>,
+    ) -> Result<Reply, CallError> {
         loop {
-            let body = self.body(messages).to_string();
+            let body = self.body(messages, tools).to_string();
             let mut request = self
                 .agent
                 .post(&self.url)
@@ -440,19 +481,22 @@ fn reply(text: &str) -> Result<Reply, String> {
     let data: Value =
         serde_json::from_str(text).map_err(|_| "the answer is not JSON".to_string())?;
     let choice = &data["choices"][0];
-    let Some(content) = choice["message"]["content"]
-        .as_str()
-        .filter(|c| !c.is_empty())
-    else {
+    let tool_calls = choice["message"]["tool_calls"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let content = choice["message"]["content"].as_str().unwrap_or("");
+    if content.is_empty() && tool_calls.is_empty() {
         return Err(if choice["finish_reason"] == "length" {
             "the answer was cut at max_tokens before any content; try a lower reasoning_effort"
                 .into()
         } else {
             "no message in the answer".into()
         });
-    };
+    }
     Ok(Reply {
         content: content.to_string(),
+        tool_calls,
         prompt_tokens: data["usage"]["prompt_tokens"].as_u64().unwrap_or(0),
         completion_tokens: data["usage"]["completion_tokens"].as_u64().unwrap_or(0),
     })
@@ -560,10 +604,12 @@ pub fn messages(ctx: &PatchContext, layer1: &[Finding], guides_dir: Option<&Path
 }
 
 #[derive(Deserialize)]
-struct Answer {
+pub(crate) struct Answer {
     findings: Vec<RawFinding>,
     #[serde(default)]
     explanations: Vec<RawExplanation>,
+    #[serde(default)]
+    pub(crate) confidence: Option<Confidence>,
 }
 
 #[derive(Deserialize)]
@@ -606,7 +652,7 @@ impl Confidence {
 }
 
 /// The answer in `text`, after any `<think>` block, if it fits the schema.
-fn parse(text: &str) -> Option<Answer> {
+pub(crate) fn parse(text: &str) -> Option<Answer> {
     let mut text = text.to_string();
     while let Some(start) = text.find("<think>") {
         let end = text[start..]
@@ -747,6 +793,33 @@ fn validate(
     (kept, explanations, dropped)
 }
 
+/// The validated review of one answer.
+pub(crate) fn reviewed(
+    client: &Client,
+    ctx: &PatchContext,
+    layer1: &[Finding],
+    answer: Answer,
+    reply: &Reply,
+) -> Review {
+    let confidence = answer.confidence.map(|c| c.as_str().to_string());
+    let (findings, explanations, dropped) =
+        validate(answer, ctx.index, ctx, layer1, client.min_confidence);
+    Review {
+        index: ctx.index,
+        model: client.model.clone(),
+        outcome: Outcome::Reviewed,
+        findings,
+        explanations,
+        dropped,
+        prompt_tokens: reply.prompt_tokens,
+        completion_tokens: reply.completion_tokens,
+        confidence,
+        prompt: PROMPT.into(),
+        min_confidence: client.min_confidence.as_str().into(),
+        escalation: None,
+    }
+}
+
 /// Reviews one patch: a failed call or an answer outside the schema is
 /// tried once more, then reported as not reviewed.
 pub fn review(
@@ -778,7 +851,6 @@ pub fn review(
             }
         };
         // Sizes, tokens, time and model only: never the key or the prompt.
-        // On stderr: check --json writes the report to stdout.
         eprintln!(
             "review: patch {}: {}, request {size} B, {} prompt + {} completion tokens, {:.1}s",
             ctx.index,
@@ -791,18 +863,7 @@ pub fn review(
             last = "the answer did not match the schema".into();
             continue;
         };
-        let (findings, explanations, dropped) =
-            validate(answer, ctx.index, ctx, layer1, client.min_confidence);
-        return Ok(Review {
-            index: ctx.index,
-            model: client.model.clone(),
-            outcome: Outcome::Reviewed,
-            findings,
-            explanations,
-            dropped,
-            prompt_tokens: reply.prompt_tokens,
-            completion_tokens: reply.completion_tokens,
-        });
+        return Ok(reviewed(client, ctx, layer1, answer, &reply));
     }
     Ok(Review::without_answer(
         ctx.index,
@@ -903,12 +964,19 @@ impl Store {
 pub fn run(config: &ReviewConfig, state: &Path, now: u64) -> Result<()> {
     let mut client = Client::new(config)?;
     client.context_tokens = config.context_tokens;
-    if config.escalation_model.is_some() {
-        println!("review: escalation_model is set, but layer 4 is not built yet");
-    }
+    let escalation = match &config.escalation_model {
+        Some(model) => {
+            let mut c = Client::new(config)?;
+            c.model = model.clone();
+            c.context_tokens = config.context_tokens;
+            Some(c)
+        }
+        None => None,
+    };
     let deadline = Instant::now() + Duration::from_secs(config.review_minutes * 60);
     drain(
         &client,
+        escalation.as_ref(),
         &Store::new(state),
         config.guides.as_deref(),
         now,
@@ -918,6 +986,7 @@ pub fn run(config: &ReviewConfig, state: &Path, now: u64) -> Result<()> {
 
 fn drain(
     client: &Client,
+    escalation: Option<&Client>,
     store: &Store,
     guides_dir: Option<&Path>,
     now: u64,
@@ -950,7 +1019,12 @@ fn drain(
             )
         } else {
             match review(client, &q.context, &q.layer1, guides_dir) {
-                Ok(r) => r,
+                Ok(r) => match crate::escalate::wants(&q.context, &r) {
+                    Some(why) => {
+                        crate::escalate::run(escalation, &q, r, &why, guides_dir, deadline)
+                    }
+                    None => r,
+                },
                 Err(CallError::RateLimited) => {
                     println!("review: rate limited; the rest waits for the next run");
                     break;
@@ -963,6 +1037,9 @@ fn drain(
             }
         };
         store.save(&q, &result)?;
+        if let Some(repo) = &q.repo {
+            crate::escalate::release(repo, &q.context.commit);
+        }
         std::fs::remove_file(path)?;
         reviewed += 1;
     }
@@ -1197,6 +1274,66 @@ mod tests {
     }
 
     #[test]
+    fn layer_4_runs_a_tool_and_feeds_its_output_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}");
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        git(&["init", "-q"]);
+        std::fs::create_dir_all(dir.path().join("meta/classes-recipe")).unwrap();
+        std::fs::write(
+            dir.path().join("meta/classes-recipe/x.bbclass"),
+            "x() {\n}\n",
+        )
+        .unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "x"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        let call = json!({
+            "choices": [{"message": {"content": null, "tool_calls": [{"id": "c1",
+                "type": "function", "function": {"name": "grep",
+                "arguments": "{\"pattern\": \"x\"}"}}]}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        });
+        let (url, seen) = stub(vec![
+            (200, call.to_string()),
+            ok(&answer(vec![finding(
+                "meta/classes-recipe/x.bbclass",
+                Some(1),
+            )])),
+        ]);
+        let tools = crate::escalate::Tools {
+            repo: dir.path(),
+            commit: &head,
+        };
+        let layer3 = Review::not_reviewed(2, "small", "x");
+        let r =
+            crate::escalate::escalate(&client(&url), &ctx(), &[], None, &layer3, &tools).unwrap();
+        assert_eq!(r.findings.len(), 1, "{:?}", r.dropped);
+        assert_eq!(r.prompt_tokens, 1010);
+        let second: Value = serde_json::from_str(&seen.lock().unwrap()[1]).unwrap();
+        let tool = second["messages"].as_array().unwrap().last().unwrap();
+        assert_eq!(tool["role"], "tool");
+        assert_eq!(tool["tool_call_id"], "c1");
+        let out = tool["content"].as_str().unwrap();
+        assert!(out.starts_with("<untrusted kind=\"tool\""), "{out}");
+        assert!(
+            out.contains("meta/classes-recipe/x.bbclass:1:x() {"),
+            "{out}"
+        );
+        assert!(second["tools"].is_array());
+        assert!(second.get("response_format").is_none());
+    }
+
+    #[test]
     fn rate_limit_is_not_a_tool_error() {
         let (url, _) = stub(vec![(429, "{}".into())]);
         assert!(matches!(
@@ -1255,6 +1392,7 @@ mod tests {
                     queued,
                     layer1: vec![],
                     context,
+                    repo: None,
                 })
                 .unwrap();
         };
@@ -1263,7 +1401,7 @@ mod tests {
         queue("later@x", now - 30, "cc");
         let (url, _) = stub(vec![ok(&answer(vec![])), (429, "{}".into())]);
         let far = Instant::now() + Duration::from_secs(60);
-        drain(&client(&url), &store, None, now, far).unwrap();
+        drain(&client(&url), None, &store, None, now, far).unwrap();
 
         let stale = &store.results("oe-core", "stale@x")[&1];
         assert!(matches!(stale.outcome, Outcome::Skipped { .. }));

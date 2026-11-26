@@ -244,12 +244,25 @@ findings as unverified leads, and up to five turns of read-only tools:
 | `show` | a file from the worktree or the base tree, up to the per-file cap |
 | `log` | `git log --oneline -n 20` for a path |
 
-bodnuti runs each tool call in a fresh check container with no network, on
-the same worktree, and validates every path and pattern argument as it
-validates mail. The model never gets a shell.
+The tools read git objects only: `git grep -F` and `cat-file` at the
+commit git am made of the patch, and `git log` up to it, in the clone the
+patch was checked in. No checkout, worktree, filter or textconv runs, so
+nothing from the patch is executed or written; a fresh check container per
+call would add a container start per turn for no extra isolation. Every
+path and pattern argument is validated as mail is, and tool output goes
+back as `<untrusted>` data. The model never gets a shell. The check keeps
+each applied commit under `refs/bodnuti/review/` until the patch is
+reviewed, so git gc does not drop it while it waits in the queue.
 
-Layer 4's output replaces layer 3's for that patch, with the same schema and
-validation. If no model is configured for layer 4, or the patch would not
+Tool turns go without structured output, which not every server combines
+with tools; the answer is parsed from the text, and the last turn offers
+no tools, so the model must answer. A failed or unparsable escalation is
+tried once more. An escalation starts only if ten minutes of the run's
+time slice are left.
+
+Only the files the patch changes count for the path rule, not its
+context. Layer 4's output replaces layer 3's for that patch, with the same
+schema and validation; the result says why it was escalated. If no model is configured for layer 4, or the patch would not
 finish inside the §2 limit, the patch keeps its layer 3 result and is
 marked as not escalated.
 
