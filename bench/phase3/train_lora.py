@@ -31,7 +31,7 @@ def load(paths: list[Path], tok, max_tokens: int, val_since: str):
         for line in p.open():
             ex = json.loads(line)
             msgs = ex["messages"]
-            n = len(tok.apply_chat_template(msgs, tokenize=True))
+            n = len(tok.apply_chat_template(msgs, tokenize=True, return_dict=True)["input_ids"])
             if n > max_tokens:
                 skipped += 1
                 continue
@@ -40,6 +40,29 @@ def load(paths: list[Path], tok, max_tokens: int, val_since: str):
     random.Random(1).shuffle(train)
     print(f"train {len(train)}, validation {len(val)}, left out as too long {skipped}", flush=True)
     return Dataset.from_list(train), Dataset.from_list(val)
+
+
+class AnswerOnly(SFTTrainer):
+    """Compute logits only from the first answer token on.
+
+    Gemma's 262k vocabulary makes the logits of an 8k-token request
+    several GB, more than a 16 GB GPU has left; the answer is short, and
+    only its tokens count in the loss.
+    """
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        labels = inputs["labels"]
+        first = int((labels != -100).int().argmax(dim=1).min())
+        keep = labels.shape[1] - first + 1
+        args = {k: v for k, v in inputs.items() if k not in ("labels", "completion_mask")}
+        out = model(**args, logits_to_keep=keep)
+        logits = out.logits[:, :-1].float()
+        target = labels[:, first:].to(logits.device)
+        loss = torch.nn.functional.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]), target.reshape(-1), ignore_index=-100, reduction="sum"
+        )
+        loss = loss / (num_items_in_batch if num_items_in_batch is not None else (target != -100).sum())
+        return (loss, out) if return_outputs else loss
 
 
 def main() -> None:
@@ -66,7 +89,7 @@ def main() -> None:
         gradient_accumulation_steps=8,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.05,
+        warmup_steps=0.05,  # a fraction of the steps; transformers 5 dropped warmup_ratio
         bf16=True,
         gradient_checkpointing=True,
         max_length=args.max_tokens,
@@ -95,7 +118,7 @@ def main() -> None:
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         task_type="CAUSAL_LM",
     )
-    trainer = SFTTrainer(
+    trainer = AnswerOnly(
         model=args.model,
         args=config,
         train_dataset=train,

@@ -3,11 +3,13 @@
 
 designs/TRAINING.md. Reads a public-inbox mirror of a list (one message
 per commit, blob "m"), pairs each single patch with its next version from
-the same author and summary when that version's changelog says the code
-changed, applies both to the branch as it was when v1 was sent, and turns
-the interdiff into the answer a reviewer would have given on v1. Patches
-merged unchanged from the repository's history are the clean examples,
-with an empty answer.
+the same author and summary, and takes the answer from the reviewers'
+inline replies to v1: a comment counts when it follows a quoted added
+line of the patch and v2, applied to the branch as it was when v1 was
+sent, changed code within NEAR lines of it. So the targets are what a
+maintainer wrote and the author acted on, not the author's changelog.
+Patches merged unchanged from the repository's history are the clean
+examples, with an empty answer.
 
 Each example is bodnuti's own layer 3 request for the patch, written by
 `bodnuti check --review-requests` (no model is called), plus the target
@@ -34,12 +36,10 @@ from pathlib import Path
 
 VERSION = re.compile(r"\[[^\]]*PATCH[^\]]*?\bv(\d+)\b[^\]]*\]", re.I)
 COUNTER = re.compile(r"\b(\d+)/(\d+)\]")
-NOT_CODE = re.compile(
-    r"(?i)commit message|subject|shortlog|typo in (the )?(commit|message|log)|"
-    r"signed-off|sign[- ]off|reword|rebase|resend|upstream-status|cc |link to v1"
-)
+ACK = re.compile(r"(?i)^(thanks|thank you|lgtm|looks good|reviewed-by|acked-by|tested-by)")
 BRANCH_TAG = re.compile(r"(?i)\[[^\]]*(kirkstone|scarthgap|styhead|walnascar|whinlatter|wrynose|blacksail|dunfell|hardknott|honister|langdale|mickledore|nanbield)")
-MAX_HUNKS = 3
+MAX_FINDINGS = 3
+NEAR = 5
 
 
 def git(repo: Path, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
@@ -50,16 +50,62 @@ def summary(subject: str) -> str:
     return re.sub(r"^(\s*(Re:\s*)?\[[^\]]*\]\s*)+", "", subject).strip()
 
 
-def changelog(body: str) -> str:
-    """The text between --- and the diffstat, if it names a version."""
-    head = body.split("\ndiff --git")[0]
-    after = head.split("\n---\n", 1)[1] if "\n---\n" in head else ""
-    after = re.split(r"\n [^\n]+\|\s+\d+", after)[0].strip()
-    return after if re.search(r"(?i)\bv\d+\b|changes", after) else ""
+def added_lines(body: str) -> dict[str, list[tuple[str, int]]]:
+    """Each added line of a patch mail, stripped, to its (file, new line)."""
+    out: dict[str, list[tuple[str, int]]] = {}
+    path, n = None, None
+    for line in body.splitlines():
+        if line.startswith("+++ b/"):
+            path, n = line[6:], None
+        elif line.startswith("@@ ") and path:
+            m = re.match(r"@@ -\S+ \+(\d+)", line)
+            n = int(m.group(1)) if m else None
+        elif n is not None:
+            if line.startswith("+"):
+                key = line[1:].strip()
+                if len(key) >= 4:
+                    out.setdefault(key, []).append((path, n))
+                n += 1
+            elif line.startswith(" ") or line == "":
+                n += 1
+    return out
+
+
+def comments(body: str, lines: dict) -> list[tuple[str, int, str]]:
+    """(file, line, text) of each comment a reply makes below a quoted added line."""
+    out, at, text = [], None, []
+
+    def flush():
+        msg = " ".join(" ".join(text).split())
+        if at and len(msg) >= 20 and not ACK.match(msg):
+            out.append((*at, msg[:600]))
+        text.clear()
+
+    for line in body.splitlines():
+        if line.rstrip() == "--":
+            break  # signature
+        if line.startswith(">"):
+            if text:
+                flush()
+                at = None
+            q = line[1:]
+            if q.startswith(">"):
+                at = None  # an earlier message's quote
+                continue
+            q = q[1:] if q.startswith(" ") else q
+            if q.startswith("+") and not q.startswith("+++"):
+                hits = lines.get(q[1:].strip(), [])
+                at = hits[0] if len(hits) == 1 else None
+            elif q.strip():
+                at = None
+        elif at:
+            text.append(line)
+    flush()
+    return out
 
 
 def messages(mirror: Path):
-    """(commit, subject, from, date, body) of each patch mail, oldest first."""
+    """(commit, subject, from, date, body, raw, msg) of each mail, oldest first."""
     log = git(mirror, "log", "--reverse", "--format=%H", "--all").stdout.decode().split()
     batch = subprocess.Popen(
         ["git", "-C", str(mirror), "cat-file", "--batch"],
@@ -78,7 +124,7 @@ def messages(mirror: Path):
             subject = " ".join(str(msg["subject"] or "").split())
         except Exception:
             continue
-        if "PATCH" not in subject or subject.lower().startswith("re:"):
+        if "PATCH" not in subject:
             continue
         try:
             date = email.utils.parsedate_to_datetime(str(msg["date"])).isoformat()
@@ -87,31 +133,40 @@ def messages(mirror: Path):
             body = part.get_content() if part else ""
         except Exception:
             continue
-        yield h, subject, addr, date, body, raw
+        yield h, subject, addr, date, body, raw, msg
+
+
+def msgid(value) -> str:
+    return str(value or "").strip().strip("<>")
 
 
 def pairs(mirror: Path, since: str, until: str):
-    """(v1 raw, v1 date, v2 raw, changelog, meta) for single patches revised in code."""
+    """(v1 raw, v1 date, v2 raw, reviewers' comments, meta) for revised single patches."""
     groups: dict[tuple[str, str], list] = {}
-    for h, subject, addr, date, body, raw in messages(mirror):
+    replies: dict[str, list[tuple[str, str]]] = {}
+    for h, subject, addr, date, body, raw, msg in messages(mirror):
         if not (since <= date < until) or BRANCH_TAG.search(subject):
+            continue
+        if subject.lower().startswith("re:"):
+            if re.search(r"(?m)^> ?\+", body):  # ponytail: only inline reviews are kept in memory
+                replies.setdefault(msgid(msg["in-reply-to"]), []).append((addr, body))
             continue
         c = COUNTER.search(subject)
         if c and c.group(2) != "1":
             continue  # ponytail: single patches only; series need the earlier patches applied
         v = VERSION.search(subject)
         groups.setdefault((addr, summary(subject)), []).append(
-            (date, int(v.group(1)) if v else 1, raw, body, subject)
+            (date, int(v.group(1)) if v else 1, raw, body, subject, msgid(msg["message-id"]))
         )
     for (addr, summ), mails in groups.items():
         mails.sort()
         for a, b in zip(mails, mails[1:]):
             if b[1] <= a[1]:
                 continue
-            note = changelog(b[3])
-            if not note or NOT_CODE.search(note):
-                continue
-            yield a[2], a[0], b[2], " ".join(note.split())[:400], {"summary": summ, "v1": a[4], "v2": b[4]}
+            lines = added_lines(a[3])
+            said = [c for who, body in replies.get(a[5], []) if who != addr for c in comments(body, lines)]
+            if said:
+                yield a[2], a[0], b[2], said, {"summary": summ, "v1": a[4], "v2": b[4]}
 
 
 class Tree:
@@ -141,7 +196,7 @@ class Tree:
 
 
 def hunks(repo: Path, c1: str, c2: str) -> list[tuple[str, int]]:
-    """(file, v1 line) of the first changed lines between two applied versions."""
+    """(file, v1 line) of each change between two applied versions."""
     files = git(repo, "show", "--format=", "--name-only", c1).stdout.decode().split()
     out = []
     diff = git(repo, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", c1, c2, "--", *files)
@@ -152,7 +207,7 @@ def hunks(repo: Path, c1: str, c2: str) -> list[tuple[str, int]]:
         elif line.startswith("@@ -") and current:
             start = int(line[4:].split(" ")[0].split(",")[0])
             out.append((current, max(start, 1)))
-    return out[:MAX_HUNKS] if len(out) <= 3 * MAX_HUNKS else []  # many hunks: a rewrite
+    return out
 
 
 def request(bodnuti: Path, repo: Path, base: str, raw: bytes) -> list | None:
@@ -173,7 +228,7 @@ def answer(findings: list[dict]) -> str:
     return json.dumps({"findings": findings, "confidence": "high"})
 
 
-def defect_example(args, tree: Tree, v1raw, date, v2raw, note, meta):
+def defect_example(args, tree: Tree, v1raw, date, v2raw, said, meta):
     base = git(args.repo, "rev-list", "-1", f"--before={date}", args.rev).stdout.decode().strip()
     if not base:
         return None
@@ -181,13 +236,17 @@ def defect_example(args, tree: Tree, v1raw, date, v2raw, note, meta):
     c2 = tree.apply(base, v2raw) if c1 else None
     if not c2:
         return None
+    changed = hunks(args.repo, c1, c2)
     found = []
-    for path, line in hunks(args.repo, c1, c2):
+    for path, line, msg in said:
+        if not any(p == path and abs(n - line) <= NEAR for p, n in changed):
+            continue  # the author did not change the code there
         text = git(args.repo, "show", f"{c1}:{path}").stdout.decode(errors="replace").splitlines()
         if line > len(text) or not text[line - 1].strip():
             continue
         found.append({"file": path, "line": line, "category": "other", "severity": "warning",
-                      "message": note, "confidence": "high", "evidence": text[line - 1]})
+                      "message": msg, "confidence": "high", "evidence": text[line - 1]})
+    found = found[:MAX_FINDINGS]
     if not found:
         return None
     req = request(args.bodnuti, args.repo, base, v1raw)
@@ -241,7 +300,7 @@ def main() -> int:
         return 1
 
     found = list(pairs(args.mirror, args.since, args.until))
-    print(f"{len(found)} v1/v2 pairs with a code changelog", file=sys.stderr)
+    print(f"{len(found)} v1/v2 pairs with inline review comments", file=sys.stderr)
     defects = []
     tree = Tree(args.repo)
     try:
