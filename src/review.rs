@@ -1037,9 +1037,6 @@ fn drain(
             }
         };
         store.save(&q, &result)?;
-        if let Some(repo) = &q.repo {
-            crate::escalate::release(repo, &q.context.commit);
-        }
         std::fs::remove_file(path)?;
         reviewed += 1;
     }

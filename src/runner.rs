@@ -248,9 +248,9 @@ impl Runner<'_> {
         let store = crate::review::Store::new(&self.config.state);
         let clone = self.config.cache.join(&repo_name);
         if self.config.review.is_some() {
-            // Layer 4's tools read the applied commits later
-            // (designs/PHASE3.md §6); a ref keeps them from git gc until
-            // the patch is reviewed.
+            // Layer 4's tools and live verification read the applied
+            // commits later (designs/PHASE3.md §6, §11); a ref keeps them
+            // from git gc until crate::outcomes has decided the patch.
             for a in &report.applied {
                 if let Err(err) = crate::escalate::keep(&clone, &a.commit) {
                     eprintln!("bodnuti: {root}: keeping patch {}: {err:#}", a.index);

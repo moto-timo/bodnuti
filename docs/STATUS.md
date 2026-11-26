@@ -561,8 +561,9 @@ unless it carries the `no news` label; Dependabot's are exempt.
 Phase 3 ([`designs/PHASE3.md`](../designs/PHASE3.md)) adds one model call
 per patch on open-weight models. Layers 2 (context gathering in the check
 container) and 3 (the call, its validation and the report section) are
-built, along with `bodnuti check --review`; layer 4 (escalation with
-tools) is not. Model findings are shown apart, marked unverified, and
+built, along with `bodnuti check --review`. Layer 4 (escalation to a
+larger model with read-only git tools) and live verification against what
+the lists decide (`PHASE3.md` §11) are built as drafts, not yet measured. Model findings are shown apart, marked unverified, and
 never count in the result.
 
 Measured on 25 November 2026 with `bench/phase3/score.py` on FriendliAI's
@@ -720,8 +721,10 @@ window held about eight sashiko reviews.
   by tuning the system prompt and guide selection on the benchmark, or by
   keeping only high-confidence findings; then confirm on a held-out set,
   and pick the model for the watcher.
-- Decide on layer 4 (escalation to GLM-5.3 with read-only tools) once
-  layer 3's numbers hold.
+- Measure layer 4 (GLM-5.3-Flash with GLM-5.3 escalation, built as a
+  draft) on the held-out sets before turning on `escalation_model`.
+- Turn on `[review]` in the watcher, so live verification (§11) starts
+  collecting outcomes; read a sample by hand after the first month.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
   Yocto maintainers before any upstream pull request. Nothing would be emailed
   to the lists without their agreement.

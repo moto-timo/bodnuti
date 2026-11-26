@@ -251,8 +251,8 @@ nothing from the patch is executed or written; a fresh check container per
 call would add a container start per turn for no extra isolation. Every
 path and pattern argument is validated as mail is, and tool output goes
 back as `<untrusted>` data. The model never gets a shell. The check keeps
-each applied commit under `refs/bodnuti/review/` until the patch is
-reviewed, so git gc does not drop it while it waits in the queue.
+each applied commit under `refs/bodnuti/review/` until §11 has decided
+the patch, so git gc does not drop it while it waits in the queue.
 
 Tool turns go without structured output, which not every server combines
 with tools; the answer is parsed from the text, and the last turn offers
@@ -397,7 +397,19 @@ page of the site next to the cost, so a change of model or prompt shows
 up as a step in the series. The configuration is recorded with each
 review (§5), so months can mix configurations.
 
-### 11.3 What it needs
+### 11.3 Built (draft)
+
+`outcomes::run` runs after review in each poll. A revision is a later
+checked patch on the same list with the same author and summary; the
+interdiff is `git diff -U0` between the two applied commits, so a v2 on a
+newer base carries the base's changes too (a trend measure, as above).
+A patch with no revision and no landing after 60 days is dropped.
+Decisions are kept in `state/review/outcomes/patches.json`, and each
+month's counts per configuration (`model prompt min_confidence`) in
+`<yyyy-mm>.json`. The page of the site is not built yet; the poll logs
+the current month.
+
+### 11.4 What it needs
 
 - Review on in the watcher (`[review]`), so patches are reviewed when
   they arrive.

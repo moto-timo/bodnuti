@@ -15,6 +15,7 @@ mod json;
 mod kind;
 mod metadata;
 mod oelint;
+mod outcomes;
 mod patchtest;
 mod pins;
 mod publish;
@@ -159,6 +160,12 @@ fn poll(args: PollArgs) -> Result<()> {
         && let Err(err) = review::run(review, &config.state, now)
     {
         eprintln!("bodnuti: review: {err:#}");
+    }
+    // Live verification against what the lists decided (§11).
+    if config.review.is_some()
+        && let Err(err) = outcomes::run(&config, now)
+    {
+        eprintln!("bodnuti: review outcomes: {err:#}");
     }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());
