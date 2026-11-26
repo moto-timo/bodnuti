@@ -82,7 +82,10 @@ only on patch files the series adds or whose header it changes.
   keep the reference to where the patch came from in the header.
 - **Do not report when:** the URL points at a commit in upstream's own
   repository or its official GitHub/GitLab project (`.../commit/<sha>`,
-  `?id=<sha>`, `;h=<sha>`).
+  `?id=<sha>`, `;h=<sha>`). Never compare that hash with the
+  `From <hash> Mon Sep 17 00:00:00 2001` line at the top of the patch: that
+  line is the commit `git format-patch` was run on, usually a local
+  cherry-pick, so it differs from upstream's hash in a correct backport.
 - **Evidence:**
   - "Another distribution patching a recipe does not make it a backport, backports have to be from upstream." — expect: Fix segfaults (2017-09)
   - "This doesn't say where the commit can be found. It's better to point to the git web ui" — debugedit: fix build failure (2025-02)
