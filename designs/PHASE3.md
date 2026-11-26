@@ -487,8 +487,9 @@ finding and the tools when the applied commit is at hand (three turns).
 A confirmation whose quote is in neither the request nor a tool's
 output counts as refuted.
 
-Review rules (draft): markdown files in `rules/` inside the guides
-directory, each rule condensed from at least two maintainer comments on
+Review rules (draft): markdown files in the Claude Code plugin's
+`yocto-review-rules` skill, built into bodnuti (a `rules/` directory
+inside the guides directory replaces them), each rule condensed from at least two maintainer comments on
 the lists that the author acted on in v2, with the quotes, a trigger and
 a "do not report when" case. Each file's first line,
 `<!-- select: .bb PACKAGECONFIG -->`, says which changed files and

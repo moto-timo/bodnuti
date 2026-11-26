@@ -1,0 +1,1 @@
+**plugin:** A `yocto-review-rules` skill gives Claude the rules OpenEmbedded maintainers apply in review, condensed from their inline comments on the lists, one file per topic, for reviewing or writing recipes, classes and patch files (draft, not yet reviewed by a maintainer).

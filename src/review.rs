@@ -604,8 +604,82 @@ fn guides(dir: Option<&Path>, paths: &[&str]) -> String {
 /// All review rules of one patch, at most.
 const RULES_CAP: usize = 24 * 1024;
 
-/// The review rules in `dir/rules/*.md` that a patch's diff selects
-/// (§5.1). Each file starts with `<!-- select: TOKENS -->`: `.ext` and
+/// The review rules of the Claude Code plugin's yocto-review-rules skill,
+/// built in so every install has them.
+const RULES: &[(&str, &str)] = &[
+    (
+        "rules-assignments.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-assignments.md"),
+    ),
+    (
+        "rules-build-fixes.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-build-fixes.md"),
+    ),
+    (
+        "rules-classes.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-classes.md"),
+    ),
+    (
+        "rules-cve.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-cve.md"),
+    ),
+    (
+        "rules-dependencies.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-dependencies.md"),
+    ),
+    (
+        "rules-distro-features.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-distro-features.md"),
+    ),
+    (
+        "rules-licensing.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-licensing.md"),
+    ),
+    (
+        "rules-oe-python.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-oe-python.md"),
+    ),
+    (
+        "rules-oeqa.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-oeqa.md"),
+    ),
+    (
+        "rules-packageconfig.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-packageconfig.md"),
+    ),
+    (
+        "rules-packaging.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-packaging.md"),
+    ),
+    (
+        "rules-patch-headers.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-patch-headers.md"),
+    ),
+    (
+        "rules-paths.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-paths.md"),
+    ),
+    (
+        "rules-src-uri.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-src-uri.md"),
+    ),
+    (
+        "rules-syntax.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-syntax.md"),
+    ),
+    (
+        "rules-target-scripts.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-target-scripts.md"),
+    ),
+    (
+        "rules-versions.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-versions.md"),
+    ),
+];
+
+/// The review rules that a patch's diff selects (§5.1): those of
+/// `dir/rules/*.md` when that directory exists, to try changes without a
+/// rebuild, else the built-in ones. Each file starts with `<!-- select: TOKENS -->`: `.ext` and
 /// `path=TEXT` match a file the diff changes (any of them; none means any
 /// file), and every other token is text one of the changed lines must
 /// contain (any of them; none means always). A file without the line is
@@ -624,19 +698,24 @@ fn rules(dir: &Path, diff: &str) -> String {
                 && !l.starts_with("---")
         })
         .collect();
-    let mut names: Vec<_> = std::fs::read_dir(dir.join("rules"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "md"))
-        .collect();
-    names.sort();
+    let mut files_of: Vec<(String, String)> = match std::fs::read_dir(dir.join("rules")) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "md"))
+            .filter_map(|p| {
+                let text = std::fs::read_to_string(&p).ok()?;
+                Some((p.file_name()?.to_string_lossy().into_owned(), text))
+            })
+            .collect(),
+        Err(_) => RULES
+            .iter()
+            .map(|(n, t)| (n.to_string(), t.to_string()))
+            .collect(),
+    };
+    files_of.sort();
     let mut out = String::new();
-    for path in names {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+    for (name, text) in files_of {
         let Some((first, body)) = text.split_once('\n') else {
             continue;
         };
@@ -665,7 +744,6 @@ fn rules(dir: &Path, diff: &str) -> String {
             || changed
                 .iter()
                 .any(|l| on_text.iter().any(|t| l.contains(t)));
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
         let block = format!("## Rules: {name}\n\n{body}\n\n");
         if file_ok && text_ok && out.len() + block.len() <= RULES_CAP {
             out.push_str(&block);
@@ -1383,6 +1461,21 @@ mod tests {
         assert_eq!(kind(0), "json_schema");
         assert_eq!(kind(1), "json_object");
         assert_eq!(kind(2), "json_object");
+    }
+
+    #[test]
+    fn built_in_rules_without_a_rules_directory() {
+        assert!(
+            super::RULES
+                .iter()
+                .all(|(_, t)| t.starts_with("<!-- select:"))
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let diff = "+++ b/meta/recipes-foo/foo/foo_1.0.bb\n+PACKAGECONFIG ??= \"x\"\n";
+        let r = super::rules(dir.path(), diff);
+        assert!(r.contains("## Rules: rules-packageconfig.md"));
+        assert!(!r.contains("rules-patch-headers.md"));
+        assert!(r.len() <= super::RULES_CAP);
     }
 
     #[test]

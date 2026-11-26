@@ -13,6 +13,15 @@ the documentation checks, and reports only what the series adds.
 /plugin install bodnuti@bodnuti
 ```
 
+## Skills
+
+- `bodnuti`: runs bodnuti on a series in a container.
+- `yocto-review-rules`: the rules OpenEmbedded maintainers apply in review,
+  condensed from their inline comments on the lists, one file per topic in
+  `skills/yocto-review-rules/rules/`. Claude reads the files for what a
+  change touches when it reviews or writes a recipe, class or patch file.
+  bodnuti's model review builds in the same files. No container needed.
+
 ## Requirements
 
 - podman or docker. The script uses podman when both are installed.
