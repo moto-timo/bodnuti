@@ -26,6 +26,7 @@ mod ruff;
 mod runner;
 mod shell;
 mod srcuri;
+mod verify;
 mod watch;
 mod workspace;
 
@@ -860,35 +861,43 @@ fn check(args: CheckArgs) -> Result<Report> {
                 .filter(|f| f.patch == Some(ctx.index))
                 .cloned()
                 .collect();
-            review.push(
-                match review::review(&client, ctx, &layer1, config.guides.as_deref()) {
-                    Ok(r) => match escalate::wants(ctx, &r) {
-                        Some(why) => escalate::run(
-                            escalation.as_ref(),
-                            &review::Queued {
-                                list: String::new(),
-                                root: String::new(),
-                                patch_id: None,
-                                queued: 0,
-                                layer1: layer1.clone(),
-                                context: ctx.clone(),
-                                repo: Some(tree.clone()),
-                            },
-                            r,
-                            &why,
-                            config.guides.as_deref(),
-                            std::time::Instant::now() + std::time::Duration::from_secs(3600),
-                        ),
-                        None => r,
-                    },
-                    Err(review::CallError::RateLimited) => {
-                        review::Review::not_reviewed(ctx.index, &client.model, "rate limited")
-                    }
-                    Err(review::CallError::Failed(e)) => {
-                        review::Review::not_reviewed(ctx.index, &client.model, &e)
-                    }
+            let r = match review::review(&client, ctx, &layer1, config.guides.as_deref()) {
+                Ok(r) => match escalate::wants(ctx, &r) {
+                    Some(why) => escalate::run(
+                        escalation.as_ref(),
+                        &review::Queued {
+                            list: String::new(),
+                            root: String::new(),
+                            patch_id: None,
+                            queued: 0,
+                            layer1: layer1.clone(),
+                            context: ctx.clone(),
+                            repo: Some(tree.clone()),
+                        },
+                        r,
+                        &why,
+                        config.guides.as_deref(),
+                        std::time::Instant::now() + std::time::Duration::from_secs(3600),
+                    ),
+                    None => r,
                 },
-            );
+                Err(review::CallError::RateLimited) => {
+                    review::Review::not_reviewed(ctx.index, &client.model, "rate limited")
+                }
+                Err(review::CallError::Failed(e)) => {
+                    review::Review::not_reviewed(ctx.index, &client.model, &e)
+                }
+            };
+            let tools = escalate::Tools {
+                repo: &tree,
+                commit: &ctx.commit,
+            };
+            review.push(if config.verify {
+                let tools = escalate::is_sha(&ctx.commit).then_some(&tools);
+                verify::run(&client, ctx, &layer1, config.guides.as_deref(), tools, r)
+            } else {
+                r
+            });
         }
         if !args.review_context {
             context.clear();

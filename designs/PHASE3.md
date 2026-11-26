@@ -480,6 +480,13 @@ the applied commit):
 A finding refuted by the check pass is kept in `dropped` with the
 deciding quote, for tuning.
 
+Built (draft): `verify = true` in `[review]`, in `src/verify.rs`. The
+check request is layer 3's, with sashiko's `false-positive-guide.md`
+and `severity.md` now among the guides of every patch, plus the
+finding and the tools when the applied commit is at hand (three turns).
+A confirmation whose quote is in neither the request nor a tool's
+output counts as refuted.
+
 ### 13.2 Measured on a labelled set, locally
 
 The 26 November findings, read by hand, become a test set: 40 patches

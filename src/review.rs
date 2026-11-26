@@ -47,6 +47,10 @@ pub struct ReviewConfig {
     /// (§4). Unset: none.
     #[serde(default)]
     pub docs: Option<PathBuf>,
+    /// The check pass (§13.1): each kept finding goes to the model once
+    /// more, with the read-only tools, and is shown only if confirmed.
+    #[serde(default)]
+    pub verify: bool,
     /// `chat_template_kwargs.enable_thinking` for models with switchable
     /// reasoning. Unset: the model's default.
     #[serde(default)]
@@ -87,6 +91,7 @@ impl ReviewConfig {
             timeout_seconds: default_timeout(),
             guides: None,
             docs: None,
+            verify: false,
             thinking: None,
             reasoning_effort: None,
             min_confidence: default_min_confidence(),
@@ -128,7 +133,7 @@ const CATEGORIES: [&str; 11] = [
 ];
 
 /// The prompt version, the same as bench/phase3/score.py's.
-pub const PROMPT: &str = "v2.1";
+pub const PROMPT: &str = "v2.2";
 
 const SYSTEM_CORE: &str = "\
 You review one patch to an OpenEmbedded / Yocto Project layer.
@@ -429,7 +434,7 @@ impl Client {
         }
     }
 
-    fn body(&self, messages: &Value, tools: Option<&Value>) -> Value {
+    fn body(&self, messages: &Value, tools: Option<&Value>, name: &str, answer: &Value) -> Value {
         let mut body = json!({
             "model": self.model,
             "messages": messages,
@@ -444,7 +449,7 @@ impl Client {
             match self.format.get() {
                 Format::JsonSchema => {
                     body["response_format"] = json!({"type": "json_schema", "json_schema":
-                    {"name": "review", "schema": schema(), "strict": true}});
+                    {"name": name, "schema": answer, "strict": true}});
                 }
                 Format::JsonObject => body["response_format"] = json!({"type": "json_object"}),
                 Format::None => {}
@@ -470,8 +475,19 @@ impl Client {
         messages: &Value,
         tools: Option<&Value>,
     ) -> Result<Reply, CallError> {
+        self.chat_as(messages, tools, "review", &schema())
+    }
+
+    /// One answer in the shape of `answer`, a JSON schema called `name`.
+    pub(crate) fn chat_as(
+        &self,
+        messages: &Value,
+        tools: Option<&Value>,
+        name: &str,
+        answer: &Value,
+    ) -> Result<Reply, CallError> {
         loop {
-            let body = self.body(messages, tools).to_string();
+            let body = self.body(messages, tools, name, answer).to_string();
             let mut request = self
                 .agent
                 .post(&self.url)
@@ -560,7 +576,9 @@ fn guides(dir: Option<&Path>, paths: &[&str]) -> String {
         return String::new();
     };
     let has = |ends: &[&str]| paths.iter().any(|p| ends.iter().any(|e| p.ends_with(e)));
-    let mut want = vec!["review-core.md"];
+    // sashiko's false-positive guide and severity scale, for every patch:
+    // the goal is no false finding shown (§13).
+    let mut want = vec!["review-core.md", "false-positive-guide.md", "severity.md"];
     if has(&[".bb", ".bbappend", ".inc", ".conf"]) {
         want.extend([
             "patterns/overrides.md",
@@ -1025,7 +1043,7 @@ pub fn run(config: &ReviewConfig, state: &Path, now: u64) -> Result<()> {
         &client,
         escalation.as_ref(),
         &Store::new(state),
-        config.guides.as_deref(),
+        config,
         docs.as_ref(),
         now,
         deadline,
@@ -1036,11 +1054,12 @@ fn drain(
     client: &Client,
     escalation: Option<&Client>,
     store: &Store,
-    guides_dir: Option<&Path>,
+    config: &ReviewConfig,
     docs: Option<&crate::context::Docs>,
     now: u64,
     deadline: Instant,
 ) -> Result<()> {
+    let guides_dir = config.guides.as_deref();
     let mut reviewed = 0;
     let queued = store.queued();
     for path in &queued {
@@ -1071,12 +1090,26 @@ fn drain(
             )
         } else {
             match review(client, &q.context, &q.layer1, guides_dir) {
-                Ok(r) => match crate::escalate::wants(&q.context, &r) {
-                    Some(why) => {
-                        crate::escalate::run(escalation, &q, r, &why, guides_dir, deadline)
+                Ok(r) => {
+                    let r = match crate::escalate::wants(&q.context, &r) {
+                        Some(why) => {
+                            crate::escalate::run(escalation, &q, r, &why, guides_dir, deadline)
+                        }
+                        None => r,
+                    };
+                    if config.verify {
+                        let tools = q.repo.as_deref().map(|repo| crate::escalate::Tools {
+                            repo,
+                            commit: &q.context.commit,
+                        });
+                        let tools = tools
+                            .as_ref()
+                            .filter(|_| crate::escalate::is_sha(&q.context.commit));
+                        crate::verify::run(client, &q.context, &q.layer1, guides_dir, tools, r)
+                    } else {
+                        r
                     }
-                    None => r,
-                },
+                }
                 Err(CallError::RateLimited) => {
                     println!("review: rate limited; the rest waits for the next run");
                     break;
@@ -1265,6 +1298,39 @@ mod tests {
         assert_eq!(kind(0), "json_schema");
         assert_eq!(kind(1), "json_object");
         assert_eq!(kind(2), "json_object");
+    }
+
+    #[test]
+    fn the_check_pass_shows_only_quoted_confirmations() {
+        let verdict = |v: &str, quote: &str| {
+            ok(&json!({"verdict": v, "quote": quote, "reason": "because"}).to_string())
+        };
+        let (url, seen) = stub(vec![
+            verdict("confirmed", "+DEPENDS += \"x\""),
+            verdict("confirmed", "a line nobody sent"),
+            verdict("refuted", "inherit pkgconfig"),
+        ]);
+        let mut r = Review::not_reviewed(2, "m", "");
+        for line in [1, 5, 9] {
+            let mut f = layer1().remove(0);
+            f.line = Some(line);
+            r.findings.push(ModelFinding {
+                finding: f,
+                category: "other".into(),
+                confidence: "high".into(),
+            });
+        }
+        let r = crate::verify::run(&client(&url), &ctx(), &[], None, None, r);
+        assert_eq!(r.findings.len(), 1);
+        assert_eq!(r.findings[0].finding.line, Some(1));
+        assert_eq!(r.dropped.len(), 2);
+        assert!(
+            r.dropped
+                .iter()
+                .all(|d| d.starts_with("refuted by the check pass"))
+        );
+        let sent = seen.lock().unwrap();
+        assert!(sent[0].contains("Check pass.") && sent[0].contains("\"verdict\""));
     }
 
     #[test]
@@ -1466,7 +1532,16 @@ mod tests {
         queue("later@x", now - 30, "cc");
         let (url, _) = stub(vec![ok(&answer(vec![])), (429, "{}".into())]);
         let far = Instant::now() + Duration::from_secs(60);
-        drain(&client(&url), None, &store, None, None, now, far).unwrap();
+        drain(
+            &client(&url),
+            None,
+            &store,
+            &ReviewConfig::local(&url),
+            None,
+            now,
+            far,
+        )
+        .unwrap();
 
         let stale = &store.results("oe-core", "stale@x")[&1];
         assert!(matches!(stale.outcome, Outcome::Skipped { .. }));

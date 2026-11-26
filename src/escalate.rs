@@ -123,7 +123,7 @@ pub struct Tools<'a> {
 }
 
 impl Tools<'_> {
-    fn schema() -> Value {
+    pub(crate) fn schema() -> Value {
         let tool = |name: &str, about: &str, params: Value, required: &[&str]| {
             json!({"type": "function", "function": {
                 "name": name, "description": about,
@@ -153,7 +153,7 @@ impl Tools<'_> {
     }
 
     /// The tool's output, or why it gave none. Arguments are untrusted.
-    fn call(&self, name: &str, args: &Value) -> String {
+    pub(crate) fn call(&self, name: &str, args: &Value) -> String {
         let text = |k: &str| args[k].as_str().unwrap_or("");
         match name {
             "grep" => self.grep(text("pattern")),
@@ -237,7 +237,7 @@ impl Tools<'_> {
     }
 }
 
-fn cut(s: &str, max: usize) -> String {
+pub(crate) fn cut(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
     }
@@ -249,7 +249,7 @@ fn cut(s: &str, max: usize) -> String {
 }
 
 /// Tool output is data from the tree, like the rest of the request.
-fn untrusted(name: &str, text: &str) -> String {
+pub(crate) fn untrusted(name: &str, text: &str) -> String {
     format!("<untrusted kind=\"tool\" tool=\"{name}\">\n{text}\n</untrusted>")
 }
 
