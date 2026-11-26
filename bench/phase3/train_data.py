@@ -38,6 +38,8 @@ VERSION = re.compile(r"\[[^\]]*PATCH[^\]]*?\bv(\d+)\b[^\]]*\]", re.I)
 COUNTER = re.compile(r"\b(\d+)/(\d+)\]")
 ACK = re.compile(r"(?i)^(thanks|thank you|lgtm|looks good|reviewed-by|acked-by|tested-by)")
 BRANCH_TAG = re.compile(r"(?i)\[[^\]]*(kirkstone|scarthgap|styhead|walnascar|whinlatter|wrynose|blacksail|dunfell|hardknott|honister|langdale|mickledore|nanbield)")
+# Metadata files, in any layer layout (meta/, meta-oe/, meta-python/, ...).
+METADATA = ["*.bb", "*.bbappend", "*.inc", "*.bbclass", "*.conf"]
 MAX_FINDINGS = 3
 NEAR = 5
 
@@ -71,12 +73,19 @@ def added_lines(body: str) -> dict[str, list[tuple[str, int]]]:
     return out
 
 
+def tidy(msg: str) -> str | None:
+    """A comment without its sign-off name, or None for one the patch cannot show."""
+    if re.search(r"(?i)autobuilder|\bfails? on (the )?a[bh]\b", msg):
+        return None  # a build result, not something a reviewer reads from the patch
+    return re.sub(r"(?<=[.!?)])\s+[A-Z][a-z]{1,11}\.?$", "", msg)
+
+
 def comments(body: str, lines: dict) -> list[tuple[str, int, str]]:
     """(file, line, text) of each comment a reply makes below a quoted added line."""
     out, at, text = [], None, []
 
     def flush():
-        msg = " ".join(" ".join(text).split())
+        msg = tidy(" ".join(" ".join(text).split())) or ""
         if at and len(msg) >= 20 and not ACK.match(msg):
             out.append((*at, msg[:600]))
         text.clear()
@@ -210,14 +219,14 @@ def hunks(repo: Path, c1: str, c2: str) -> list[tuple[str, int]]:
     return out
 
 
-def request(bodnuti: Path, repo: Path, base: str, raw: bytes) -> list | None:
+def request(bodnuti: Path, repo: Path, base: str, raw: bytes, docs: Path | None = None) -> list | None:
     with tempfile.TemporaryDirectory() as tmp:
         mbx = Path(tmp) / "p.mbx"
         mbx.write_bytes(b"From mboxrd@z Thu Jan  1 00:00:00 1970\n" + raw)
         out = Path(tmp) / "req"
         subprocess.run(
             [str(bodnuti), "check", "--repo", str(repo), "--base", base,
-             "--review-requests", str(out), str(mbx)],
+             "--review-requests", str(out), *(["--review-docs", str(docs)] if docs else []), str(mbx)],
             capture_output=True, timeout=600,
         )
         f = out / "1.json"
@@ -249,7 +258,7 @@ def defect_example(args, tree: Tree, v1raw, date, v2raw, said, meta):
     found = found[:MAX_FINDINGS]
     if not found:
         return None
-    req = request(args.bodnuti, args.repo, base, v1raw)
+    req = request(args.bodnuti, args.repo, base, v1raw, args.docs)
     if not req:
         return None
     return {"messages": req + [{"role": "assistant", "content": answer(found)}],
@@ -260,7 +269,7 @@ def clean_commits(args, n: int) -> list[str]:
     fixed = set(re.findall(r"(?im)^Fixes:\s*([0-9a-f]{8,12})",
                            git(args.repo, "log", "--format=%B", "-E", "--grep=^Fixes:", args.rev).stdout.decode()))
     log = git(args.repo, "log", "--no-merges", f"--since={args.since}", f"--until={args.until}",
-              "--format=%H", args.rev, "--", "meta").stdout.decode().split()
+              "--format=%H", args.rev, "--", *METADATA).stdout.decode().split()
     log = [c for c in log if not any(c.startswith(f) for f in fixed)]
     random.Random(1).shuffle(log)
     return log[:n]
@@ -271,7 +280,7 @@ def clean_example(args, commit: str):
     if not raw or len(raw) > 200_000:
         return None
     raw = raw.split(b"\n", 1)[1]  # drop format-patch's From line; request() adds one
-    req = request(args.bodnuti, args.repo, commit + "^", raw)
+    req = request(args.bodnuti, args.repo, commit + "^", raw, args.docs)
     if not req:
         return None
     date = git(args.repo, "log", "-1", "--format=%aI", commit).stdout.decode().strip()
@@ -285,6 +294,7 @@ def main() -> int:
     ap.add_argument("--repo", type=Path, required=True, help="clone of the list's repository")
     ap.add_argument("--rev", default="origin/master")
     ap.add_argument("--bodnuti", type=Path, required=True)
+    ap.add_argument("--docs", type=Path, help="docs_index.py's index, as review uses it")
     ap.add_argument("--since", default="2016-01-01")
     ap.add_argument("--until", default="2026-01-01")
     ap.add_argument("--clean-ratio", type=float, default=3.0)
@@ -292,6 +302,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
     args.bodnuti = args.bodnuti.resolve()
+    args.docs = args.docs.resolve() if args.docs else None
     args.out.mkdir(parents=True, exist_ok=True)
     data = args.out / "dataset.jsonl"
     done = sum(1 for _ in data.open()) if data.exists() else 0
