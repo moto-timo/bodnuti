@@ -431,6 +431,15 @@ struct CheckArgs {
     /// (designs/PHASE3.md §4) into the JSON report.
     #[arg(long)]
     review_context: bool,
+    /// With --review: review only these patches, by number (e.g. 2,5), to
+    /// measure a model on chosen patches of a long series.
+    #[arg(long, value_delimiter = ',')]
+    review_patches: Vec<u32>,
+    /// Write each patch's layer 3 request (designs/PHASE3.md §5.1), without
+    /// guides, to DIR/<patch>.json instead of sending it: training data
+    /// (designs/TRAINING.md).
+    #[arg(long, value_name = "DIR")]
+    review_requests: Option<PathBuf>,
     /// Also review each patch with a model (designs/PHASE3.md §7), with the
     /// [review] settings of --review-config, or --review-endpoint and
     /// --review-model. Model findings never change the exit status. The
@@ -783,7 +792,7 @@ fn check(args: CheckArgs) -> Result<Report> {
         .into_iter()
         .partition(|f| f.tool == Tool::Oelint && oelint::is_style(&f.check));
     let mut context = Vec::new();
-    if args.review_context || args.review {
+    if args.review_context || args.review || args.review_requests.is_some() {
         for a in &linted.applied {
             match context::gather(&workspace.path(), a.index, &a.commit) {
                 Ok(mut c) => {
@@ -795,6 +804,21 @@ fn check(args: CheckArgs) -> Result<Report> {
                     message: format!("review context for patch {}: {err:#}", a.index),
                 }),
             }
+        }
+    }
+    if let Some(dir) = &args.review_requests {
+        std::fs::create_dir_all(dir)?;
+        for ctx in &context {
+            let layer1: Vec<Finding> = findings
+                .iter()
+                .filter(|f| f.patch == Some(ctx.index))
+                .cloned()
+                .collect();
+            let request = review::messages(ctx, &layer1, None);
+            std::fs::write(
+                dir.join(format!("{}.json", ctx.index)),
+                serde_json::to_vec(&request)?,
+            )?;
         }
     }
     let excerpts = report::excerpts(
@@ -814,7 +838,10 @@ fn check(args: CheckArgs) -> Result<Report> {
             None => None,
         };
         let tree = workspace.path();
-        for ctx in &context {
+        for ctx in context
+            .iter()
+            .filter(|c| args.review_patches.is_empty() || args.review_patches.contains(&c.index))
+        {
             let layer1: Vec<Finding> = findings
                 .iter()
                 .filter(|f| f.patch == Some(ctx.index))
