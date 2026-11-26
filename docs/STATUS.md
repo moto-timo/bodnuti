@@ -639,12 +639,14 @@ scored on sets not used to choose it:
   defect, whose line the version change made wrong without touching it.
 - **Rules learned from the lists:** `lessons.py` distilled 30 review
   rules from 508 changelogs of resent patches (2023-2025);
-  `--prompt v3` adds them. Being measured.
+  `--prompt v3` adds them. It lost to v2 (below): the rules made the
+  model raise Upstream-Status and style points, so it stays in the
+  bench.
 
 Two harder test sets were added. `heldout.json` has 30 defects mined
 from OE-Core's `Fixes:` trailers; `history-2026.json` has 19 patches from
 2026 whose v2 changed code after review, so the question is whether the
-model raises what the reviewers raised. Prompt v2, scored once on the
+model raises what the reviewers raised. Prompts v2 and v3, scored on the
 held-out sets:
 
 | Setup | Filter | Mined defects (judge) | False findings, 25 held-out clean |
@@ -654,13 +656,18 @@ held-out sets:
 | v2, GLM-5.3 low | high | 3 / 30 | 0.00 |
 | v1, GLM-5.3-Flash low | high | 4 / 30 | 0.16 |
 | v2, GLM-5.3-Flash low | medium and high | 5 / 30 | 0.20 |
+| v3, GLM-5.3 low | medium and high | 8 / 30 | 0.28 |
+
+On the 2026 replay, GLM-5.3 low with medium and high findings: v2 9 of
+19 by the judge, v3 6. Read by hand, about 4-5 of v2's 9 really raise
+what the reviewers raised.
 
 With v2's evidence rule a high-only filter costs defects, so v2 wants
 `min_confidence = "medium"`. Defects found after merging are much harder
 than the six: many need knowledge the diff does not carry (firmware file
 lists, boot behaviour), and a few judge verdicts are generous. bodnuti
-still sends the v1 prompt; the winner of v2 and v3 will be ported to
-`src/review.rs`.
+now sends prompt v2, checks the quotes, and defaults to
+`min_confidence = "medium"`.
 
 Ahead: fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`,
 draft) and scoring every review live against what the lists decide

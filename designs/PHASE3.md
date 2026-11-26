@@ -197,7 +197,8 @@ Output is constrained to a JSON schema with the server's structured output
   "findings": [
     {"file": "meta/recipes-core/foo/foo_1.2.bb", "line": 14,
      "category": "packaging", "severity": "warning",
-     "message": "...", "confidence": "high"}
+     "message": "...", "confidence": "high",
+     "evidence": "+FILES:${PN} += \"${libdir}/foo\""}
   ],
   "explanations": [{"finding": 0, "text": "...", "fix": "..."}],
   "confidence": "high"
@@ -215,9 +216,13 @@ Before anything is stored, as in `DESIGN.md` §6.6:
   line is not in that file, is dropped.
 - A finding that restates a layer 1 finding (same file within three
   lines; layer 1 findings carry no category to compare) is dropped.
-- A finding the model rates below `min_confidence` (§7, default `high`)
-  is dropped. In §8's measurement this kept false findings under the bar
-  while losing at most one defect.
+- A finding whose `evidence` is not, line for line, in the request is
+  dropped (diff markers and spacing ignored). The prompt asks for the
+  quote and lists a few OE-Core facts behind recurring false findings;
+  in §8's measurement this halved false findings.
+- A finding the model rates below `min_confidence` (§7, default
+  `medium`) is dropped. With the evidence rule, `medium` kept the most
+  defects at 0.04 false findings per clean patch; `high` lost defects.
 - Messages are cut at 500 characters. Reports escape them like all other
   text.
 - A response that fails the schema after one retry is a tool error for that
@@ -269,7 +274,7 @@ thinking = false                       # enable_thinking; unset: the
                                        # model's default
 reasoning_effort = "none"              # none, low, ...: FriendliAI's GLM
                                        # honours this, not enable_thinking
-min_confidence = "high"                # drop model findings rated lower
+min_confidence = "medium"              # drop model findings rated lower
 ```
 
 `guides`, `thinking` and `reasoning_effort` were added while building

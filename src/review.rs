@@ -58,7 +58,7 @@ pub struct ReviewConfig {
 }
 
 fn default_min_confidence() -> Confidence {
-    Confidence::High
+    Confidence::Medium
 }
 
 impl ReviewConfig {
@@ -133,6 +133,34 @@ correct patch.
 `file` must be a path that appears in the request, and `line` a line
 number in that file as it is after the patch, or null.
 
+Report only what this patch introduces, or a change it leaves incomplete
+(a caller, a dependency, a file list it should have updated). Do not report
+problems in code the patch does not change, unless the patch makes them
+worse.
+
+For each finding, `evidence` must quote, exactly and on its own lines,
+the line or lines in the request that show the defect. A finding whose
+quote is not in the request is discarded.
+
+Rate `confidence` \"high\" only when the quoted lines show the defect by
+themselves and you are sure of the BitBake semantics involved. If you
+would need to see a file that is not in the request to be sure, use
+\"medium\" or \"low\".
+
+BitBake and OE-Core facts that reviewers often get wrong:
+- bb.utils.contains(var, \"a b\", t, f, d) returns t only when every word
+  is set; it is the normal way to require several features.
+- PACKAGES =+ \"x\" puts x first, so x claims its files before ${PN} does.
+- bitbake.conf and the core configuration always set variables such as
+  SOURCE_DATE_EPOCH, TUNE_PKGARCH, DEPLOY_DIR_IMAGE and WORKDIR; do not
+  report them as possibly unset.
+- do_deploy installs into ${DEPLOYDIR}; deploy.bbclass copies that into
+  ${DEPLOY_DIR_IMAGE}.
+- Before reporting a missing build dependency, check DEPENDS, the
+  inherited classes and PACKAGECONFIG in the request; classes add many.
+- oe-selftest removes the test_recipe.inc and selftest.inc files a test
+  writes.
+
 Answer with JSON only, matching this schema:
 ";
 
@@ -150,8 +178,9 @@ fn schema() -> Value {
                     "severity": {"type": "string", "enum": ["error", "warning", "info"]},
                     "message": {"type": "string"},
                     "confidence": level,
+                    "evidence": {"type": "string"},
                 },
-                "required": ["file", "line", "category", "severity", "message", "confidence"],
+                "required": ["file", "line", "category", "severity", "message", "confidence", "evidence"],
             }},
             "explanations": {"type": "array", "items": {
                 "type": "object",
@@ -545,6 +574,8 @@ struct RawFinding {
     severity: Severity,
     message: String,
     confidence: Confidence,
+    #[serde(default)]
+    evidence: String,
 }
 
 #[derive(Deserialize)]
@@ -596,6 +627,31 @@ fn cut(s: &str) -> String {
     s.chars().take(MESSAGE_CAP).collect()
 }
 
+/// A line as compared for evidence: without a diff marker or spacing.
+fn norm(line: &str) -> String {
+    let line = line.trim();
+    let line = line.strip_prefix(['+', '-']).unwrap_or(line);
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether every non-empty line of the evidence is in the request.
+fn quoted(evidence: &str, ctx: &PatchContext) -> bool {
+    let want: Vec<String> = evidence
+        .lines()
+        .map(norm)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if want.is_empty() {
+        return false;
+    }
+    let have: String = std::iter::once(ctx.diff.as_str())
+        .chain(ctx.items.iter().map(|i| i.text.as_str()))
+        .flat_map(str::lines)
+        .map(|l| norm(l) + "\n")
+        .collect();
+    want.iter().all(|w| have.contains(w.as_str()))
+}
+
 /// §5.3: keeps the findings that cite a file and line the request had and
 /// that layer 1 has not already reported.
 fn validate(
@@ -643,6 +699,13 @@ fn validate(
                 }
         }) {
             dropped.push(format!("restates layer 1: {path}:{}", line.unwrap_or(0)));
+            continue;
+        }
+        if !quoted(&f.evidence, ctx) {
+            dropped.push(format!(
+                "evidence not in request: {path}:{}",
+                line.unwrap_or(0)
+            ));
             continue;
         }
         if f.confidence < min_confidence {
@@ -1011,7 +1074,8 @@ mod tests {
 
     fn finding(file: &str, line: Option<u32>) -> Value {
         json!({"file": file, "line": line, "category": "dependency", "severity": "warning",
-               "message": "m".repeat(600), "confidence": "high"})
+               "message": "m".repeat(600), "confidence": "high",
+               "evidence": "+DEPENDS += \"x\""})
     }
 
     fn answer(findings: Vec<Value>) -> String {
@@ -1109,6 +1173,23 @@ mod tests {
         assert_eq!(r.findings.len(), 1);
         assert!(
             r.dropped[0].starts_with("below high confidence"),
+            "{:?}",
+            r.dropped
+        );
+    }
+
+    #[test]
+    fn drops_findings_whose_evidence_is_not_in_the_request() {
+        let mut invented = finding("meta/classes-recipe/x.bbclass", Some(2));
+        invented["evidence"] = json!("RDEPENDS:${PN} = \"bash\"");
+        let mut spaced = finding("meta/classes-recipe/x.bbclass", Some(1));
+        spaced["evidence"] = json!("  x()   {\n");
+        let content = answer(vec![spaced, invented]);
+        let (url, _) = stub(vec![ok(&content)]);
+        let r = review(&client(&url), &ctx(), &[], None).unwrap();
+        assert_eq!(r.findings.len(), 1, "{:?}", r.dropped);
+        assert!(
+            r.dropped[0].starts_with("evidence not in request"),
             "{:?}",
             r.dropped
         );
