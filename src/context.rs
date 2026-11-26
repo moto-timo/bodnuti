@@ -115,6 +115,105 @@ pub fn add_series(ctx: &mut PatchContext, series: &crate::series::Series) {
     );
 }
 
+/// The documentation entries a patch's changed lines name.
+const DOCS_CAP: usize = 8 * 1024;
+
+/// The Yocto and BitBake documentation as bench/phase3/docs_index.py
+/// writes it: name to plain text.
+#[derive(Debug, Default, Deserialize)]
+pub struct Docs {
+    #[serde(default)]
+    variables: BTreeMap<String, String>,
+    #[serde(default)]
+    classes: BTreeMap<String, String>,
+    #[serde(default)]
+    flags: BTreeMap<String, String>,
+}
+
+impl Docs {
+    pub fn load(path: &Path) -> Result<Docs> {
+        let text =
+            std::fs::read(path).map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+        serde_json::from_slice(&text)
+            .map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))
+    }
+}
+
+/// The documentation of the task flags, classes and variables the patch's
+/// changed lines name, in that order, so a finding rests on what the
+/// manual says rather than on the model's memory (designs/PHASE3.md §4).
+/// Added on the host, outside the per-patch cap, at most DOCS_CAP; again
+/// for a context that has it already does nothing.
+pub fn add_docs(ctx: &mut PatchContext, docs: &Docs) {
+    if ctx.items.iter().any(|i| i.kind == "docs") {
+        return;
+    }
+    let mut flags = Vec::new();
+    let mut classes = Vec::new();
+    let mut variables = Vec::new();
+    let push = |list: &mut Vec<String>, name: &str| {
+        if !list.iter().any(|n| n == name) {
+            list.push(name.to_string());
+        }
+    };
+    for line in ctx.diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/")
+            && let Some(name) = path.trim_end().strip_suffix(".bbclass")
+        {
+            push(&mut classes, name.rsplit('/').next().unwrap_or(name));
+            continue;
+        }
+        let Some(code) = line
+            .strip_prefix('+')
+            .or(line.strip_prefix('-'))
+            .filter(|_| !line.starts_with("+++") && !line.starts_with("---"))
+        else {
+            continue;
+        };
+        let words = code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+        let mut after_inherit = false;
+        for w in words.filter(|w| !w.is_empty()) {
+            if after_inherit {
+                push(&mut classes, w);
+            } else if w.len() > 2 && w.starts_with(|c: char| c.is_ascii_uppercase()) {
+                push(&mut variables, w);
+            }
+            after_inherit |= w == "inherit" || w == "inherit_defer";
+        }
+        for flag in code.split('[').skip(1).filter_map(|s| s.split(']').next()) {
+            push(&mut flags, flag);
+        }
+    }
+    let mut text = String::new();
+    let entries = flags
+        .iter()
+        .filter_map(|n| Some((format!("[{n}] task flag"), docs.flags.get(n)?)))
+        .chain(
+            classes
+                .iter()
+                .filter_map(|n| Some((format!("{n} class"), docs.classes.get(n)?))),
+        )
+        .chain(
+            variables
+                .iter()
+                .filter_map(|n| Some((n.clone(), docs.variables.get(n)?))),
+        );
+    for (name, entry) in entries {
+        let block = format!("{name}: {entry}\n\n");
+        if text.len() + block.len() > DOCS_CAP {
+            break;
+        }
+        text.push_str(&block);
+    }
+    if !text.is_empty() {
+        ctx.items.push(Item {
+            kind: "docs".into(),
+            path: String::new(),
+            text,
+        });
+    }
+}
+
 /// `text` cut to at most `limit` bytes at a line boundary, marked as cut.
 fn cap(text: &str, limit: usize) -> String {
     if text.len() <= limit {
@@ -547,6 +646,53 @@ mod tests {
     use std::path::PathBuf;
 
     const RECIPE: &str = "meta/recipes-foo/foo/foo_1.0.bb";
+
+    fn docs() -> Docs {
+        let map = |kv: &[(&str, &str)]| {
+            kv.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        Docs {
+            variables: map(&[("DEPENDS", "Build-time deps."), ("LICENSE", "The license.")]),
+            classes: map(&[("ptest-cargo", "Cargo test suites."), ("cmake", "CMake.")]),
+            flags: map(&[("postfuncs", "Functions after the task.")]),
+        }
+    }
+
+    #[test]
+    fn docs_for_the_changed_lines_flags_first() {
+        let mut ctx = PatchContext {
+            diff: "--- a/meta/classes-recipe/ptest-cargo.bbclass\n\
+                   +++ b/meta/classes-recipe/ptest-cargo.bbclass\n\
+                   @@ -1,3 +1,3 @@\n LICENSE = \"MIT\"\n\
+                   -DEPENDS += \"zlib\"\n\
+                   +do_install_ptest_base[postfuncs] += \"do_install_ptest_cargo\"\n\
+                   +inherit cmake unknown\n"
+                .into(),
+            ..Default::default()
+        };
+        add_docs(&mut ctx, &docs());
+        add_docs(&mut ctx, &docs());
+        assert_eq!(ctx.items.len(), 1);
+        assert_eq!(
+            ctx.items[0].text,
+            "[postfuncs] task flag: Functions after the task.\n\n\
+             ptest-cargo class: Cargo test suites.\n\n\
+             cmake class: CMake.\n\n\
+             DEPENDS: Build-time deps.\n\n"
+        );
+    }
+
+    #[test]
+    fn no_docs_when_nothing_matches() {
+        let mut ctx = PatchContext {
+            diff: "+++ b/README\n+Some text\n".into(),
+            ..Default::default()
+        };
+        add_docs(&mut ctx, &docs());
+        assert!(ctx.items.is_empty());
+    }
 
     fn copy(from: &Path, to: &Path) {
         for entry in fs::read_dir(from).unwrap() {

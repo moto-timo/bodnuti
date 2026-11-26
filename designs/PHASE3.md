@@ -147,6 +147,16 @@ cap is reached:
 4. `git grep -n -w` hits for each variable, function and task name the diff
    adds or changes, at most 10 hits per name, three lines of context each.
 5. For a recipe upgrade, the recipe's previous version from the base tree.
+6. The documentation of the task flags, classes and variables the diff's
+   changed lines name, in that order: the Yocto and BitBake glossaries,
+   the class reference and the BitBake task flags, from an index that
+   `bench/phase3/docs_index.py` builds from the yocto-docs and bitbake
+   repositories. A finding can then rest on what the manual says rather
+   than on the model's memory, where §13's false findings came from. The host
+   adds it, outside the per-patch cap and at most 8 KiB, before the
+   request is sent (`docs` in `[review]`, or `--review-docs`); the index
+   is data, not code, so it is not built into bodnuti, and the docs are
+   CC-BY-SA.
 
 | Cap | Value |
 |---|---|

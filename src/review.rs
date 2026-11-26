@@ -42,6 +42,11 @@ pub struct ReviewConfig {
     /// (§5.1). Unset: the fixed rules only.
     #[serde(default)]
     pub guides: Option<PathBuf>,
+    /// The documentation index of bench/phase3/docs_index.py: the entries
+    /// for the flags, classes and variables a patch changes go with it
+    /// (§4). Unset: none.
+    #[serde(default)]
+    pub docs: Option<PathBuf>,
     /// `chat_template_kwargs.enable_thinking` for models with switchable
     /// reasoning. Unset: the model's default.
     #[serde(default)]
@@ -81,6 +86,7 @@ impl ReviewConfig {
             review_minutes: default_review_minutes(),
             timeout_seconds: default_timeout(),
             guides: None,
+            docs: None,
             thinking: None,
             reasoning_effort: None,
             min_confidence: default_min_confidence(),
@@ -1009,12 +1015,18 @@ pub fn run(config: &ReviewConfig, state: &Path, now: u64) -> Result<()> {
         }
         None => None,
     };
+    let docs = config
+        .docs
+        .as_deref()
+        .map(|p| crate::context::Docs::load(&crate::watch::expand(p)))
+        .transpose()?;
     let deadline = Instant::now() + Duration::from_secs(config.review_minutes * 60);
     drain(
         &client,
         escalation.as_ref(),
         &Store::new(state),
         config.guides.as_deref(),
+        docs.as_ref(),
         now,
         deadline,
     )
@@ -1025,6 +1037,7 @@ fn drain(
     escalation: Option<&Client>,
     store: &Store,
     guides_dir: Option<&Path>,
+    docs: Option<&crate::context::Docs>,
     now: u64,
     deadline: Instant,
 ) -> Result<()> {
@@ -1034,7 +1047,7 @@ fn drain(
         if Instant::now() >= deadline {
             break;
         }
-        let q: Queued = match std::fs::read(path)
+        let mut q: Queued = match std::fs::read(path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
         {
@@ -1045,6 +1058,9 @@ fn drain(
                 continue;
             }
         };
+        if let Some(docs) = docs {
+            crate::context::add_docs(&mut q.context, docs);
+        }
         let result = if now.saturating_sub(q.queued) > MAX_AGE_SECS {
             Review::without_answer(
                 q.context.index,
@@ -1450,7 +1466,7 @@ mod tests {
         queue("later@x", now - 30, "cc");
         let (url, _) = stub(vec![ok(&answer(vec![])), (429, "{}".into())]);
         let far = Instant::now() + Duration::from_secs(60);
-        drain(&client(&url), None, &store, None, now, far).unwrap();
+        drain(&client(&url), None, &store, None, None, now, far).unwrap();
 
         let stale = &store.results("oe-core", "stale@x")[&1];
         assert!(matches!(stale.outcome, Outcome::Skipped { .. }));

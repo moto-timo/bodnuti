@@ -457,6 +457,10 @@ struct CheckArgs {
     /// The model to review with. Overrides --review-config's.
     #[arg(long)]
     review_model: Option<String>,
+    /// The documentation index of bench/phase3/docs_index.py, for
+    /// --review and --review-requests. Overrides --review-config's docs.
+    #[arg(long, value_name = "FILE")]
+    review_docs: Option<PathBuf>,
     /// The shellcheck command, split on whitespace.
     #[arg(
         long,
@@ -689,6 +693,12 @@ fn sibling(program: &str) -> String {
 fn check(args: CheckArgs) -> Result<Report> {
     // Before any work, so a missing setting fails at once.
     let review_config = args.review.then(|| review_config(&args)).transpose()?;
+    let doc_index = args
+        .review_docs
+        .clone()
+        .or_else(|| review_config.as_ref().and_then(|c| c.docs.clone()))
+        .map(|p| context::Docs::load(&watch::expand(&p)))
+        .transpose()?;
     let python = args.python.unwrap_or_else(|| sibling("python3"));
     let b4 = args.b4.unwrap_or_else(|| sibling("b4"));
     let series = match args.input.as_slice() {
@@ -797,6 +807,9 @@ fn check(args: CheckArgs) -> Result<Report> {
             match context::gather(&workspace.path(), a.index, &a.commit) {
                 Ok(mut c) => {
                     context::add_series(&mut c, &series);
+                    if let Some(index) = &doc_index {
+                        context::add_docs(&mut c, index);
+                    }
                     context.push(c)
                 }
                 Err(err) => tool_errors.push(ToolError {
