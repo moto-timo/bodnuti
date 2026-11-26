@@ -435,3 +435,54 @@ the current month.
    in the same range (§1.1); §8 measures the real token counts, and the
    chosen configuration's cost goes into `STATUS.md`. A model host costs
    more per month, accepted only as the fallback.
+
+## 13. Design draft: no false findings, on local hardware
+
+Status: draft, for the maintainer to decide. Not built.
+
+One day of real traffic (26 November 2026, 126 patches, GLM-5.3) gave
+31 model findings: 7 real, 2 partly real, 22 false, read by hand
+(`docs/STATUS.md`). The false ones mostly need one fact the request
+lacks (the python3 manifest has no `misc` entry; `oe.kernel` exists on
+master; `RUST_HOST_SYS` is the target triple), and one `git grep` or
+file read settles them. A rerun with five more facts in the prompt gave
+a different mix, not fewer: prompt rules alone do not fix this. The
+goal is now stricter than §8's bar: **no false finding shown, and most
+real ones**, on a model that runs on a laptop GPU, so that no hosted
+tokens are needed.
+
+### 13.1 A check pass
+
+Every finding layer 3 keeps goes through one more request to the same
+local model, with the tools of §6 (`grep`, `show`, `log`, read-only, at
+the applied commit):
+
+- **The question:** the finding, its quoted evidence, and "show that
+  this is a defect in the patch, with the tools; answer confirmed or
+  refuted, and quote the line that decides it". Refuted is the
+  default: a finding that is not confirmed is not shown.
+- **What it costs:** one request per finding, not per patch. At about
+  0.25 findings per patch this adds a quarter of a review's time.
+- **What it catches:** a claim about a file the request did not show
+  (the manifest, a class, a library function) is checked against that
+  file instead of guessed.
+
+A finding refuted by the check pass is kept in `dropped` with the
+deciding quote, for tuning.
+
+### 13.2 Measured on a labelled set, locally
+
+The 26 November findings, read by hand, become a test set: 40 patches
+with their verdicts (the 10 real issues, the patches that drew false
+findings, and clean patches), under `bench/phase3/`. A configuration
+is scored by real issues found and false findings shown, on the laptop
+GPU, without hosted tokens. Candidates so far, on one patch: gemma-4
+26B-A4B with reasoning (about 10 minutes, 1 of 2 real, none false);
+without reasoning, it and glm-4.7-flash are fast and wrong.
+
+### 13.3 Questions
+
+1. Is a quarter more review time per patch acceptable for showing no
+   false findings?
+2. Does the check pass run on every finding, or only on findings in a
+   file the request did not show in full?
