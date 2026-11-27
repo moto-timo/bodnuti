@@ -683,16 +683,14 @@ Fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`) was
 tried once and stopped: the adapter learned to report nothing. The
 history goes into the request instead, as the review rules.
 
-Measured on 27 November 2026, v2.4 with docs and the check pass on the
-40 patches of 26 November read by hand: GLM-5.3 on FriendliAI answered
-every patch in seconds, about $0.03 a patch with the docs and the check
-pass, about $150 a month for every patch on the lists. Local models on a
-16 GB GPU: the default 17-18 GB builds of 26-27B models spill to the CPU;
-the smaller builds that fit (gemma4 26B at 4 bits, Qwen3.6 at 3 bits)
-missed the pillow bugs; gpt-oss-20b, 4-bit by design, fits and found
-them. The full comparison is in progress. Claude with the plugin's rules
-scores 0.90 against 0.60 without on ten of the same patches, the bar for
-a local model.
+Measured on 27 November 2026, after fixing what made local models look
+worse (temperature 0, requests that filled the context, one answer per
+patch, a generic chat template): 13 patches of 26 November with 8 known
+defects, three samples, every finding read by hand. Claude Code with the
+plugin's rules found 5 with no false finding shown; GLM-5.3 on
+FriendliAI 5, with 1 false, about $0.22 a patch (about $0.03 with one
+sample); gpt-oss-20b on a 16 GB GPU 4, with 4 false, about 6 minutes a
+patch; the LoRA 12B none. Qwen3.6-35B-A3B is still being measured.
 
 ## What it costs
 

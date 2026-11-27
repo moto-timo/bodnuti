@@ -191,11 +191,10 @@ Any OpenAI-compatible server works; these steps use
    checkouts:
    `python3 bench/phase3/docs_index.py --yocto-docs … --bitbake … --oe-core … --out ~/docs-index.json`.
 
-What to expect, measured on the patches of 26 November 2026: a 16 GB GPU
-answers a patch in seconds to a few minutes, with no tokens bought, but
-local models of this size find fewer defects and are less steady from run
-to run than a hosted open-weight model such as GLM-5.3, which costs about
-$0.03 a patch with the check pass and the docs.
+What to expect, measured on 13 patches of 26 November 2026 with three
+samples: gpt-oss-20b on a 16 GB GPU takes about 6 minutes a patch and
+found 4 of 8 known defects, with 4 false findings; GLM-5.3, hosted, about
+a minute and $0.22 a patch, found 5, with 1 false finding.
 
 `bodnuti poll` and `bodnuti publish` are the watcher's commands; see
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
