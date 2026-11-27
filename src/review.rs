@@ -60,6 +60,11 @@ pub struct ReviewConfig {
     /// model's default.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+    /// The effort for the retry after reasoning used up max_tokens. Unset:
+    /// `none`; a model that answers nothing without reasoning (gpt-oss)
+    /// wants `low`.
+    #[serde(default)]
+    pub retry_effort: Option<String>,
     /// Model findings rated below this are dropped (§5.3). The default,
     /// high, is what kept false findings under the §8 bar.
     #[serde(default = "default_min_confidence")]
@@ -94,6 +99,7 @@ impl ReviewConfig {
             verify: false,
             thinking: None,
             reasoning_effort: None,
+            retry_effort: None,
             min_confidence: default_min_confidence(),
             max_tokens: default_max_tokens(),
         }
@@ -390,16 +396,20 @@ pub struct Client {
     agent: ureq::Agent,
     format: Cell<Format>,
     /// Set for a retry after the reasoning used up max_tokens: ask for
-    /// no reasoning instead of the configured effort.
+    /// `retry_effort` instead of the configured effort.
     no_reasoning: Cell<bool>,
+    retry_effort: String,
 }
 
 impl Client {
     pub fn new(config: &ReviewConfig) -> Result<Client> {
-        if let Some(effort) = &config.reasoning_effort
-            && !["none", "minimal", "low", "medium", "high"].contains(&effort.as_str())
+        for effort in [&config.reasoning_effort, &config.retry_effort]
+            .into_iter()
+            .flatten()
         {
-            bail!("reasoning_effort {effort:?} is not none, minimal, low, medium or high");
+            if !["none", "minimal", "low", "medium", "high"].contains(&effort.as_str()) {
+                bail!("reasoning effort {effort:?} is not none, minimal, low, medium or high");
+            }
         }
         let key = config
             .api_key_file
@@ -414,6 +424,9 @@ impl Client {
             Duration::from_secs(config.timeout_seconds),
         );
         client.reasoning_effort = config.reasoning_effort.clone();
+        if let Some(effort) = &config.retry_effort {
+            client.retry_effort = effort.clone();
+        }
         client.min_confidence = config.min_confidence;
         client.max_tokens = config.max_tokens;
         Ok(client)
@@ -443,6 +456,7 @@ impl Client {
             agent,
             format: Cell::new(Format::JsonSchema),
             no_reasoning: Cell::new(false),
+            retry_effort: "none".into(),
         }
     }
 
@@ -471,7 +485,7 @@ impl Client {
             body["chat_template_kwargs"] = json!({"enable_thinking": on});
         }
         if self.no_reasoning.get() {
-            body["reasoning_effort"] = json!("none");
+            body["reasoning_effort"] = json!(self.retry_effort);
         } else if let Some(effort) = &self.reasoning_effort {
             body["reasoning_effort"] = json!(effort);
         }
@@ -947,6 +961,24 @@ fn quoted(evidence: &str, ctx: &PatchContext) -> bool {
 
 /// §5.3: keeps the findings that cite a file and line the request had and
 /// that layer 1 has not already reported.
+/// The files that carried patches in `diff` change, each with its patch
+/// file: a series that adds or edits a `.patch` carries the inner diff's
+/// `+++ b/<file>` lines behind its own marker.
+fn carried(diff: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut outer: Option<&str> = None;
+    for l in diff.lines() {
+        if let Some(p) = l.strip_prefix("+++ b/") {
+            outer = Some(p.trim_end()).filter(|p| p.ends_with(".patch") || p.ends_with(".diff"));
+        } else if let (Some(patch), Some(rest)) = (outer, l.get(1..))
+            && let Some(file) = rest.strip_prefix("+++ b/")
+        {
+            out.push((file.trim_end().to_string(), patch.to_string()));
+        }
+    }
+    out
+}
+
 fn validate(
     answer: Answer,
     index: u32,
@@ -962,6 +994,7 @@ fn validate(
     for path in ctx.diff.lines().filter_map(|l| l.strip_prefix("+++ b/")) {
         known.entry(path.trim_end()).or_insert(None);
     }
+    let inner = carried(&ctx.diff);
     let mut kept = Vec::new();
     let mut dropped = Vec::new();
     for f in answer.findings {
@@ -970,7 +1003,19 @@ fn validate(
             .strip_prefix("b/")
             .or(f.file.strip_prefix("a/"))
             .unwrap_or(&f.file);
-        let line = f.line.filter(|&l| l > 0);
+        let mut line = f.line.filter(|&l| l > 0);
+        // A file inside a carried patch belongs to that patch file; its
+        // line in the inner file says nothing about the patch file's.
+        let path = match known.contains_key(path) {
+            true => path,
+            false => match inner.iter().find(|(file, _)| path.ends_with(file.as_str())) {
+                Some((_, patch)) => {
+                    line = None;
+                    patch.as_str()
+                }
+                None => path,
+            },
+        };
         let Some(&lines) = known.get(path) else {
             dropped.push(format!("file not in request: {}", cut(path)));
             continue;
@@ -1774,6 +1819,33 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert!(seen[0].contains(r#""reasoning_effort":"high""#));
         assert!(seen[1].contains(r#""reasoning_effort":"none""#));
+    }
+
+    #[test]
+    fn a_file_inside_a_carried_patch_belongs_to_the_patch() {
+        let diff = "+++ b/meta/recipes-foo/foo/fix.patch\n\
+                    +--- a/Tests/test_x.py\n\
+                    ++++ b/Tests/test_x.py\n\
+                    ++    b = io.BytesIO(data)\n";
+        assert_eq!(
+            carried(diff),
+            vec![(
+                "Tests/test_x.py".to_string(),
+                "meta/recipes-foo/foo/fix.patch".to_string()
+            )]
+        );
+        assert!(carried("+++ b/foo.bb\n++++ b/x.py\n").is_empty());
+    }
+
+    #[test]
+    fn the_retry_effort_is_configurable() {
+        let cut = r#"{"choices":[{"message":{"content":""},"finish_reason":"length"}],"usage":{}}"#;
+        let (url, seen) = stub(vec![(200, cut.into()), ok(&answer(vec![]))]);
+        let mut c = client(&url);
+        c.reasoning_effort = Some("medium".into());
+        c.retry_effort = "low".into();
+        review(&c, &ctx(), &[], None).unwrap();
+        assert!(seen.lock().unwrap()[1].contains(r#""reasoning_effort":"low""#));
     }
 
     #[test]
