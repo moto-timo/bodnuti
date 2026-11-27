@@ -690,7 +690,8 @@ defects, three samples, every finding read by hand. Claude Code with the
 plugin's rules found 5 with no false finding shown; GLM-5.3 on
 FriendliAI 5, with 1 false, about $0.22 a patch (about $0.03 with one
 sample); gpt-oss-20b on a 16 GB GPU 4, with 4 false, about 6 minutes a
-patch; the LoRA 12B none. Qwen3.6-35B-A3B is still being measured.
+patch; Qwen3.6-35B-A3B at 3 bits, the size that fits that GPU, 1, and
+could not take the largest patch; the LoRA 12B none.
 
 ## What it costs
 
