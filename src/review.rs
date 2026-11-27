@@ -389,6 +389,9 @@ pub struct Client {
     context_tokens: u32,
     agent: ureq::Agent,
     format: Cell<Format>,
+    /// Set for a retry after the reasoning used up max_tokens: ask for
+    /// low effort instead of the configured one.
+    low_effort: Cell<bool>,
 }
 
 impl Client {
@@ -439,6 +442,7 @@ impl Client {
             context_tokens: default_context_tokens(),
             agent,
             format: Cell::new(Format::JsonSchema),
+            low_effort: Cell::new(false),
         }
     }
 
@@ -466,7 +470,9 @@ impl Client {
         if let Some(on) = self.thinking {
             body["chat_template_kwargs"] = json!({"enable_thinking": on});
         }
-        if let Some(effort) = &self.reasoning_effort {
+        if self.low_effort.get() {
+            body["reasoning_effort"] = json!("low");
+        } else if let Some(effort) = &self.reasoning_effort {
             body["reasoning_effort"] = json!(effort);
         }
         body
@@ -532,6 +538,9 @@ impl Client {
     }
 }
 
+const CUT: &str =
+    "the answer was cut at max_tokens before any content; try a lower reasoning_effort";
+
 fn reply(text: &str) -> Result<Reply, String> {
     let data: Value =
         serde_json::from_str(text).map_err(|_| "the answer is not JSON".to_string())?;
@@ -543,8 +552,7 @@ fn reply(text: &str) -> Result<Reply, String> {
     let content = choice["message"]["content"].as_str().unwrap_or("");
     if content.is_empty() && tool_calls.is_empty() {
         return Err(if choice["finish_reason"] == "length" {
-            "the answer was cut at max_tokens before any content; try a lower reasoning_effort"
-                .into()
+            CUT.into()
         } else {
             "no message in the answer".into()
         });
@@ -982,12 +990,13 @@ fn validate(
             dropped.push(format!("restates layer 1: {path}:{}", line.unwrap_or(0)));
             continue;
         }
-        // The same defect reported twice, in other words.
+        // The same defect reported twice, in other words. Without lines,
+        // only the same message tells: a patch file can hold several.
         if kept.iter().any(|k: &ModelFinding| {
             k.finding.file.as_deref() == Some(path)
                 && match (k.finding.line, line) {
                     (Some(a), Some(b)) => a.abs_diff(b) <= RESTATE_LINES,
-                    (None, None) => true,
+                    (None, None) => k.finding.message == f.message,
                     _ => false,
                 }
         }) {
@@ -1089,7 +1098,12 @@ pub fn review(
     let mut last = String::new();
     for attempt in 0..2 {
         let start = Instant::now();
-        let reply = match client.chat(&messages) {
+        // A reasoning loop repeats at the same effort (temperature 0), so
+        // the retry after one asks for low effort.
+        client.low_effort.set(attempt == 1 && last == CUT);
+        let reply = client.chat(&messages);
+        client.low_effort.set(false);
+        let reply = match reply {
             Ok(r) => r,
             Err(CallError::RateLimited) => return Err(CallError::RateLimited),
             // A quick 5xx is retried once; a timeout already waited
@@ -1742,6 +1756,19 @@ mod tests {
         let r = review(&client(&url), &ctx(), &[], None).unwrap();
         assert!(matches!(r.outcome, Outcome::NotReviewed { .. }));
         assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_reasoning_loop_is_retried_at_low_effort() {
+        let cut = r#"{"choices":[{"message":{"content":""},"finish_reason":"length"}],"usage":{}}"#;
+        let (url, seen) = stub(vec![(200, cut.into()), ok(&answer(vec![]))]);
+        let mut c = client(&url);
+        c.reasoning_effort = Some("high".into());
+        let r = review(&c, &ctx(), &[], None).unwrap();
+        assert_eq!(r.outcome, Outcome::Reviewed);
+        let seen = seen.lock().unwrap();
+        assert!(seen[0].contains(r#""reasoning_effort":"high""#));
+        assert!(seen[1].contains(r#""reasoning_effort":"low""#));
     }
 
     #[test]
