@@ -15,6 +15,7 @@ Read only the files for what the change touches, not all of them:
 | Change touches | Read |
 |---|---|
 | any recipe line | `rules/rules-syntax.md` |
+| any recipe, class or carried patch, before reporting | `rules/rules-bitbake.md` (BitBake behaviour that is not a defect) |
 | `RDEPENDS`, `FILES`, `INSANE_SKIP` assignments | `rules/rules-assignments.md` |
 | `PACKAGECONFIG` | `rules/rules-packageconfig.md` |
 | `DEPENDS`, `RDEPENDS`, `inherit` | `rules/rules-dependencies.md` |

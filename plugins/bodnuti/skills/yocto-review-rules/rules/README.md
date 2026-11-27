@@ -5,6 +5,9 @@ openembedded-core and openembedded-devel lists, 2016 to 2025, that the
 author acted on in the next version of the patch. Every rule is backed
 by at least two comments, quoted with the patch and month, and says
 when not to report it. Style-only objections were left out on purpose.
+The exception is `rules-bitbake.md`: BitBake behaviour that models
+reported as defects on real patches, each case checked by hand, so a
+reviewer checks a finding against it before reporting.
 
 Plain markdown, for any reviewer or AI tool: point it at this
 directory, or at the files for what a patch touches. bodnuti builds them

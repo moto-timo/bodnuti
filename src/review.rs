@@ -621,6 +621,10 @@ const RULES: &[(&str, &str)] = &[
         include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-assignments.md"),
     ),
     (
+        "rules-bitbake.md",
+        include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-bitbake.md"),
+    ),
+    (
         "rules-build-fixes.md",
         include_str!("../plugins/bodnuti/skills/yocto-review-rules/rules/rules-build-fixes.md"),
     ),
