@@ -1,4 +1,4 @@
-# Design draft: bodnuti phase 4, focused review passes
+# Design draft: bodnuti phase 4, what only a model can see
 
 Status: draft, for the maintainer to decide. Only §2 is built (branch
 phase4-checks).
@@ -29,30 +29,53 @@ patch files, Python, reproducibility, then verification. It costs about
 557k tokens a patch: every stage resends the patch, and tool loops resend
 the whole conversation each turn. Phase 4 takes the focus, not the cost.
 
-## 1. Focused passes
+## 0. The rule: the model reviews only what no check can see
+
+The model reports only what needs the code or its behaviour understood:
+logic, tests, dependencies, whether the message matches the diff. A
+header's form, a missing field and style are never the model's: if
+maintainers act on such a pattern it becomes a check (§2), and if they
+do not, nobody reports it.
+
+The clean retest bears this out. Every real defect a model found needed
+the code read (the pillow imports, curl's ptest module, ptest-cargo's
+message, awinic's licenses); the two findings master shows to be false
+were format a fixed rule could test (zip's dateless `Inactive-Upstream`,
+openssh's hunks without context).
+
+- The check pass also asks whether a fixed rule could find the finding,
+  and drops it if so. Such findings are kept in the log as candidates
+  for checks, not shown.
+- The review rules that are only about form (most of
+  `rules-patch-headers.md`) leave the check pass, rule by rule, each
+  becoming a check or nothing.
+
+## 1. A focused pass
 
 Layer 3 stays as it is: the code review, without the review rules. After
-it, up to two more requests for the same patch, each only when the patch
-touches what it is about:
+it, one more request for the same patch, only when the patch touches
+recipe metadata:
 
 | Pass | Runs when the patch changes | Request carries |
 |---|---|---|
-| Patch files | a `.patch` or `.diff` file | the patch, `rules-patch-headers.md`, `rules-bitbake.md` |
 | Recipe metadata | a `.bb`, `.bbappend`, `.inc` or `.bbclass` | the patch, the touched files, the packaging, licensing and dependency rules its lines select |
 
-- Each pass asks only its own question ("check the carried patch headers
-  against these rules"), in the layer 3 schema, with the same validation.
+- The pass asks only its own question (do the recipe's licenses,
+  packages and dependencies agree with what it builds and installs), in
+  the layer 3 schema, with the same validation.
+- A patch-header pass was planned as well; by §0 it would look mostly for
+  form, so it is dropped.
 - Its findings join layer 3's and go through the check pass, which already
   carries the rules.
 - No tools and no tool loop: the request is built once, under the same
   context budget as layer 3 (`fit`).
-- With `samples`, each pass is sampled as layer 3 is.
-- Configuration: `passes = ["patch-files", "recipe-metadata"]` in
-  `[review]`; unset, none.
+- With `samples`, the pass is sampled as layer 3 is.
+- Configuration: `passes = ["recipe-metadata"]` in `[review]`; unset,
+  none.
 
-Cost: one or two more calls per patch, of about layer 3's size. Hosted at
-GLM-5.3's prices, about $0.02 to $0.04 more a patch with one sample; on
-a local GPU, only time.
+Cost: one more call per recipe patch, of about layer 3's size. Hosted at
+GLM-5.3's prices, about $0.02 more a patch with one sample; on a local
+GPU, only time.
 
 ## 2. Checks learned from model findings
 
@@ -80,10 +103,10 @@ v1 for live verification (`PHASE3.md` §11). Left for after §1 and §2.
 
 Everything in phase 4 works through the plugin as well. The `bodnuti`
 skill runs bodnuti's checks in the released container image, so §2 comes
-with the next release. The focused passes of §1 are the
-`yocto-review-rules` skill's files grouped by pass: the skill tells
-Claude which files to read for a patch file or a recipe change, as it
-does now by topic, so a pass's rules are one place for both.
+with the next release. The rule of §0 and the pass of §1 go
+into the `yocto-review-rules` skill: it tells Claude to leave form to
+the checks and which files to read for a recipe change, as it does now
+by topic, so the rules are one place for both.
 
 ## 5. Repeats across samples
 
@@ -100,18 +123,18 @@ change with the rest.
 The same protocol as the clean retest (`RETEST-SETUP.md` in the
 presentation repository): one bodnuti version for every setup, three
 samples, every finding read by hand. On the fresh set of 27 November,
-from which no rule or pass was derived, phase 3 against phase 3 with the
-two passes, for gpt-oss-20b on the 16 GB GPU and for GLM-5.3. A pass is
+from which no rule or pass was derived, phase 3 against phase 3 with §0 and
+the pass, for gpt-oss-20b on the 16 GB GPU and for GLM-5.3. Each is
 kept if it finds defects the code review misses without adding false
 findings the check pass lets through.
 
 ## 7. Questions
 
-1. Are two passes the right cut, or should commit hygiene (message
-   against diff) be a third?
+1. Is one pass the right cut, or should commit hygiene (message against
+   diff) be a second?
 2. Should the check of §2 go to patchtest upstream as well?
 3. Does a hosted model still need three samples, or is one enough once
-   the passes are in? Measure before choosing the watcher's setting.
+   the pass is in? Measure before choosing the watcher's setting.
 4. Can a pass run on a smaller model than layer 3? A pass asks a narrower
    question over a shorter request (the patch and its rules, no classes
    or docs), so it may be enough, and it would make a laptop's integrated
