@@ -8,6 +8,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY assets ./assets
 COPY src ./src
 COPY tests ./tests
+# The review rules are built in (src/review.rs).
+COPY plugins/bodnuti/skills/yocto-review-rules/rules ./plugins/bodnuti/skills/yocto-review-rules/rules
 RUN cargo build --release --locked
 
 # shellcheck ships as a static binary in its own image.

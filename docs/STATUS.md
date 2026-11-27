@@ -2,15 +2,17 @@
 
 Automated review of Yocto Project and OpenEmbedded patches, explored two ways:
 as a new project inside [sashiko](https://github.com/sashiko-dev/sashiko), and
-as bodnuti, a standalone low-cost tool. Status as of 22 November 2026, after
+as bodnuti, a standalone low-cost tool. Status as of 25 November 2026, after
 the first weeks of the bodnuti phase 2 deployment, the first security scans,
 the addition of CI, the Django application checks, the releases up to 0.5.0,
 the fixes the live reports called for, patchtest's metadata checks, a
-Claude Code plugin and the SLSA source policy. The bodnuti repository is
+Claude Code plugin and the SLSA source policy, and the first measurement
+of phase 3 model review on open-weight models. The bodnuti repository is
 public.
 
 Prices are Anthropic API list rates for Claude Opus 5.5, Sonnet 5.5 and
-Haiku 5.5.
+Haiku 5.5, and FriendliAI serverless list rates for the open-weight
+models.
 
 ## The two approaches
 
@@ -554,6 +556,143 @@ front page is live.
 A CI check, the News workflow, fails a pull request that adds no fragment,
 unless it carries the `no news` label; Dependabot's are exempt.
 
+## bodnuti phase 3: model review, first measurement
+
+Phase 3 ([`designs/PHASE3.md`](../designs/PHASE3.md)) adds one model call
+per patch on open-weight models. Layers 2 (context gathering in the check
+container) and 3 (the call, its validation and the report section) are
+built, along with `bodnuti check --review`. Layer 4 (escalation to a
+larger model with read-only git tools), live verification against what
+the lists decide (`PHASE3.md` §11) and the check pass (§13.1) are built as
+drafts. Model findings are shown apart, marked unverified, and never count
+in the result.
+
+Measured on 25 November 2026 with `bench/phase3/score.py` on FriendliAI's
+serverless API: the six benchmark defects the deterministic checks miss,
+and the 25 most recent merged OE-Core commits as clean patches. One
+request per patch, temperature 0, JSON-schema output, sashiko's review
+guides, layer 2 context of 8-21k tokens.
+
+| Model, reasoning | Defects, judge | Defects, confirmed | Findings per clean patch | Tokens out | Per patch | Per month |
+|---|---:|---:|---:|---:|---:|---:|
+| gemma-4-31B-it, off | 4 / 6 | 3-4 / 6 | **0.28** | ~90 | ~$0.002 | ~$11 |
+| gemma-4-31B-it, on | 5 / 6 | 4-5 / 6 | 0.36 | ~5,100 | ~$0.004 | ~$21 |
+| GLM-5.3-Flash, effort none | 4 / 6 | not read | 1.52 | ~600 | ~$0.002 | ~$11 |
+| GLM-5.3-Flash, effort low | 4 / 6 | **5 / 6** | 0.36 | ~680 | ~$0.002 | ~$11 |
+| GLM-5.3, effort none | 6 / 6 | not read | 1.56 | ~370 | ~$0.017 | ~$89 |
+| GLM-5.3, effort low | 5 / 6 | **5 / 6** | 0.48 | ~500 | ~$0.018 | ~$91 |
+
+Costs are FriendliAI list prices without its prefix cache, which served
+most of a repeated system prompt in testing; per month is 5,100 patches.
+Wall time was 2-6 s a patch, 23 s for gemma with reasoning.
+
+How to read this:
+
+- "Confirmed" is a first reading by the agent that ran the measurement,
+  still to be checked by a maintainer, of whether a finding names the
+  known defect. The judge (the model under test) errs both ways: it
+  counted a piglit finding about wayland-protocols, and an ICU finding
+  about the fetch URL, as the defects, and rejected GLM-5.3-Flash's
+  rootfs finding, which names it exactly. Rows marked "not read" use the
+  judge only.
+- Most findings on clean patches are false. Of the 37 from the four
+  setups read in full, one is a real but minor issue (a refreshed
+  consolekit patch file without `Signed-off-by:`), about nine are
+  plausible but unconfirmed (systemd ukify runtime dependencies,
+  glib-networking's second test, grub's regenerated configure,
+  consolekit's udev on a sysvinit distro), and the rest are wrong:
+  `bb.utils.contains` on several words (it checks that all are set), a
+  dependency already in `DEPENDS`, a `PACKAGES =+` ordering misread,
+  `SOURCE_DATE_EPOCH` or `TUNE_PKGARCH` "unset" when bitbake.conf always
+  sets them, a selftest leftover the framework removes.
+- No setup meets the proposed bar (at least 3 of 6 defects, at most 0.25
+  false findings per clean patch). GLM-5.3-Flash with low reasoning is
+  the best trade so far: 5 of 6 confirmed, 0.36 false findings per clean
+  patch, about $0.002 a patch. gemma-4-31B-it without reasoning is
+  quietest (0.28) but finds only 3-4.
+- A larger model does not by itself reduce false findings: GLM-5.3 with
+  reasoning off reported 39 findings on 25 clean patches. Reasoning does:
+  GLM-5.3 went from 1.56 to 0.48 with `effort low`, keeping 5 of 6.
+- GLM-5.3-Flash ignores `enable_thinking`. At its default effort it spent
+  all 8,192 output tokens reasoning and returned no answer, which the
+  first runs scored as clean patches; `reasoning_effort` controls it, and
+  bodnuti and the harness now send it. Even at `none` it once looped to
+  the token limit.
+- Six defects are a small set, and the prompts were not tuned. Before
+  trusting a number, tune on these and confirm on a held-out set.
+
+### Improving accuracy
+
+The same day, four changes were tried against the false findings, each
+scored on sets not used to choose it:
+
+- **Keep only high-confidence findings** (`min_confidence`, now in
+  `[review]`). On 25 older clean commits picked afterwards: GLM-5.3 at
+  low reasoning 0.00 false findings per patch, GLM-5.3-Flash 0.16, both
+  still finding 4 of the 6 tuning defects.
+- **Prompt v2** (`bench/phase3`, `--prompt v2`): each finding quotes
+  the lines that show it and is dropped if the quote is not in the
+  request; a short list of OE-Core facts behind the recurring false
+  findings; only what the patch introduces or leaves incomplete. On the
+  tuning set it halved false findings without a filter (Flash 0.36 to
+  0.16, GLM-5.3 0.48 to 0.16).
+- **Only changed lines** was rejected on the stored results: false
+  findings already sit near the changes, and it would lose the ICU
+  defect, whose line the version change made wrong without touching it.
+- **Rules learned from the lists:** `lessons.py` distilled 30 review
+  rules from 508 changelogs of resent patches (2023-2025);
+  `--prompt v3` adds them. It lost to v2 (below): the rules made the
+  model raise Upstream-Status and style points, so it stays in the
+  bench.
+
+Two harder test sets were added. `heldout.json` has 30 defects mined
+from OE-Core's `Fixes:` trailers; `history-2026.json` has 19 patches from
+2026 whose v2 changed code after review, so the question is whether the
+model raises what the reviewers raised. Prompts v2 and v3, scored on the
+held-out sets:
+
+| Setup | Filter | Mined defects (judge) | False findings, 25 held-out clean |
+|---|---|---:|---:|
+| v1, GLM-5.3 low | high | 5 / 30 | 0.00 |
+| v2, GLM-5.3 low | medium and high | **8 / 30** | **0.04** |
+| v2, GLM-5.3 low | high | 3 / 30 | 0.00 |
+| v1, GLM-5.3-Flash low | high | 4 / 30 | 0.16 |
+| v2, GLM-5.3-Flash low | medium and high | 5 / 30 | 0.20 |
+| v3, GLM-5.3 low | medium and high | 8 / 30 | 0.28 |
+
+On the 2026 replay, GLM-5.3 low with medium and high findings: v2 9 of
+19 by the judge, v3 6. Read by hand, about 4-5 of v2's 9 really raise
+what the reviewers raised.
+
+With v2's evidence rule a high-only filter costs defects, so v2 wants
+`min_confidence = "medium"`. Defects found after merging are much harder
+than the six: many need knowledge the diff does not carry (firmware file
+lists, boot behaviour), and a few judge verdicts are generous. bodnuti
+checks the quotes and defaults to `min_confidence = "medium"`.
+
+Since then the request grew past score.py's v2 (`PROMPT` in
+src/review.rs): v2.1 adds the series context, v2.2 the docs index (each
+variable's glossary entry and bitbake.conf value) and sashiko's
+false-positive guide, v2.3 the review rules, and v2.4 moves the rules to
+the check pass. With the rules in layer 3, gemma4 26B checked patch
+headers field by field and missed the python3-pillow test bugs it finds
+without them; the rules now judge findings instead of steering the
+search.
+
+Fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`) was
+tried once and stopped: the adapter learned to report nothing. The
+history goes into the request instead, as the review rules.
+
+Measured on 27 November 2026, after fixing what made local models look
+worse (temperature 0, requests that filled the context, one answer per
+patch, a generic chat template): 13 patches of 26 November with 6 known
+defects, three samples, every finding read by hand. Claude Code with the
+plugin's rules found 4 with 1 false finding shown; GLM-5.3 on FriendliAI
+4, with 2 false, about $0.22 a patch (about $0.03 with one sample); gpt-
+oss-20b on a 16 GB GPU 4, with 4 false, about 6 minutes a patch;
+Qwen3.6-35B-A3B at 3 bits, the size that fits that GPU, 1, and could not
+take the largest patch; the LoRA 12B none.
+
 ## What it costs
 
 The OE and Yocto lists carry about 5,100 patches a month (sampled from
@@ -568,6 +707,9 @@ yocto-patches, yocto-docs and yocto-meta-virtualization.
 | bodnuti, Opus 5.5 single call + escalation | ~$0.17 | ~$860 | estimate |
 | bodnuti, Sonnet 5.5 single call | ~$0.045 | ~$230 | estimate |
 | bodnuti, Haiku 5.5 single call | ~$0.002 | ~$12 | estimate |
+| bodnuti, GLM-5.3-Flash (low reasoning) on FriendliAI | ~$0.002 | ~$11 | measured, phase 3 benchmark |
+| bodnuti, gemma-4-31B-it on FriendliAI | ~$0.002 | ~$11 | measured, phase 3 benchmark |
+| bodnuti, GLM-5.3 (low reasoning) on FriendliAI | ~$0.018 | ~$91 | measured, phase 3 benchmark |
 
 The Batch API halves the bodnuti figures, which suits a web report that can
 arrive hours after the patch. On a Claude subscription, one five-hour usage
@@ -594,8 +736,15 @@ window held about eight sashiko reviews.
 - Refresh `django/<application>/requirements.txt` from the applications'
   master branches when their pins change, so Django's checks run against
   current dependencies.
-- Build and score bodnuti's single-call LLM layer (phase 3) against the six
-  defects the deterministic checks miss.
+- Phase 3: finish the comparison on the 40 patches of 26 November and a
+  fresh set (`PHASE3.md` §13.2): GLM-5.3 hosted against gpt-oss-20b and
+  Qwen3.6-35B-A3B on one 16 GB GPU, with docs and the check pass; then
+  pick the model for the watcher, and have a maintainer read the review
+  rules.
+- Measure layer 4 (GLM-5.3-Flash with GLM-5.3 escalation, built as a
+  draft) on the held-out sets before turning on `escalation_model`.
+- Turn on `[review]` in the watcher, so live verification (§11) starts
+  collecting outcomes; read a sample by hand after the first month.
 - Raise the sashiko project idea with the sashiko maintainers and with OE and
   Yocto maintainers before any upstream pull request. Nothing would be emailed
   to the lists without their agreement.

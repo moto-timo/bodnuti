@@ -53,6 +53,149 @@ bodnuti check --repo <layer checkout> <Message-ID | lore URL | mbox files...>
 
 Exit status: 0 clean, 1 findings, 2 a checker could not run or bad input.
 
+### Model review before sending
+
+`--review` also asks an open-weight model to review each patch
+([`designs/PHASE3.md`](designs/PHASE3.md)): bodnuti gathers the patch's
+context (the files it touches, what they require and inherit, where the
+names it changes are used) and sends one request per patch to an
+OpenAI-compatible endpoint. Its findings are listed under "model review",
+marked unverified, and never change the exit status.
+
+The settings are the `[review]` table of `--review-config`, by default
+`~/.config/bodnuti/watch.toml`:
+
+```toml
+[review]
+endpoint = "https://api.friendli.ai/serverless/v1"
+api_key_file = "~/.config/bodnuti/review.key"   # mode 600
+model = "zai-org/GLM-5.3-Flash"
+guides = "~/sashiko/projects/yoctoproject/prompts"   # optional
+docs = "~/docs-index.json"   # optional, from bench/phase3/docs_index.py
+verify = true                # the check pass
+```
+
+or a model of your own, which sends no key:
+
+```
+bodnuti check --review --review-endpoint http://localhost:11434/v1 \
+    --review-model qwen3:30b-a3b --repo <layer> <mbox files>
+```
+
+A series not yet sent is private: `--review` sends it, with its context,
+to the endpoint, so choose one whose data terms you accept.
+
+#### How model review works
+
+Model review adds layers 2 to 4 of [`designs/PHASE3.md`](designs/PHASE3.md)
+after the checks. Each step after layer 3 only removes model findings, and
+none of them changes the checks' result:
+
+```mermaid
+flowchart TD
+    mail["Series from the list<br/>(untrusted)"] --> l1
+    l1["Layer 1: deterministic checks<br/>patchtest, oelint-adv, shellcheck, ..."] --> l2
+    l2["Layer 2: context, in the no-network container<br/>files touched, require/inherit, git grep"] --> docs
+    docs["Docs for what the patch changes<br/>glossary, classes, task flags, bitbake.conf values"] --> l3
+    l3["Layer 3: one model call per patch<br/>guides, JSON schema, quoted evidence"] --> val
+    val{"Validation<br/>file and line in the request?<br/>evidence quoted word for word?<br/>confidence, not a layer-1 repeat?"} -->|kept| check
+    val -->|dropped| log[("dropped, with the reason")]
+    val -->|kept, verify off| report
+    check{"Check pass (verify = true)<br/>review rules,<br/>read-only git grep/show/log"} -->|confirmed with a quote| report
+    check -->|refuted| log
+    l3 -.->|risky patch or low confidence| l4["Layer 4: escalation (draft)<br/>larger model with read-only git tools"]
+    l4 -.-> val
+    report["Report: model findings apart,<br/>marked unverified, never in the result"] --> score
+    score["Scoring against what the lists decided<br/>later revisions, Fixes: commits"]
+    rules[("Review rules<br/>plugins/bodnuti/skills/yocto-review-rules")] --> check
+    rules -.-> l4
+    rules --> plugin["Claude Code skill<br/>same Markdown files"]
+```
+
+- **Layer 2** gathers context with no network and under a size cap: the
+  files a patch touches, what they `require` and `inherit`, where the names
+  it changes are used, and with `docs` the documentation and the
+  `bitbake.conf` value of each variable, class and task flag it changes.
+- **Layer 3** reviews the patch with sashiko's Yocto guides, its
+  false-positive guide and severity scale (`guides`), not the review rules:
+  with the rules in the request, local models checked patch headers field
+  by field and stopped reading the code.
+- **The check pass** (`verify = true`) asks the model once more about each
+  finding, with the review rules and read-only git tools on the tree after
+  the patch. A finding is shown only when the model confirms it with a line
+  it quotes from the patch, its context or a tool's output.
+- **Layer 4** (`escalation_model`) sends risky patches to a larger model
+  with the review rules and the same tools. It is a draft and not yet
+  measured.
+- **The review rules** are Markdown files condensed from maintainers'
+  inline review on the lists, built into bodnuti; a `rules/` directory in
+  `guides` replaces them. The same files are the Claude Code skill
+  `yocto-review-rules`, so any assistant reviewing or writing a recipe can
+  read them.
+
+A finding never changes the exit status or the result. Training a model
+instead was tried and stopped
+([`designs/TRAINING.md`](designs/TRAINING.md) §8).
+
+#### Hosting the model yourself
+
+Any OpenAI-compatible server works; these steps use
+[ollama](https://ollama.com) on one GPU.
+
+1. **The model must fit in GPU memory, context included.** A model that
+   spills layers to the CPU runs five to ten times slower. After the first
+   request, `ollama ps` must say `100% GPU`.
+2. **Pick a quantization that leaves room for the context.** On a 16 GB
+   card, gemma4 26B-A4B at 4 bits (`UD-IQ4_XS`, 13.6 GB) with a 24k context
+   fits; the default 4-bit builds of 26B to 27B models (17 to 18 GB) do
+   not. Leave out the vision projector if the build has one separate.
+3. **Make a model with the context set,** for example:
+
+   ```
+   ollama pull hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ4_XS
+   cat > Modelfile <<'EOF'
+   FROM hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ4_XS
+   PARAMETER num_ctx 24576
+   PARAMETER temperature 1
+   PARAMETER top_k 64
+   PARAMETER top_p 0.95
+   EOF
+   ollama create bodnuti-gemma4-26b -f Modelfile
+   ```
+
+4. **Point bodnuti at it:**
+
+   ```toml
+   [review]
+   endpoint = "http://localhost:11434/v1"
+   model = "bodnuti-gemma4-26b"
+   guides = "~/sashiko/projects/yoctoproject/prompts"
+   docs = "~/docs-index.json"
+   verify = true
+   samples = 3
+   context_tokens = 24576   # the num_ctx of the Modelfile
+   reasoning_effort = "medium"
+   max_tokens = 12000
+   ```
+
+   Leave `temperature` unset: the model's own setting applies, and
+   reasoning models loop under greedy decoding (temperature 0). A local
+   server does not answer the same request the same way twice, so
+   `samples = 3` asks three times, merges the findings and lets the check
+   pass decide each by majority. `context_tokens` must match the server:
+   bodnuti leaves out the context a request needs least until it fits
+   with room for `max_tokens`. If a reasoning loop still uses up
+   `max_tokens`, bodnuti asks once more at `retry_effort` (default
+   `none`; gpt-oss answers nothing without reasoning and wants `low`).
+5. **Build the docs index** from yocto-docs, bitbake and openembedded-core
+   checkouts:
+   `python3 bench/phase3/docs_index.py --yocto-docs … --bitbake … --oe-core … --out ~/docs-index.json`.
+
+What to expect, measured on 13 patches of 26 November 2026 with three
+samples: gpt-oss-20b on a 16 GB GPU takes about 6 minutes a patch and
+found 4 of 6 known defects, with 4 false findings; GLM-5.3, hosted, about
+a minute and $0.22 a patch, found 4, with 2 false findings.
+
 `bodnuti poll` and `bodnuti publish` are the watcher's commands; see
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
 

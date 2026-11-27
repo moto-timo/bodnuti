@@ -13,6 +13,15 @@ the documentation checks, and reports only what the series adds.
 /plugin install bodnuti@bodnuti
 ```
 
+## Skills
+
+- `bodnuti`: runs bodnuti on a series in a container.
+- `yocto-review-rules`: the rules OpenEmbedded maintainers apply in review,
+  condensed from their inline comments on the lists, one file per topic in
+  `skills/yocto-review-rules/rules/`. Claude reads the files for what a
+  change touches when it reviews or writes a recipe, class or patch file.
+  bodnuti's model review builds in the same files. No container needed.
+
 ## Requirements
 
 - podman or docker. The script uses podman when both are installed.
@@ -47,6 +56,17 @@ Run from the plugin directory. They run no container.
 ```
 python3 -m unittest discover -s skills/bodnuti/tests
 ```
+
+`evals/` holds real patches from 26 November 2026, each with what a
+review must find, or must not claim (`trap-*`), for `claude plugin eval`,
+which runs each case with and without the plugin and grades the answers
+with a model; it uses your Claude account:
+
+```
+claude plugin eval . --model sonnet --judge-model sonnet --runs 3 --no-publish
+```
+
+Mail addresses and names in the cases are placeholders.
 
 ## License
 

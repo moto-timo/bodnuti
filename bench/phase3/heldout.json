@@ -1,0 +1,182 @@
+[
+ {
+  "Commit": "c3365dfd9ddd7fbe70b62e0f11166e57a8ca6f73",
+  "Fixed-by": "6f35c677d608c749eaf61b209e6e6dfc761cbe8d",
+  "subsystem": "classes",
+  "problem_description": "A later commit fixed this patch. Its message: oe-selftest: rootfspostcommandstests: fix check for default sort command Since commit [1] SORT_PASSWD_POSTPROCESS_COMMAND defaults to \"tidy_shadowutils_files\" without the trailing ';', so the check never matched and both tests in ShadowUtilsTidyFiles have been skipped ever since. The yocto-4.3 regression report [2] shows both going from PASSED to SKIPPED. Fix the check so the tests run again. [1] https://git.openembedded.org/openembedded-core/commit/?id=c3365dfd9ddd7fbe70b62e0f11166e57a8ca6f73 [2] https://downloads.yoctoproject.org/releases/yocto/yocto-4.3/testresults/testresult-regressions-report.txt AI-Generated: Uses Claude Code (Claude Opus 5.5)"
+ },
+ {
+  "Commit": "ce8190c519052fed10b5233697b69a75868db45a",
+  "Fixed-by": "b8fda5dd1571bba32f894339e83f43d1872db986",
+  "subsystem": "devtool",
+  "problem_description": "A later commit fixed this patch. Its message: devtool: standard: Fix file copy on finish --force Fix \"devtool finish --force\" command, by allowing to copy folders that were not previously existing but also by preventing it from trying to remove non-existent files. Devtool was particularly confused when using the finish subcommand on a recipe that was just added."
+ },
+ {
+  "Commit": "cd9e7304481b24b27df61c03ad73496d18e4d47c",
+  "Fixed-by": "fef027f2350cec0e6b890b636d2529a13f1fab58",
+  "subsystem": "u-boot",
+  "problem_description": "A later commit fixed this patch. Its message: u-boot: re-enable RISC-V compressed (c) ISA extension SRC_URI_RISCV clears every RISC-V ISA extension via u-boot-riscv-isa_clear.cfg, then conditionally re-adds a fragment per TUNE_FEATURES bit: a, f, d, b/zbb, zicbom. There is no line for c, even though u-boot-riscv-isa_c.cfg (CONFIG_RISCV_ISA_C=y) already ships in the recipe. So for any tune with c in TUNE_FEATURES (e.g. the default rv64gc/rv32gc tunes), compressed instructions stay disabled after the clear fragment runs, and .config ends up with: # CONFIG_RISCV_ISA_C is not set Building without RVC noticeably inflates .text: on qemuriscv64 (tune-riscv64, rv64gc), the resulting u-boot binary is 1312625 bytes of .text without the fix vs 1082853 bytes with CONFIG_RISCV_ISA_C=y correctly set, 229772 bytes (17.5%) smaller. On size-constrained RISC-V SPL targets this .text growth can make the SPL .bss VMA overlap the .text VMA and fail the link. Add the missing \"c\" mapping line, mirroring the existing per-extension entries (a, f, d, b/zbb, zicbom) already present in SRC_URI_RISCV. Tested on oe-core master, MACHINE=qemuriscv64, via the oe-nodistro-master bitbake-setup config: bitbake -c cleansstate u-boot && bitbake u-boot grep CONFIG_RISCV_ISA_C .../u-boot/2026.04/build/.config # before: \"# CONFIG_RISCV_ISA_C is not set\" # after: \"CONFIG_RISCV_ISA_C=y\" do_package_qa passes both before and after; only the ISA config and resulting .text size change. AI-Generated: Uses Cursor"
+ },
+ {
+  "Commit": "9f95660886db562669d064f380d963353eef524c",
+  "Fixed-by": "9bf56df6decf3b0a07e5a0814f4ad2d6317568f9",
+  "subsystem": "opensbi",
+  "problem_description": "A later commit fixed this patch. Its message: opensbi: don't override ELFFLAGS, silence ldflags QA for bare-metal ELFs opensbi_1.8.1.bb passes ELFFLAGS=\"${LDFLAGS}\" via EXTRA_OEMAKE. Being a make command-line assignment, it overrides OpenSBI's in-Makefile \"ELFFLAGS +=\" and drops the mandatory firmware link flags: -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,--build-id=none -Wl,--no-dynamic-linker -Wl,-pie Losing --gc-sections retains unused fdt_*/atomic_* code and grows .text; losing -pie/--no-dynamic-linker drops the M-mode firmware hardening. The distro LDFLAGS were not reaching the link regardless: OpenSBI rebuilds CC from CROSS_COMPILE (Makefile: CC = $(CROSS_COMPILE)gcc), so oe's CC and its TARGET_CC_ARCH += \"${LDFLAGS}\" do not apply, and passing them via ELFFLAGS was the only path in. They are also dynamic-linking flags with no role in bare-metal firmware, so drop the override; REPRODUCIBLE=y and CROSS_COMPILE stay. Removing it re-exposes an ldflags QA warning that the injected --hash-style=gnu had been satisfying. These firmware ELFs are bare-metal M-mode binaries (--build-id=none, no dynamic linker) that legitimately carry no GNU_HASH, so add INSANE_SKIP += \"ldflags\", as linux-firmware does. Tested on oe-core master (DISTRO=nodistro, MACHINE=qemuriscv64) via the oe-nodistro-master bitbake-setup config: bitbake opensbi grep -c gc-sections .../opensbi/*/temp/log.do_compile # 0 -> 4 Before, the fw_jump.elf link carries only the LDFLAGS content (-Wl,-O1, --hash-style=gnu,"
+ },
+ {
+  "Commit": "5ce73b6055ac5a47906e2e661bc5163604f5cec9",
+  "Fixed-by": "42b530581f7246b3143ee50e3c6f981dcbb1dc74",
+  "subsystem": "grub",
+  "problem_description": "A later commit fixed this patch. Its message: grub: update search parameter Grub would report an error message in boot stage as below: \"error: no such device: ((hd0,gpt1)/EFI/BOOT)/EFI/BOOT/grub.cfg\" Consequently, the root variable is not set, and the intended protection against cross-device configuration loading (the purpose of the original 2014 commit) is lost. The most robust fix is to use the --hint parameter. This separates the search target from the device hint, avoiding fragile string concatenation and supporting both prefixed and non-prefixed $cmdpath formats."
+ },
+ {
+  "Commit": "ac5e0160df78eef03470daf1f70a5f4d2dc0bac1",
+  "Fixed-by": "cf443571444c98bcf7d5daeaa310e01b0ca6e199",
+  "subsystem": "mesa",
+  "problem_description": "A later commit fixed this patch. Its message: mesa: fix building imagination Vulkan driver The imagination Vulkan driver requires a precomp-compiler from mesa-tools-native since we've decoupled libclc from target mesa in commit ac5e0160df78 (\"mesa: depend on mesa-tools-native for less expensive libclc dependency\"). This is achieved by building the imagination precomp-compiler tool in mesa-tools-native and making use of it via the libclc PACKAGECONFIG for the Vulkan driver such that mesa-tools-native dependency (and its imagination precomp-compiler) are brought in."
+ },
+ {
+  "Commit": "937a0931dd07bb2cbe9133870652136b337a171d",
+  "Fixed-by": "116f67baa54d007441f5a0db39be42dd9dfcba32",
+  "subsystem": "add mesa-tools native-only recipe",
+  "problem_description": "A later commit fixed this patch. Its message: mesa: fix missing dependency for libdrm for panfrost tools mesa-tools-native builds the panfrost tools but if wayland is not in DISTRO_FEATURES, libdrm dependency is missing and mesa-tools-native will fail with: ../sources/mesa-26.0.2/src/panfrost/lib/kmod/pan_kmod.c:7:10: fatal error: xf86drm.h: No such file or directory 7 | #include <xf86drm.h> | ^~~~~~~~~~~ Note the mesa-26.0.2 in the path. It's simply because the tarball sources contain this name as root directory, it can be a bit misleading when looking at mesa-tools-native logs and seeing this error."
+ },
+ {
+  "Commit": "5e66e2b79faec2285d249b16457ecc63c4042444",
+  "Fixed-by": "945d9b9e75b56b06870c0511a331d8a6fd544c64",
+  "subsystem": "linux/generate-cve-exclusions",
+  "problem_description": "A later commit fixed this patch. Its message: linux: cve-exclusions: Add --always to git-describe Otherwise https://git.kernel.org/pub/scm/linux/security/vulns.git cannot be used: subprocess.CalledProcessError: Command '('git', 'describe', '--tags', 'HEAD')' returned non-zero exit status 128. Original error from git: fatal: No names found, cannot describe anything. The change will at least produce an abbreviated SHA1 hash as {data_version}."
+ },
+ {
+  "Commit": "228a968e7c47d811c06143279bdb0f9c5f374bef",
+  "Fixed-by": "8417f4a186e78a9d309541f5d0e711178bb80488",
+  "subsystem": "kernel.bbclass",
+  "problem_description": "A later commit fixed this patch. Its message: meta: fix generation of kernel CONFIG_ in SPDX3 With the current solution, using a separate task (do_create_kernel_config_spdx) there is a dependency issue. Sometimes the final rootfs SBOM does not contain the CONFIG_ values. do_create_kernel_config_spdx is executed after do_create_spdx which deploys the SPDX file. do_create_kernel_config_spdx calls oe.sbom30.find_root_obj_in_jsonld to read from the deploy directory, which is OK, but the do_create_kernel_config_spdx ends up writing to this deployed file (updating it). do_create_rootfs_spdx has an explicit dependency to all do_create_spdx tasks, but there is nothing that prevents executing do_create_kernel_config_spdx after do_create_rootfs_spdx. To fix it, instead, now read from the workdir, and write to the workdir, and do the processing from the do_create_spdx task: we append to the do_create_spdx task. Furthermore, update oeqa selftest to execute do_create_spdx instead of removed function. Also only execute this task if create-spdx-3.0 was inherited, previously this code could be executed if create-spdx-2.2 is inherited."
+ },
+ {
+  "Commit": "addd80ddfd892eb4513f323d369d210935416e05",
+  "Fixed-by": "61faf2f4f6d63350efdaca76364089939af4364f",
+  "subsystem": "openssh",
+  "problem_description": "A later commit fixed this patch. Its message: openssh: replace hardcoded paths by standard paths Use common definitions from bitbake.conf instead of hardcoded values for OPENSSH_HOST_KEY_DIR and OPENSSH_HOST_KEY_DIR_READONLY_CONFIG."
+ },
+ {
+  "Commit": "88e26a937549b253ab2b312450f1220b9b6f7d3c",
+  "Fixed-by": "3b05f58586bc3cc156c194342fe1775e567870d1",
+  "subsystem": "mesa",
+  "problem_description": "A later commit fixed this patch. Its message: mesa: drop VDPAU remnants Mesa 25.3.x dropped support for VDPAU. Commit 88e26a937549 (\"mesa: upgrade 25.2.5 -> 25.3.1\") has dropped most of VDPAU-related items, but it didn't drop mesa-vdpau-drivers package (nor did it drop VDPAU bits from mesa-dev). Drop those remnants."
+ },
+ {
+  "Commit": "e9242749621040accba8252d50c036b3e4b10e09",
+  "Fixed-by": "0ae08dc70f0f55fffdfd8a61aebad4bb1c9085fa",
+  "subsystem": "systemd",
+  "problem_description": "A later commit fixed this patch. Its message: systemd: fix excess systemd -> ukify -> python dependency The systemd package contains a symlink to ukify binary under the libdir/systemd. This symlink forces the systemd -> systemd-ukify dependency, which also pulls in a set of python packages, which might be undesirable for the small isntallations. Move the symlink to the systemd-ukify package, removing this dependency and preventing the excess growth of the rootfs / initramfst."
+ },
+ {
+  "Commit": "d76dc362c8e18779cc4ddc6a778fb423c0e66a65",
+  "Fixed-by": "b8fa4a0ac33638b599ee169db11b5e77b2483148",
+  "subsystem": "clang",
+  "problem_description": "A later commit fixed this patch. Its message: mesa: add opencl -> clang build dependency With the commits 448f4a84cb22 (\"llvm: add recipe for just the LLVM libraries\") and d76dc362c8e1 (\"clang: use llvm recipe\") the 'llvm' dependency inside mesa.inc does no longer pull in the clang libraries, failing RustiCL build as it can not find Clang libaries. Add direct dependency on the clang in order to fulfill build-time deps."
+ },
+ {
+  "Commit": "f33d9b1f434e40a459614d8dc21ce45e11581008",
+  "Fixed-by": "7cdf10840c200a327b6336775698342af7212ee4",
+  "subsystem": "systemd.bbclass",
+  "problem_description": "A later commit fixed this patch. Its message: systemd.bbclass: deduplicate template and instance lines in preset file If SYSTEMD_SERVICE contains both template and instance names, the preset file will contain two lines: one describing the template name and one describing the instance names. This is problematic because systemd.preset only use the first matching one [1], leading to the instances not getting enabled. For example, openbmc's obmc-console recipe has the following final SYSTEMD_SERVICE variable: ``` SYSTEMD_SERVICE:obmc-console = \" \\ obmc-console@.service \\ obmc-console-ssh@.service \\ user-3b41b6e9d8@example.invalid \\ \" ``` The resulting preset file will contain lines with the same name: ``` enable obmc-console@.service enable obmc-console-ssh@.service enable obmc-console-ssh@.service 2200 ``` Fix this by interpreting the template name as a special case of empty instances. Tested: preset files are generated correctly: ``` enable obmc-console@.service enable obmc-console-ssh@.service 2200 ``` [1]: https://www.freedesktop.org/software/systemd/man/257/systemd.preset.html#Preset%20File%20Format"
+ },
+ {
+  "Commit": "621e9be9663e448dde3f6b6a02b413fd65983e6c",
+  "Fixed-by": "ec3cd6a73468510e57c4cda874dc3cb20afef9c2",
+  "subsystem": "libglvnd",
+  "problem_description": "A later commit fixed this patch. Its message: libglvnd: drop S assignment libglvnd recipe was sent before the OE-Core changes reworking S / UNPACKDIR rework. Drop S assignment which is now being rejected by OE / bitbake."
+ },
+ {
+  "Commit": "9d3b4c9bc40392ba87f110ec5db0dedf381b8c4a",
+  "Fixed-by": "c2b4971e79ece23c43639865a617ee4c248fa981",
+  "subsystem": "mesa",
+  "problem_description": "A later commit fixed this patch. Its message: default-providers: fix GLVND providers to be selected at runtime The virtual-{libegl,libglx}-icd names are RPROVIDES, not PROVIDES, because they are a runtime dependency of libglvnd. Make default-providers follow that and specify PREFERRED_RPROVIDER instead of PREFERRED_PROVIDER for those names."
+ },
+ {
+  "Commit": "7a580800db391891a3a0f838c4ae6e1513c710a2",
+  "Fixed-by": "f33d9b1f434e40a459614d8dc21ce45e11581008",
+  "subsystem": "systemd",
+  "problem_description": "A later commit fixed this patch. Its message: systemd.bbclass: generate preset for templates There was a regression introduced by the change to use systemd-systemctl-native rather than a python fake implementation, which caused template units to not be properly enabled when set in the SYSTEMD_SERVICE variable. Through investigation, it seems that the best way to re-enable template instances is to handle them explicitly in the systemd.bbclass and enable them with `preset`, like most units are handled[1,2]. Per the systemd.preset manpage, the format for template units is different than for regular units[3]. We need to coalesce all the template instances onto a single line and emit them as an additional space-deliminated argument. Ran this against openbmc's phosphor-ipmi-net recipe and generated the following preset file: ``` $ cat packages-split/phosphor-ipmi-net/usr/lib/systemd/system-preset/98-phosphor-ipmi-net.preset enable phosphor-ipmi-net@.service eth0 enable phosphor-ipmi-net@.socket eth0 ``` [1]: https://lore.kernel.org/openembedded-core/user-80d969aff5@example.invalid/ [2]: https://lore.kernel.org/openembedded-core/aDdoTVtCmElpURYD@heinlein/ [3]: https://www.freedesktop.org/software/systemd/man/latest/systemd.preset.html"
+ },
+ {
+  "Commit": "bec0cfc9b21566348886a8122c9b0756539b416d",
+  "Fixed-by": "bea9ea64820a86c4d01671087b706beca1ccdf26",
+  "subsystem": "connman",
+  "problem_description": "A later commit fixed this patch. Its message: connman: Set connman resolv.conf as fallback when using systemd-resolved Commit bec0cfc9b215 (\"connman: Set dns-backend automatically\") introduced support for using systemd-resolved as the DNS backend. However, connman's resolv.conf was assigned a higher update-alternatives priority. This caused connman's configuration to override systemd-resolved, resulting in a broken DNS setup. /etc/resolv.conf -> /etc/resolv-conf.connman This commit corrects the issue by lowering the priority for connman's resolv.conf when systemd-resolved is enabled, ensuring it acts as a fallback. The higher priority is now only applied when systemd-resolved is not used."
+ },
+ {
+  "Commit": "4178fe97371bce0bd63b19f57b872ccefd1ec45c",
+  "Fixed-by": "177aaa7912f317da4a17a57081eb4f5667ef2c02",
+  "subsystem": "clang",
+  "problem_description": "A later commit fixed this patch. Its message: clang: build-depend on spirv-llvm-translator-native Building of spirv-mesa and spirv64-mesa CLC targets (which are required for Mesa to work) requires a working llvm-spirv tool (provided by the spirv-llvm-translator-native package). Make clang build-depend on the corresponding recipe in order to be able to build requried targets."
+ },
+ {
+  "Commit": "259bfa86f384206f0d0a96a5b84887186c5f689e",
+  "Fixed-by": "036f20156b3c7d0a8b912e90aa29a9b986106d5a",
+  "subsystem": "u-boot",
+  "problem_description": "A later commit fixed this patch. Its message: u-boot: ensure keys are generated before assembling U-Boot FIT image Add the task dependency: do_uboot_assemble_fitimage -> virtual/kernel:do_kernel_generate_rsa_keys to ensure the kernel FIT image signing keys are available when creating the U-Boot DTB. This is done only if the signing of the kernel FIT image is enabled (UBOOT_SIGN_ENABLE=\"1\"). The lack of the dependency causes build errors when executing a build with no kernel FIT keys initially present in the keys directory. In such cases one would see an output like this in the Bitbake logs: Log data follows: | DEBUG: Executing shell function do_uboot_assemble_fitimage | Couldn't open RSA private key: '/workdir/build/keys/fit/dev.key': No such file or directory | Failed to sign 'signature' signature node in 'conf-1' conf node | FIT description: Kernel Image image with one or more FDT blobs | ... This issue was introduced by commit 259bfa86f384 where the dependency between U-Boot and the kernel was removed (for good reasons). Before that commit the dependency was set via DEPENDS so that, in terms of tasks, one had: u-boot:do_configure -> virtual/kernel:do_populate_sysroot and the chain leading to the key generation was: virtual/kernel:do_populate_sysroot -> virtual/kernel:do_install virtual/kernel:do_install -> virtual/kernel:do_assemble_fitimage virtual/kernel:do_assemble_fitimage -> virtual/kernel:do_kernel_generate_rsa_keys With the removal of the first dependency, no more g"
+ },
+ {
+  "Commit": "db3bf550a372c0b3fd07095c38ce63764ad5a2e8",
+  "Fixed-by": "1f729a019c6e5ea35d9a5196b68d81f31a8a1594",
+  "subsystem": "llvm",
+  "problem_description": "A later commit fixed this patch. Its message: llvm: move libLLVM.so.N.M to llvm-libllvm package Neither MAJOR_VER nor MINOR_VER are defined, so libLLVM.so.N.M ends up in the main libllvm package rather than the llvm-libllvm package, as expected. Fix this by properly using two-component version."
+ },
+ {
+  "Commit": "93b3d61b657ce7d07c78a75b1b3ae4c81189e19a",
+  "Fixed-by": "19146220a57d4829c18e8860e85b2843aafd901d",
+  "subsystem": "linux-firmware",
+  "problem_description": "A later commit fixed this patch. Its message: linux-firmware: fix qca-qca61x4-usb package contents The NVM files for QCA61x4 USB chips went to linux-firmware-qca-misc instead of -qca-qca61x4 because of the c&p error. Fix package contents."
+ },
+ {
+  "Commit": "3ac21b32b5f5616cc7c0641fb3132eec9b27e5b7",
+  "Fixed-by": "a41fd633786a2404b5eee399ed0602e229c4be77",
+  "subsystem": "uboot-extlinux-config.bbclass",
+  "problem_description": "A later commit fixed this patch. Its message: uboot-extlinux-config.bbclass: invalidate do_create_extlinux_config on changes to UBOOT_EXTLINUX_FDTOVERLAYS:x do_create_extlinux_config is using a bit of an odd mechanism which doesn't work well with sstate cache invalidation. BitBake will detect changes to UBOOT_EXTLINUX_FDTOVERLAYS because it's explicitly mentioned in the task, but it'll miss changes to UBOOT_EXTLINUX_FDTOVERLAYS:label because this OVERRIDES is set within the task, so the value of UBOOT_EXTLINUX_FDTOVERLAYS for the label OVERRIDES will only ever change from within the task, while it is running, much later than during parsing. For that to work properly, we need to add the entire variable (including the OVERRIDES part) to the vardeps varflag of the task so that its value is monitored. This is already done for all possible label variables but FDTOVERLAYS was forgotten."
+ },
+ {
+  "Commit": "02dec6af254cbabfb29e23e3f44e51bc1b989070",
+  "Fixed-by": "26db3e9d3627d45097371e39ef5b43e479e34119",
+  "subsystem": "linux-firmware",
+  "problem_description": "A later commit fixed this patch. Its message: linux-firmware: make ${PN}-qcom-adreno-a663 depend on -a660 Adreno A663 requires two files to function: one is a663_gmu.bin, provided by the ${PN}-qcom-adreno-a663 package, another one is a660_sqe.fw, provided by the ${PN}-qcom-adreno-a660 package. Make the ${PN}-qcom-adreno-a663 depend on -a660, so that the platforms requiring A663 firmware don't have to care about the details and can simply require the A663 firmware package."
+ },
+ {
+  "Commit": "6026fdda90215752688e560320b6c6b5d62354bc",
+  "Fixed-by": "af95f7e3d9db9b8a1b2f503f6c6ff14bebaeb583",
+  "subsystem": "linux-firmware",
+  "problem_description": "A later commit fixed this patch. Its message: linux-firmware: split qcm6490 ZAP shader to separate package Adreno zap.mbn files are platform-specific. As such they shouldn't be a part of the generic ${PN}-qcom-adreno-aNNN packages. Move it to the ${PN}-qcom-qcm6490-adreno package."
+ },
+ {
+  "Commit": "1d421fa263bc6f13702dc66d146256de1565d4c2",
+  "Fixed-by": "57da7cbf63acff744beb2b01e5847b62a9fc350d",
+  "subsystem": "linux-firmware",
+  "problem_description": "A later commit fixed this patch. Its message: linux-firmware: add battmgr.jsn to ${PN}-qcom-qcm6490-audio The battmgr.jsn file describes one of the services provided by the audio DSP. Add it to the ${PN}-qcom-qcom6490-audio package (for the reference, see the ${PN}-qcom-sc8280xp-lenovo-x13s-audio package, which also incorporates corresponding battmgr.jsn file."
+ },
+ {
+  "Commit": "f65e01a0c7ebb9a34806fd7a582eb7ed98ce3e3e",
+  "Fixed-by": "b5fb1fd145288d80fb89badb3533a3b7d1e47cf1",
+  "subsystem": "linux-firmware",
+  "problem_description": "A later commit fixed this patch. Its message: linux-firmware: move -qcom-qcm2290-wifi before -ath10k The linux-firmware-qcom-qcm2290-wifi package needs to steal some files from the linux-firmware-ath10k (like qcom-qrb4210-wifi and qcom-sdm845-modem packages do). Move the package name before the ath10k in the list so that thieft is successful."
+ },
+ {
+  "Commit": "958d6a209edf059d31ff07bdd55179fc21ea7079",
+  "Fixed-by": "6c2ec809edd1606ec55fbd7d15e4cbea8e2752d3",
+  "subsystem": "linux-firmware",
+  "problem_description": "A later commit fixed this patch. Its message: linux-firmware: make qcom-sc8280xp-lenovo-x13s-audio install Linaro licence The linux-firmware-qcom-sc8280xp-lenovo-x13s-audio package includes audio topology file which has separate licensing terms. Make this package RDEPEND on the corresponding licence package."
+ },
+ {
+  "Commit": "fdbe559c66c96954bd3322ab2981af36a95a50ea",
+  "Fixed-by": "fa2314125318634108452af4e40c9eeee260767c",
+  "subsystem": "weston.init",
+  "problem_description": "A later commit fixed this patch. Its message: weston-init: fix weston not starting when xwayland is enabled When xwayland PACKAGECONFIG option is set, xwayland is enabled in weston.ini. However, if the xwayland module isn't installed, weston will refuse to start with the following error message: Failed to load module: /usr/lib/libweston-13/xwayland.so: cannot open shared object file: No such file or directory Therefore, whenever the xwayland PACKAGECONFIG is set, weston-init should depend on weston-xwayland to bring this module in."
+ },
+ {
+  "Commit": "cc6c3e31526d3b6ef3a87ba5e548fcad7483bd51",
+  "Fixed-by": "0b0c4b37d318b86f100512476ffd861e0ce1f47e",
+  "subsystem": "u-boot",
+  "problem_description": "A later commit fixed this patch. Its message: u-boot: Move UBOOT_INITIAL_ENV back to u-boot.inc Commit cc6c3e31526d (\"u-boot: Move definitions to common locations\") moved UBOOT_INITIAL_ENV to uboot-config.bbclass, but it should be kept at u-boot.inc because it encodes ${PN} in it, which should be set by the U-Boot recipe. Currently, whatever inherits uboot-config bbclass will fill-in its own PN, which would change the content of UBOOT_INITIAL_ENV per-package."
+ }
+]

@@ -63,6 +63,9 @@ pub struct Config {
     /// (designs/PHASE2.md §5.7); none without it.
     #[serde(default)]
     pub autobuilder: Option<crate::autobuilder::AutobuilderConfig>,
+    /// Model review (designs/PHASE3.md §7); off without it.
+    #[serde(default)]
+    pub review: Option<crate::review::ReviewConfig>,
 }
 
 /// A `[repos]` entry: its upstream URL, a layer, or a table with the URL and

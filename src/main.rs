@@ -3,25 +3,30 @@
 mod applied;
 mod autobuilder;
 mod ci;
+mod context;
 mod cppcheck;
 mod django;
 mod djlint;
 mod docs;
+mod escalate;
 mod finding;
 mod git;
 mod json;
 mod kind;
 mod metadata;
 mod oelint;
+mod outcomes;
 mod patchtest;
 mod pins;
 mod publish;
 mod pull;
 mod report;
+mod review;
 mod ruff;
 mod runner;
 mod shell;
 mod srcuri;
+mod verify;
 mod watch;
 mod workspace;
 
@@ -149,6 +154,19 @@ fn poll(args: PollArgs) -> Result<()> {
     autobuilder::pin_staging_tips(&config);
     if let Err(err) = autobuilder::poll(&config, now) {
         eprintln!("bodnuti: AutoBuilder: {err:#}");
+    }
+    // Model review after checking, within its time slice (designs/PHASE3.md
+    // §3); a failure is logged and does not fail the poll.
+    if let Some(review) = &config.review
+        && let Err(err) = review::run(review, &config.state, now)
+    {
+        eprintln!("bodnuti: review: {err:#}");
+    }
+    // Live verification against what the lists decided (§11).
+    if config.review.is_some()
+        && let Err(err) = outcomes::run(&config, now)
+    {
+        eprintln!("bodnuti: review outcomes: {err:#}");
     }
     if failed > 0 {
         anyhow::bail!("{failed} of {} lists failed", config.lists.len());
@@ -410,6 +428,41 @@ struct CheckArgs {
     /// target repository, when it is openembedded-core.
     #[arg(long, env = "BODNUTI_OECORE")]
     oecore: Option<PathBuf>,
+    /// Also gather the context model review needs for each patch
+    /// (designs/PHASE3.md §4) into the JSON report.
+    #[arg(long)]
+    review_context: bool,
+    /// With --review: review only these patches, by number (e.g. 2,5), to
+    /// measure a model on chosen patches of a long series.
+    #[arg(long, value_delimiter = ',')]
+    review_patches: Vec<u32>,
+    /// Write each patch's layer 3 request (designs/PHASE3.md §5.1) to
+    /// DIR/<patch>.json, as review sends it: with the guides and docs of
+    /// --review-config, without the review rules, which go to the check
+    /// pass. With --review it is also sent.
+    #[arg(long, value_name = "DIR")]
+    review_requests: Option<PathBuf>,
+    /// Also review each patch with a model (designs/PHASE3.md §7), with the
+    /// [review] settings of --review-config, or --review-endpoint and
+    /// --review-model. Model findings never change the exit status. The
+    /// series and its context are sent to the endpoint.
+    #[arg(long)]
+    review: bool,
+    /// A TOML file with a [review] table, such as the watcher's watch.toml.
+    #[arg(long, default_value = "~/.config/bodnuti/watch.toml")]
+    review_config: PathBuf,
+    /// An OpenAI-compatible endpoint, such as Ollama's
+    /// http://localhost:11434/v1. Overrides --review-config's, and then
+    /// sends no API key.
+    #[arg(long)]
+    review_endpoint: Option<String>,
+    /// The model to review with. Overrides --review-config's.
+    #[arg(long)]
+    review_model: Option<String>,
+    /// The documentation index of bench/phase3/docs_index.py, for
+    /// --review and --review-requests. Overrides --review-config's docs.
+    #[arg(long, value_name = "FILE")]
+    review_docs: Option<PathBuf>,
     /// The shellcheck command, split on whitespace.
     #[arg(
         long,
@@ -640,6 +693,22 @@ fn sibling(program: &str) -> String {
 }
 
 fn check(args: CheckArgs) -> Result<Report> {
+    // --review-requests writes the request as review sends it: with the
+    // guides and docs the review config names, without the review rules.
+    let request_config = args
+        .review_requests
+        .as_ref()
+        .and_then(|_| review_config(&args).ok());
+    let request_guides = request_config.as_ref().and_then(|c| c.guides.clone());
+    // Before any work, so a missing setting fails at once.
+    let review_config = args.review.then(|| review_config(&args)).transpose()?;
+    let doc_index = args
+        .review_docs
+        .clone()
+        .or_else(|| review_config.as_ref().and_then(|c| c.docs.clone()))
+        .or_else(|| request_config.as_ref().and_then(|c| c.docs.clone()))
+        .map(|p| context::Docs::load(&watch::expand(&p)))
+        .transpose()?;
     let python = args.python.unwrap_or_else(|| sibling("python3"));
     let b4 = args.b4.unwrap_or_else(|| sibling("b4"));
     let series = match args.input.as_slice() {
@@ -742,10 +811,135 @@ fn check(args: CheckArgs) -> Result<Report> {
     let (style, findings): (Vec<Finding>, Vec<Finding>) = findings
         .into_iter()
         .partition(|f| f.tool == Tool::Oelint && oelint::is_style(&f.check));
+    let mut context = Vec::new();
+    if args.review_context || args.review || args.review_requests.is_some() {
+        for a in &linted.applied {
+            match context::gather(&workspace.path(), a.index, &a.commit) {
+                Ok(mut c) => {
+                    context::add_series(&mut c, &series);
+                    if let Some(index) = &doc_index {
+                        context::add_docs(&mut c, index);
+                    }
+                    context.push(c)
+                }
+                Err(err) => tool_errors.push(ToolError {
+                    tool: Tool::Bodnuti,
+                    message: format!("review context for patch {}: {err:#}", a.index),
+                }),
+            }
+        }
+    }
+    if let Some(dir) = &args.review_requests {
+        std::fs::create_dir_all(dir)?;
+        for ctx in &context {
+            let layer1: Vec<Finding> = findings
+                .iter()
+                .filter(|f| f.patch == Some(ctx.index))
+                .cloned()
+                .collect();
+            let request = review::messages(ctx, &layer1, request_guides.as_deref(), false);
+            std::fs::write(
+                dir.join(format!("{}.json", ctx.index)),
+                serde_json::to_vec(&request)?,
+            )?;
+        }
+    }
     let excerpts = report::excerpts(
         &workspace.path(),
         &findings.iter().chain(&style).cloned().collect::<Vec<_>>(),
     );
+
+    let mut review = Vec::new();
+    if let Some(config) = &review_config {
+        let client = review::Client::new(config)?;
+        let escalation = match &config.escalation_model {
+            Some(model) => {
+                let mut c = review::Client::new(config)?;
+                c.model = model.clone();
+                Some(c)
+            }
+            None => None,
+        };
+        let tree = workspace.path();
+        let (mut down, mut why_down) = (0, String::new());
+        for ctx in context
+            .iter()
+            .filter(|c| args.review_patches.is_empty() || args.review_patches.contains(&c.index))
+        {
+            if down >= review::DOWN_AFTER {
+                review.push(review::Review::not_reviewed(
+                    ctx.index,
+                    &client.model,
+                    &format!("not asked: no answer twice in a row ({why_down})"),
+                ));
+                continue;
+            }
+            let layer1: Vec<Finding> = findings
+                .iter()
+                .filter(|f| f.patch == Some(ctx.index))
+                .cloned()
+                .collect();
+            let answer = review::review(&client, ctx, &layer1, config.guides.as_deref());
+            down = match &answer {
+                Err(review::CallError::Unavailable(e)) => {
+                    why_down = e.clone();
+                    down + 1
+                }
+                _ => 0,
+            };
+            let r = match answer {
+                Ok(r) => match escalate::wants(ctx, &r) {
+                    Some(why) => escalate::run(
+                        escalation.as_ref(),
+                        &review::Queued {
+                            list: String::new(),
+                            root: String::new(),
+                            patch_id: None,
+                            queued: 0,
+                            layer1: layer1.clone(),
+                            context: ctx.clone(),
+                            repo: Some(tree.clone()),
+                        },
+                        r,
+                        &why,
+                        config.guides.as_deref(),
+                        std::time::Instant::now() + std::time::Duration::from_secs(3600),
+                    ),
+                    None => r,
+                },
+                Err(review::CallError::RateLimited) => {
+                    review::Review::not_reviewed(ctx.index, &client.model, "rate limited")
+                }
+                Err(review::CallError::Unavailable(e) | review::CallError::Failed(e)) => {
+                    review::Review::not_reviewed(ctx.index, &client.model, &e)
+                }
+            };
+            let tools = escalate::Tools {
+                repo: &tree,
+                commit: &ctx.commit,
+            };
+            review.push(if config.verify {
+                let tools = escalate::is_sha(&ctx.commit).then_some(&tools);
+                verify::run(&client, ctx, &layer1, config.guides.as_deref(), tools, r)
+                    .unwrap_or_else(|e| {
+                        let why = match e {
+                            review::CallError::RateLimited => "rate limited".to_string(),
+                            review::CallError::Unavailable(e) | review::CallError::Failed(e) => e,
+                        };
+                        review::Review::not_reviewed(
+                            ctx.index,
+                            &client.model,
+                            &format!("the check pass got no answer: {why}"),
+                        )
+                    })
+            } else {
+                r
+            });
+        }
+        if !args.review_context {
+            context.clear();
+        }
+    }
 
     Ok(Report {
         series,
@@ -758,7 +952,52 @@ fn check(args: CheckArgs) -> Result<Report> {
         style,
         excerpts,
         staged,
+        context,
+        review,
     })
+}
+
+/// The [review] settings for `check --review`: the file's, with the
+/// endpoint and model given on the command line taking precedence. A
+/// different endpoint does not get the file's key.
+fn review_config(args: &CheckArgs) -> Result<review::ReviewConfig> {
+    #[derive(serde::Deserialize)]
+    struct File {
+        review: Option<review::ReviewConfig>,
+    }
+    let path = watch::expand(&args.review_config);
+    let from_file = match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            toml::from_str::<File>(&text)
+                .with_context(|| format!("parsing {}", path.display()))?
+                .review
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let mut config = match (from_file, &args.review_endpoint) {
+        (Some(mut c), Some(endpoint)) => {
+            if c.endpoint != *endpoint {
+                c.api_key_file = None;
+            }
+            c.endpoint = endpoint.clone();
+            c
+        }
+        (Some(c), None) => c,
+        (None, Some(endpoint)) => review::ReviewConfig::local(endpoint),
+        (None, None) => anyhow::bail!(
+            "--review needs a [review] table in {} or --review-endpoint",
+            path.display()
+        ),
+    };
+    if let Some(model) = &args.review_model {
+        config.model = model.clone();
+    }
+    if config.model.is_empty() {
+        anyhow::bail!("--review needs a model: --review-model or model in [review]");
+    }
+    config.guides = config.guides.map(|g| watch::expand(&g));
+    Ok(config)
 }
 
 fn main() -> ExitCode {
@@ -808,6 +1047,54 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn review_args(file: &str, endpoint: Option<&str>, model: Option<&str>) -> CheckArgs {
+        let mut argv = vec!["bodnuti", "check", "--repo", ".", "--review"];
+        argv.extend(["--review-config", file]);
+        argv.extend(endpoint.into_iter().flat_map(|e| ["--review-endpoint", e]));
+        argv.extend(model.into_iter().flat_map(|m| ["--review-model", m]));
+        argv.push("x.mbx");
+        match Cli::parse_from(argv).command {
+            Command::Check(args) => *args,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn another_review_endpoint_does_not_get_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("watch.toml");
+        std::fs::write(
+            &file,
+            "image = \"x\"\n[review]\nendpoint = \"https://hosted/v1\"\n\
+             api_key_file = \"/k\"\nmodel = \"big\"\n",
+        )
+        .unwrap();
+        let file = file.to_str().unwrap();
+        let c = review_config(&review_args(file, None, None)).unwrap();
+        assert_eq!(c.api_key_file.as_deref(), Some(Path::new("/k")));
+        let c = review_config(&review_args(
+            file,
+            Some("http://localhost:11434/v1"),
+            Some("m"),
+        ))
+        .unwrap();
+        assert_eq!(c.api_key_file, None);
+        assert_eq!(
+            (c.endpoint.as_str(), c.model.as_str()),
+            ("http://localhost:11434/v1", "m")
+        );
+        let missing = dir.path().join("none.toml");
+        assert!(review_config(&review_args(missing.to_str().unwrap(), None, None)).is_err());
+        assert!(
+            review_config(&review_args(
+                missing.to_str().unwrap(),
+                Some("http://l/v1"),
+                None
+            ))
+            .is_err()
+        );
+    }
 
     fn patch(changes: &str) -> crate::series::Patch {
         let raw = format!("From x Mon Sep 17 00:00:00 2001\nSubject: [PATCH] x\n\n{changes}");

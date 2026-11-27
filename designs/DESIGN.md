@@ -451,7 +451,8 @@ input. This lets CI and scripts gate on the result.
    in the phase 1 sandbox, and publish static reports on bodnuti.dev. See
    [`PHASE2.md`](PHASE2.md). Email replies stay opt-in per list, start in
    dry-run, and need the list owners' agreement.
-3. **LLM review at a low token rate:** see §6.
+3. **LLM review at a low token rate:** see §6, and [`PHASE3.md`](PHASE3.md)
+   for the design being built, on open-weight models.
 
 ## 6. Phase 3: LLM review at a low token rate
 
@@ -542,9 +543,10 @@ the layer 2 context is dropped.
 
 ### 6.7 Implementation
 
-Phase 3 code calls the Claude API directly (Rust, raw HTTP to
-`/v1/messages`, since there is no official Rust SDK). It does not reuse
-sashiko's engine.
+Superseded by [`PHASE3.md`](PHASE3.md): layers 3 and 4 run on
+open-weight models behind an OpenAI-compatible endpoint (a hosted
+open-weight endpoint such as FriendliAI, or a model host), not on the
+Claude API. Phase 3 still does not reuse sashiko's engine.
 
 ## 7. Testing
 
@@ -570,7 +572,8 @@ sashiko's engine.
    enough, or does phase 1 need sashiko-style baseline search?
 5. **Layer 3 model:** Haiku 5.5 for every patch, with Opus 5.5 escalation,
    or Sonnet 5.5 for every patch? §6.5 decides; the default is the cheapest
-   configuration that measurement supports.
+   configuration that measurement supports. Since decided: an open-weight
+   model (`PHASE3.md`); which one is `PHASE3.md` §8.
 6. **Escalation rule:** is a fixed path list (classes, `lib/oe`,
    `bitbake.conf`, CVE fixes) plus layer 3's own confidence enough, or does
    escalation need its own measurement?

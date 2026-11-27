@@ -1,2 +1,5 @@
 /target
 __pycache__/
+
+# claude plugin eval output
+plugins/bodnuti/evals/results/

@@ -1,0 +1,154 @@
+[
+ {
+  "Commit": "4c5e186b0283c9e5f424e6724c3ab0c1f1bdd37e",
+  "Fixed-by": "4c5e186b0283c9e5f424e6724c3ab0c1f1bdd37e",
+  "subsystem": "dbus",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: Add PN-daemon conditional upon message-bus packageconfig",
+  "v1": "https://lore.kernel.org/openembedded-core/user-8a8d72fa09@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-129c164bdf@example.invalid/"
+ },
+ {
+  "Commit": "2ed84f706bdd34aaebe8b529f3125fd8280a562a",
+  "Fixed-by": "2ed84f706bdd34aaebe8b529f3125fd8280a562a",
+  "subsystem": "systemd",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes in v2: - Replace the regex with basename string checks, as suggested.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-9d62e972f9@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-00a5d0be47@example.invalid/"
+ },
+ {
+  "Commit": "57951a606846799f1c0e027fc9355ae3ce48af3f",
+  "Fixed-by": "57951a606846799f1c0e027fc9355ae3ce48af3f",
+  "subsystem": "kernel.bbclass",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Notes: Changes in v2: - drop gzip-native from do_deploy[depends], as Person 17fc19d5 suggested. The modules tarball in do_deploy still gets pigz: do_deploy reaches gzip-native through do_install (checked with bitbake -g, not with a build). - kept Person 17fc19d5's Ack, the only change is the one he suggested v1: https://patchwork.yoctoproject.org/project/oe-core/patch/user-29acee8348@example.invalid/",
+  "v1": "https://lore.kernel.org/openembedded-core/user-29acee8348@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-a9450b8bcd@example.invalid/"
+ },
+ {
+  "Commit": "e44fb97aec3f65bc20a1c8174f1559a9b3c14647",
+  "Fixed-by": "e44fb97aec3f65bc20a1c8174f1559a9b3c14647",
+  "subsystem": "maintainers.inc",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: change ??=3D into +=3D as received feedback ---",
+  "v1": "https://lore.kernel.org/openembedded-core/user-1217b7cba6@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-177229126d@example.invalid/"
+ },
+ {
+  "Commit": "55c588505a38df468290e23d76787f1cd33246aa",
+  "Fixed-by": "55c588505a38df468290e23d76787f1cd33246aa",
+  "subsystem": "uboot-sign",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes in v2: - Make SPL_WITH_DTB_BINARY opt-in (empty by default); machines that need the padding set it to \"u-boot-spl-dtb.bin\" - bbfatal when it is set but the file is missing, or is smaller than the nodtb image and the DTB combined, instead of silently falling back - Keep the existing concatenation untouched when it is not set",
+  "v1": "https://lore.kernel.org/openembedded-core/user-1c22c78f32@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-6bcc95fcaa@example.invalid/"
+ },
+ {
+  "Commit": "7dd08b7d7264f0d9a8446da62cbdc3c7e763f3d9",
+  "Fixed-by": "7dd08b7d7264f0d9a8446da62cbdc3c7e763f3d9",
+  "subsystem": "patch",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Notes: Changes in v2: - run-ptest: don't redirect test output to a log file so failures are visible in automated environments (Person d6a719c0).",
+  "v1": "https://lore.kernel.org/openembedded-core/user-f6694c8757@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-a542034c8b@example.invalid/"
+ },
+ {
+  "Commit": "0a822d45b62e274b481469e8e63533f011e47004",
+  "Fixed-by": "0a822d45b62e274b481469e8e63533f011e47004",
+  "subsystem": "mpdecimal",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes Since V1: - Updated EXTRA_OEMAKE flags",
+  "v1": "https://lore.kernel.org/openembedded-core/user-585ccb958c@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-e876a53d7f@example.invalid/"
+ },
+ {
+  "Commit": "d5c99d6843c89df07b366665527a048610180ebd",
+  "Fixed-by": "d5c99d6843c89df07b366665527a048610180ebd",
+  "subsystem": "ptest-packagelists",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: Use remove instead of append to avoid missing-ptest QA warning",
+  "v1": "https://lore.kernel.org/openembedded-core/user-9e878339d3@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-9e0f85ad07@example.invalid/"
+ },
+ {
+  "Commit": "8874ef7841a4b178e4bb901afa9dde175f6513e8",
+  "Fixed-by": "8874ef7841a4b178e4bb901afa9dde175f6513e8",
+  "subsystem": "avahi",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Notes: Changes in v2: - do_install_ptest: use 'libtool --mode=3Dinstall' to install the test programs instead of hand-picking the binary from .libs. - run-ptest: stop redirecting test output to /dev/null so failures can be diagnosed from the ptest log.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-0a1a9a35b2@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-ee5dcbb674@example.invalid/"
+ },
+ {
+  "Commit": "54d6dcf1ec7bbec12f00dc7f24324b641eaaf849",
+  "Fixed-by": "54d6dcf1ec7bbec12f00dc7f24324b641eaaf849",
+  "subsystem": "libubootenv",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: Add explicit -DNO_YML_SUPPORT=3DOFF to the positive part, add Stefano's= R-b.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-c91641d35b@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-516cce0fa9@example.invalid/"
+ },
+ {
+  "Commit": "dc58f1616e14aac2d70054a6d1f29008f53aef2d",
+  "Fixed-by": "dc58f1616e14aac2d70054a6d1f29008f53aef2d",
+  "subsystem": "libpcap",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes in v2: - run-ptest now reports one PASS/SKIP/FAIL line per test case instead of a single result for the whole harness.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-82793d8357@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-6e8ed98e5c@example.invalid/"
+ },
+ {
+  "Commit": "4f6057541d6d72cab90c765d6ec633ae8cc781fc",
+  "Fixed-by": "4f6057541d6d72cab90c765d6ec633ae8cc781fc",
+  "subsystem": "create-spdx-3.0",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: - Dropped all options per Joshua's feedback; read SDE_FILE directly. - Dropped the redundant else: delattr(recipe, \"releaseTime\") branch. - Selftest compares against SDE_FILE content directly instead of SOURCE_DATE_EPOCH, which can diverge from it. - Fixed a leak: recipes with no git checkout and no fetched source had SDE_FILE holding only SOURCE_DATE_EPOCH_FALLBACK, showing a bogus 2011-04-05T23:00:00Z releaseTime instead of none. ---",
+  "v1": "https://lore.kernel.org/openembedded-core/user-635471a987@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-68769c5d49@example.invalid/"
+ },
+ {
+  "Commit": "bddc04e03e6e458f04a8cbc6b8e6721428a1cba5",
+  "Fixed-by": "bddc04e03e6e458f04a8cbc6b8e6721428a1cba5",
+  "subsystem": "tiff",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: - Drop the INSANE_SKIP buildpaths (test binaries package reproducibly; QA passes). - Drop make and bash from RDEPENDS (run-ptest never calls make; the test scripts are all #!/bin/sh). - Define the C test program list once (TIFF_PTEST_PROGS) and substitute it into run-ptest at install time instead of duplicating it. - Commit log: add test counts and note the ~30s runtime.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-8e9e91d8e6@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-f9fa8eac36@example.invalid/"
+ },
+ {
+  "Commit": "e563864718aa7b3cdacdb208d00238e31e66bd39",
+  "Fixed-by": "e563864718aa7b3cdacdb208d00238e31e66bd39",
+  "subsystem": "initramfs-framework",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes since v1: - Replace Bash-style substitution with POSIX-compatible logic, removing the dependency on Bash-specific shell features. - Split the module-loop cleanup into a separate second patch. - Add QEMU performance measurements.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-ac1f9a573a@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-5858e93ca2@example.invalid/"
+ },
+ {
+  "Commit": "d98eef6bb5a1cbe0426c995b893176b98b323be6",
+  "Fixed-by": "d98eef6bb5a1cbe0426c995b893176b98b323be6",
+  "subsystem": "systemd",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: v2: - Gate tests via a PACKAGECONFIG on PTEST_ENABLED (Person 1e9c2fdb). - Drop the redundant copy; relocate installed tests into ${PTEST_PATH} (Person 1e9c2fdb). - Register systemd in ptest-packagelists.inc, fixing the missing-ptest QA error seen on the autobuilder (Person 92356835, Person 3cbffc4b). - Add python3-pefile-native dependency (fixes boot hwids test build failure). - Exclude the mkosi/integration-test harness from the ptest package.",
+  "v1": "https://lore.kernel.org/openembedded-core/user-f91270e0ea@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-1947d8969e@example.invalid/"
+ },
+ {
+  "Commit": "bf26b20718c8ebef8393eb533f5c49c63890046f",
+  "Fixed-by": "bf26b20718c8ebef8393eb533f5c49c63890046f",
+  "subsystem": "initramfs-framework",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes in v2: - Keep findfs out of the default BusyBox configuration. - Add util-linux-findfs as an initramfs-module-udev runtime dependency. ---",
+  "v1": "https://lore.kernel.org/openembedded-core/user-aa9ef69807@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-6196a92ad4@example.invalid/"
+ },
+ {
+  "Commit": "0bdafd353f81eac446f9872c5e98adf1572a780c",
+  "Fixed-by": "0bdafd353f81eac446f9872c5e98adf1572a780c",
+  "subsystem": "sbom30.py/spdx30_tasks.py",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: Changes in v2: Change the expand path to fallback to `varname` itself when lookup doesn't find anything. This change allows for both old, undocumented `_ref` indirection and documented indirection (`SPDX_* = \"<PREFIX>\"`) ---",
+  "v1": "https://lore.kernel.org/openembedded-core/user-4e9fa38dd7@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-2689ab548d@example.invalid/"
+ },
+ {
+  "Commit": "d3f87282424c8eed945f52cb01f37cd5a354d522",
+  "Fixed-by": "d3f87282424c8eed945f52cb01f37cd5a354d522",
+  "subsystem": "kernel.bbclass",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: changes in v2: - Use the conditional INSTALL_MOD_STRIP environment variable to avoid duplicating the oe_runmake call. - Use `scripts/config` script instead of grepping .config file. ---",
+  "v1": "https://lore.kernel.org/openembedded-core/user-b832e3f7e1@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-d903132f32@example.invalid/"
+ },
+ {
+  "Commit": "be2d1e90a5bb2bd534869af058a43a26d3c0fbed",
+  "Fixed-by": "be2d1e90a5bb2bd534869af058a43a26d3c0fbed",
+  "subsystem": "wic",
+  "problem_description": "Reviewers asked for changes to this patch, and the next version says what changed: changes in v3: - list the tools on all variants rather than only the nativesdk variant changes in v2: - merge the tool list from the v1 \"wic-tools.inc: add\" patch into this recipe as RDEPENDS; the separate .inc is dropped - list the tools inline rather than via a shared WIC_TOOLS variable - note in the commit log that a host tool may also be the wrong version, not merely absent ---",
+  "v1": "https://lore.kernel.org/openembedded-core/user-a19d4229f2@example.invalid/",
+  "v2": "https://lore.kernel.org/openembedded-core/user-480fab9944@example.invalid/"
+ }
+]
