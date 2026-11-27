@@ -87,9 +87,9 @@ to the endpoint, so choose one whose data terms you accept.
 
 #### How model review works
 
-Model review (phases 3 and 4 of the design) adds layers after the checks.
-Each layer runs only where the one before leaves a question, and each one
-can only remove findings, never add to the result:
+Model review adds layers 2 to 4 of [`designs/PHASE3.md`](designs/PHASE3.md)
+after the checks. Each step after layer 3 only removes model findings, and
+none of them changes the checks' result:
 
 ```mermaid
 flowchart TD
@@ -100,13 +100,15 @@ flowchart TD
     l3["Layer 3: one model call per patch<br/>guides, JSON schema, quoted evidence"] --> val
     val{"Validation<br/>file and line in the request?<br/>evidence quoted word for word?<br/>confidence, not a layer-1 repeat?"} -->|kept| check
     val -->|dropped| log[("dropped, with the reason")]
-    check{"Check pass<br/>review rules, false-positive guide,<br/>read-only git grep/show/log"} -->|confirmed with a quote| report
+    val -->|kept, verify off| report
+    check{"Check pass (verify = true)<br/>review rules,<br/>read-only git grep/show/log"} -->|confirmed with a quote| report
     check -->|refuted| log
     l3 -.->|risky patch or low confidence| l4["Layer 4: escalation (draft)<br/>larger model with read-only git tools"]
-    l4 -.-> check
+    l4 -.-> val
     report["Report: model findings apart,<br/>marked unverified, never in the result"] --> score
     score["Scoring against what the lists decided<br/>later revisions, Fixes: commits"]
     rules[("Review rules<br/>plugins/bodnuti/skills/yocto-review-rules")] --> check
+    rules -.-> l4
     rules --> plugin["Claude Code skill<br/>same Markdown files"]
 ```
 
@@ -114,17 +116,20 @@ flowchart TD
   files a patch touches, what they `require` and `inherit`, where the names
   it changes are used, and with `docs` the documentation and the
   `bitbake.conf` value of each variable, class and task flag it changes.
-- **Layer 3** reviews the patch with sashiko's Yocto guides, not the review
-  rules: with the rules in the request, local models checked patch headers
-  field by field and stopped reading the code.
+- **Layer 3** reviews the patch with sashiko's Yocto guides, its
+  false-positive guide and severity scale (`guides`), not the review rules:
+  with the rules in the request, local models checked patch headers field
+  by field and stopped reading the code.
 - **The check pass** (`verify = true`) asks the model once more about each
-  finding, with the review rules, the false-positive guide and read-only
-  git tools on the tree after the patch. A finding is shown only when the
-  model confirms it with a line it quotes from the request or a tool.
+  finding, with the review rules and read-only git tools on the tree after
+  the patch. A finding is shown only when the model confirms it with a line
+  it quotes from the patch, its context or a tool's output.
 - **Layer 4** (`escalation_model`) sends risky patches to a larger model
-  with the same tools. It is a draft and not yet measured.
+  with the review rules and the same tools. It is a draft and not yet
+  measured.
 - **The review rules** are Markdown files condensed from maintainers'
-  inline review on the lists. The same files are the Claude Code skill
+  inline review on the lists, built into bodnuti; a `rules/` directory in
+  `guides` replaces them. The same files are the Claude Code skill
   `yocto-review-rules`, so any assistant reviewing or writing a recipe can
   read them.
 
