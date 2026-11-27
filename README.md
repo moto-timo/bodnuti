@@ -172,12 +172,21 @@ Any OpenAI-compatible server works; these steps use
    guides = "~/sashiko/projects/yoctoproject/prompts"
    docs = "~/docs-index.json"
    verify = true
+   samples = 3
+   context_tokens = 24576   # the num_ctx of the Modelfile
    reasoning_effort = "medium"
    max_tokens = 12000
    ```
 
-   `max_tokens` bounds the reasoning: local models of this size sometimes
-   reason in a loop, and bodnuti then asks once more without reasoning.
+   Leave `temperature` unset: the model's own setting applies, and
+   reasoning models loop under greedy decoding (temperature 0). A local
+   server does not answer the same request the same way twice, so
+   `samples = 3` asks three times, merges the findings and lets the check
+   pass decide each by majority. `context_tokens` must match the server:
+   bodnuti leaves out the context a request needs least until it fits
+   with room for `max_tokens`. If a reasoning loop still uses up
+   `max_tokens`, bodnuti asks once more at `retry_effort` (default
+   `none`; gpt-oss answers nothing without reasoning and wants `low`).
 5. **Build the docs index** from yocto-docs, bitbake and openembedded-core
    checkouts:
    `python3 bench/phase3/docs_index.py --yocto-docs … --bitbake … --oe-core … --out ~/docs-index.json`.
