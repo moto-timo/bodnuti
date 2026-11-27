@@ -434,6 +434,7 @@ impl Client {
         }
         client.min_confidence = config.min_confidence;
         client.max_tokens = config.max_tokens;
+        client.context_tokens = config.context_tokens;
         Ok(client)
     }
 
@@ -1139,23 +1140,89 @@ pub(crate) fn reviewed(
 
 /// Reviews one patch: a failed call or an answer outside the schema is
 /// tried once more, then reported as not reviewed.
+/// Bytes a token takes in these requests, measured on 26 November 2026:
+/// about 2.5 with gpt-oss and 3.2 with gemma4, so the lower is assumed.
+const BYTES_PER_TOKEN_X2: usize = 5;
+/// Room the check pass's note and its tools' output take on top.
+const HEADROOM_TOKENS: usize = 2048;
+/// The context items a request can do without first: what the patch's
+/// files inherit and include, where its names are used, the previous
+/// version, the series, the docs, and last the files the patch touches.
+/// The patch itself always stays.
+const DROP_FIRST: [&str; 7] = [
+    "class",
+    "require",
+    "grep",
+    "previous-version",
+    "series",
+    "docs",
+    "file",
+];
+
+/// `ctx` cut to fit the model's context with room for the answer: a request
+/// that fills the context leaves a reasoning model no room, and llama.cpp
+/// shifts or cuts the prompt without a word. The least needed items go
+/// first, largest first, each logged. None: the patch alone does not fit.
+pub(crate) fn fit(
+    client: &Client,
+    ctx: &PatchContext,
+    layer1: &[Finding],
+    guides_dir: Option<&Path>,
+    with_rules: bool,
+) -> Option<PatchContext> {
+    let budget = (client.context_tokens as usize)
+        .saturating_sub(client.max_tokens as usize + HEADROOM_TOKENS)
+        * BYTES_PER_TOKEN_X2
+        / 2;
+    let size = |c: &PatchContext| {
+        messages(c, layer1, guides_dir, with_rules)
+            .to_string()
+            .len()
+    };
+    let mut ctx = ctx.clone();
+    while size(&ctx) > budget {
+        let i = DROP_FIRST.iter().find_map(|kind| {
+            ctx.items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.kind == *kind)
+                .max_by_key(|(_, item)| item.text.len())
+                .map(|(i, _)| i)
+        })?;
+        let item = ctx.items.remove(i);
+        eprintln!(
+            "review: patch {}: left out {} {} ({} B) to fit context_tokens = {}",
+            ctx.index,
+            item.kind,
+            item.path,
+            item.text.len(),
+            client.context_tokens
+        );
+    }
+    Some(ctx)
+}
+
 pub fn review(
     client: &Client,
     ctx: &PatchContext,
     layer1: &[Finding],
     guides_dir: Option<&Path>,
 ) -> Result<Review, CallError> {
+    let Some(ctx) = fit(client, ctx, layer1, guides_dir, false) else {
+        return Ok(Review::without_answer(
+            ctx.index,
+            &client.model,
+            Outcome::NotReviewed {
+                reason: format!(
+                    "the patch does not fit context_tokens = {} with max_tokens = {}",
+                    client.context_tokens, client.max_tokens
+                ),
+            },
+        ));
+    };
+    let ctx = &ctx;
     let messages = messages(ctx, layer1, guides_dir, false);
     let size = messages.to_string().len();
-    // About four bytes a token, and room for the answer.
-    if size / 4 + 8192 > client.context_tokens as usize {
-        eprintln!(
-            "review: patch {}: request of about {} tokens may not fit context_tokens = {}",
-            ctx.index,
-            size / 4,
-            client.context_tokens
-        );
-    }
     let mut last = String::new();
     for attempt in 0..2 {
         let start = Instant::now();
@@ -1886,6 +1953,41 @@ mod tests {
         );
         assert_eq!(seen.lock().unwrap().len(), 1, "not retried");
         assert_eq!(c.format.get(), Format::JsonSchema);
+    }
+
+    #[test]
+    fn a_request_is_cut_to_fit_the_context_least_needed_first() {
+        let mut c = client("http://127.0.0.1:9/v1");
+        let mut big = ctx();
+        big.items.push(Item {
+            kind: "grep".into(),
+            path: "x".into(),
+            text: "g".repeat(20_000),
+        });
+        big.items.push(Item {
+            kind: "file".into(),
+            path: "meta/recipes-foo/foo/foo_1.0.bb".into(),
+            text: "f".repeat(2_000),
+        });
+        let full = messages(&big, &[], None, false).to_string().len();
+        // Room for everything: nothing left out.
+        c.context_tokens = 100_000;
+        c.max_tokens = 1_000;
+        assert_eq!(
+            fit(&c, &big, &[], None, false).unwrap().items.len(),
+            big.items.len()
+        );
+        // Room for all but the grep hits: the class goes first, then grep.
+        c.context_tokens = ((full - 20_000) * 2 / 5 + 1_000 + HEADROOM_TOKENS) as u32;
+        let cut = fit(&c, &big, &[], None, false).unwrap();
+        let kinds: Vec<&str> = cut.items.iter().map(|i| i.kind.as_str()).collect();
+        assert!(
+            !kinds.contains(&"grep") && kinds.contains(&"file"),
+            "{kinds:?}"
+        );
+        // No room even for the patch: not reviewed rather than cut.
+        c.context_tokens = 1_500 + HEADROOM_TOKENS as u32;
+        assert!(fit(&c, &big, &[], None, false).is_none());
     }
 
     #[test]

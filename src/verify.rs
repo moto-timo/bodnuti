@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::context::PatchContext;
 use crate::escalate::{Tools, cut, untrusted};
 use crate::finding::Finding;
-use crate::review::{CallError, Client, ModelFinding, Review, lines_in, messages};
+use crate::review::{CallError, Client, ModelFinding, Review, fit, lines_in, messages};
 
 /// Tool turns before the model must give its verdict.
 const TURNS: usize = 3;
@@ -108,6 +108,8 @@ fn check(
     tools: Option<&Tools>,
     f: &ModelFinding,
 ) -> Result<(Verdict, u64, u64), CallError> {
+    let ctx = &fit(client, ctx, layer1, guides_dir, true)
+        .ok_or_else(|| CallError::Failed("the patch does not fit the context".into()))?;
     let mut msgs = messages(ctx, layer1, guides_dir, true);
     let finding = format!(
         "{}:{} [{}] {}",
