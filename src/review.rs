@@ -390,8 +390,8 @@ pub struct Client {
     agent: ureq::Agent,
     format: Cell<Format>,
     /// Set for a retry after the reasoning used up max_tokens: ask for
-    /// low effort instead of the configured one.
-    low_effort: Cell<bool>,
+    /// no reasoning instead of the configured effort.
+    no_reasoning: Cell<bool>,
 }
 
 impl Client {
@@ -442,7 +442,7 @@ impl Client {
             context_tokens: default_context_tokens(),
             agent,
             format: Cell::new(Format::JsonSchema),
-            low_effort: Cell::new(false),
+            no_reasoning: Cell::new(false),
         }
     }
 
@@ -470,8 +470,8 @@ impl Client {
         if let Some(on) = self.thinking {
             body["chat_template_kwargs"] = json!({"enable_thinking": on});
         }
-        if self.low_effort.get() {
-            body["reasoning_effort"] = json!("low");
+        if self.no_reasoning.get() {
+            body["reasoning_effort"] = json!("none");
         } else if let Some(effort) = &self.reasoning_effort {
             body["reasoning_effort"] = json!(effort);
         }
@@ -1098,11 +1098,12 @@ pub fn review(
     let mut last = String::new();
     for attempt in 0..2 {
         let start = Instant::now();
-        // A reasoning loop repeats at the same effort (temperature 0), so
-        // the retry after one asks for low effort.
-        client.low_effort.set(attempt == 1 && last == CUT);
+        // A reasoning loop repeats at the same effort (temperature 0), and
+        // gemma4 26B looped at low effort as at high, so the retry after
+        // one asks for no reasoning: a plainer answer instead of none.
+        client.no_reasoning.set(attempt == 1 && last == CUT);
         let reply = client.chat(&messages);
-        client.low_effort.set(false);
+        client.no_reasoning.set(false);
         let reply = match reply {
             Ok(r) => r,
             Err(CallError::RateLimited) => return Err(CallError::RateLimited),
@@ -1759,7 +1760,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reasoning_loop_is_retried_at_low_effort() {
+    fn a_reasoning_loop_is_retried_without_reasoning() {
         let cut = r#"{"choices":[{"message":{"content":""},"finish_reason":"length"}],"usage":{}}"#;
         let (url, seen) = stub(vec![(200, cut.into()), ok(&answer(vec![]))]);
         let mut c = client(&url);
@@ -1768,7 +1769,7 @@ mod tests {
         assert_eq!(r.outcome, Outcome::Reviewed);
         let seen = seen.lock().unwrap();
         assert!(seen[0].contains(r#""reasoning_effort":"high""#));
-        assert!(seen[1].contains(r#""reasoning_effort":"low""#));
+        assert!(seen[1].contains(r#""reasoning_effort":"none""#));
     }
 
     #[test]
