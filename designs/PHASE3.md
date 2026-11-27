@@ -149,14 +149,18 @@ cap is reached:
 5. For a recipe upgrade, the recipe's previous version from the base tree.
 6. The documentation of the task flags, classes and variables the diff's
    changed lines name, in that order: the Yocto and BitBake glossaries,
-   the class reference and the BitBake task flags, from an index that
-   `bench/phase3/docs_index.py` builds from the yocto-docs and bitbake
-   repositories. A finding can then rest on what the manual says rather
+   the class reference and the BitBake task flags, and the value
+   `meta/conf/bitbake.conf` gives each variable, from an index that
+   `bench/phase3/docs_index.py` builds from the yocto-docs, bitbake and
+   openembedded-core repositories. A finding can then rest on what the manual says rather
    than on the model's memory, where §13's false findings came from. The host
    adds it, outside the per-patch cap and at most 8 KiB, before the
    request is sent (`docs` in `[review]`, or `--review-docs`); the index
    is data, not code, so it is not built into bodnuti, and the docs are
    CC-BY-SA.
+7. For a patch of a series, the series: the cover letter and the other
+   patches' subjects, at most 4 KiB, so the model can tell what the
+   series as a whole changes.
 
 | Cap | Value |
 |---|---|
@@ -184,17 +188,17 @@ One `/v1/chat/completions` request per patch, no tools, temperature 0.
   `<untrusted kind="..." path="...">` block, then the layer 1 findings for
   the patch, stated as facts the model must not repeat.
 
-The guides follow the four questions from the bodnuti talk:
+The guides are sashiko's Yocto prompts (`guides` in `[review]`):
+`review-core.md`, `false-positive-guide.md` and `severity.md` for every
+patch, then the `patterns/*.md` files for the kinds of file the patch
+touches (recipes, classes, patch files, shell, Python, docs). The fixed
+rules ask for the talk's questions: does the message say what the diff
+does, what an upgrade changes, whether a CVE backport carries its tags,
+and one plain sentence and a fix hint per layer 1 finding.
 
-| Guide | Chosen when |
-|---|---|
-| Message against diff: does the commit message say what the diff does, including version, license and dependency changes? | every patch |
-| Upgrade: what changes between the two versions that a reviewer should check? | the patch renames a recipe to a new `PV`, or its subject matches AUH's upgrade form |
-| CVE backport: does the patch file carry `CVE:` and `Upstream-Status:`, and does the change look like the upstream fix it names? | a `CVE-` id in the subject, the message or an added patch file |
-| Explain a finding: one plain sentence and a fix hint per layer 1 finding | the patch has layer 1 findings |
-
-Recipe, class, shell, Python and documentation guides come from
-`DESIGN.md` §6.2 and are selected the same way.
+The review rules (§13.1) are not in this request: with them, local
+models checked patch headers field by field and stopped reading the
+code. They go to the check pass and to escalation.
 
 ### 5.2 The response
 
@@ -245,13 +249,14 @@ A patch is escalated when it touches `meta/classes*/`, `meta/lib/oe/`,
 `"confidence": "low"`.
 
 Escalation uses a larger open-weight model on the same endpoint, through the
-same API, configured separately (§7). It gets the layer 3 request, layer 3's
-findings as unverified leads, and up to five turns of read-only tools:
+same API, configured separately (§7). It gets the layer 3 request with the
+review rules (§13.1), layer 3's findings as unverified leads, and up to
+five turns of read-only tools:
 
 | Tool | Does |
 |---|---|
 | `grep` | `git grep -n -w` in the worktree, at most 50 hits |
-| `show` | a file from the worktree or the base tree, up to the per-file cap |
+| `show` | a file at the applied commit or before it, up to the per-file cap |
 | `log` | `git log --oneline -n 20` for a path |
 
 The tools read git objects only: `git grep -F` and `cat-file` at the
@@ -292,11 +297,17 @@ context_tokens = 32768                 # must match the server's setting
 review_minutes = 30                    # time slice per poll run
 timeout_seconds = 480                  # one request
 guides = "..."                         # sashiko's yoctoproject prompts;
-                                       # unset: the fixed rules only
+                                       # unset: no guides; a rules/ in it
+                                       # replaces the built-in rules
+docs = "..."                           # docs index (§4 item 6)
+verify = true                          # the check pass (§13.1)
 thinking = false                       # enable_thinking; unset: the
                                        # model's default
 reasoning_effort = "none"              # none, low, ...: FriendliAI's GLM
                                        # honours this, not enable_thinking
+retry_effort = "none"                  # the retry after a reasoning loop
+max_tokens = 8192                      # room for the answer, reasoning
+                                       # included
 min_confidence = "medium"              # drop model findings rated lower
 ```
 
@@ -448,11 +459,12 @@ the current month.
 
 ## 13. Design draft: no false findings, on local hardware
 
-Status: draft, for the maintainer to decide. Not built.
+Status: draft, for the maintainer to decide. The check pass and the
+review rules are built as drafts (§13.1); the local measurement (§13.2)
+is in progress.
 
 One day of real traffic (26 November 2026, 126 patches, GLM-5.3) gave
-31 model findings: 7 real, 2 partly real, 22 false, read by hand
-(`docs/STATUS.md`). The false ones mostly need one fact the request
+31 model findings: 7 real, 2 partly real, 22 false, read by hand. The false ones mostly need one fact the request
 lacks (the python3 manifest has no `misc` entry; `oe.kernel` exists on
 master; `RUST_HOST_SYS` is the target triple), and one `git grep` or
 file read settles them. A rerun with five more facts in the prompt gave
@@ -484,8 +496,10 @@ Built (draft): `verify = true` in `[review]`, in `src/verify.rs`. The
 check request is layer 3's, with sashiko's `false-positive-guide.md`
 and `severity.md` now among the guides of every patch, plus the
 finding and the tools when the applied commit is at hand (three turns).
-A confirmation whose quote is in neither the request nor a tool's
-output counts as refuted.
+A confirmation whose quote is in neither the patch and its context nor
+a tool's output counts as refuted; the system prompt and the finding's
+own words do not count. When the endpoint does not answer, the patch
+stays queued rather than shown without its findings.
 
 Review rules (draft): markdown files in the Claude Code plugin's
 `yocto-review-rules` skill, built into bodnuti (a `rules/` directory
@@ -494,8 +508,9 @@ the lists that the author acted on in v2, with the quotes, a trigger and
 a "do not report when" case. Each file's first line,
 `<!-- select: .bb PACKAGECONFIG -->`, says which changed files and
 changed lines select it, so a patch gets only the rules it touches, at
-most 24 KiB. They are plain markdown on purpose: any other review tool
-or agent can load the same rules.
+most 24 KiB. They go to the check pass and to escalation, not to layer 3
+(§5.1). They are plain markdown on purpose: any other review tool or
+agent can load the same rules.
 
 ### 13.2 Measured on a labelled set, locally
 
