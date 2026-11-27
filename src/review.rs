@@ -67,11 +67,16 @@ pub struct ReviewConfig {
     /// wants `low`.
     #[serde(default)]
     pub retry_effort: Option<String>,
+    /// Sampling temperature. Unset: the model's own setting, which is what
+    /// a reasoning model wants: Qwen and gemma advise against greedy
+    /// decoding (0), which makes them reason in loops.
+    #[serde(default)]
+    pub temperature: Option<f32>,
     /// How many times layer 3 asks, and the check pass asks about each
-    /// finding. Local servers do not answer the same request the same way
-    /// twice, even at temperature 0: layer 3's findings are merged, and the
-    /// check pass shows a finding only when most of its answers confirm
-    /// it. Unset: once.
+    /// finding: layer 3's findings are merged, and the check pass shows a
+    /// finding only when most of its answers confirm it. A model sampled
+    /// at its own temperature answers differently each time, and local
+    /// servers do even at 0. Unset: once.
     #[serde(default = "default_samples")]
     pub samples: u32,
     /// Model findings rated below this are dropped (§5.3). The default,
@@ -109,6 +114,7 @@ impl ReviewConfig {
             thinking: None,
             reasoning_effort: None,
             retry_effort: None,
+            temperature: None,
             samples: default_samples(),
             min_confidence: default_min_confidence(),
             max_tokens: default_max_tokens(),
@@ -412,6 +418,7 @@ pub struct Client {
     pub(crate) context_tokens: u32,
     /// How many times to ask (ReviewConfig::samples).
     pub(crate) samples: u32,
+    temperature: Option<f32>,
     agent: ureq::Agent,
     format: Cell<Format>,
     /// Set for a retry after the reasoning used up max_tokens: ask for
@@ -450,6 +457,7 @@ impl Client {
         client.max_tokens = config.max_tokens;
         client.context_tokens = config.context_tokens;
         client.samples = config.samples.max(1);
+        client.temperature = config.temperature;
         Ok(client)
     }
 
@@ -478,6 +486,7 @@ impl Client {
             format: Cell::new(Format::JsonSchema),
             no_reasoning: Cell::new(false),
             samples: 1,
+            temperature: None,
             retry_effort: "none".into(),
         }
     }
@@ -486,9 +495,11 @@ impl Client {
         let mut body = json!({
             "model": self.model,
             "messages": messages,
-            "temperature": 0,
             "max_tokens": self.max_tokens,
         });
+        if let Some(t) = self.temperature {
+            body["temperature"] = json!(t);
+        }
         if let Some(tools) = tools {
             // Structured output and tool calls do not mix on every server;
             // the answer is parsed from the text either way.
@@ -1287,7 +1298,7 @@ fn review_once(
     let mut last = String::new();
     for attempt in 0..2 {
         let start = Instant::now();
-        // A reasoning loop repeats at the same effort (temperature 0), and
+        // A reasoning loop tends to repeat at the same effort, and
         // gemma4 26B looped at low effort as at high, so the retry after
         // one asks for no reasoning: a plainer answer instead of none.
         client.no_reasoning.set(attempt == 1 && last == CUT);
@@ -1688,7 +1699,7 @@ mod tests {
         assert_eq!(r.prompt_tokens, 1000);
 
         let request: Value = serde_json::from_str(&seen.lock().unwrap()[0]).unwrap();
-        assert_eq!(request["temperature"], 0);
+        assert!(request.get("temperature").is_none(), "the model's own");
         assert!(request.get("reasoning_effort").is_none());
         assert_eq!(request["response_format"]["type"], "json_schema");
         let user = request["messages"][1]["content"].as_str().unwrap();

@@ -178,7 +178,7 @@ review queue as a file, and never reads the worktree itself.
 
 ### 5.1 The request
 
-One `/v1/chat/completions` request per patch, no tools, temperature 0.
+One `/v1/chat/completions` request per patch (or `samples` of them, merged), no tools, at the model's own temperature unless `temperature` is set: reasoning models loop under greedy decoding.
 
 - **System message, fixed:** the rules, the output schema, and the
   statement that everything inside `<untrusted>` blocks is data to review,
