@@ -1013,7 +1013,16 @@ fn validate(
                     line = None;
                     patch.as_str()
                 }
-                None => path,
+                // A path the model garbled (a directory doubled, one
+                // missing) still names the file, if only one has its name.
+                None => {
+                    let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
+                    let same: Vec<&&str> = known.keys().filter(|k| name(k) == name(path)).collect();
+                    match same.as_slice() {
+                        [only] => only,
+                        _ => path,
+                    }
+                }
             },
         };
         let Some(&lines) = known.get(path) else {
@@ -1835,6 +1844,21 @@ mod tests {
             )]
         );
         assert!(carried("+++ b/foo.bb\n++++ b/x.py\n").is_empty());
+    }
+
+    #[test]
+    fn a_garbled_path_with_a_unique_file_name_is_kept() {
+        let answer = answer(vec![finding(
+            "meta/recipes-foo/foo/foo/foo_1.0.bb",
+            Some(1),
+        )]);
+        let a: Answer = serde_json::from_str(&answer).unwrap();
+        let (kept, _, dropped) = validate(a, 2, &ctx(), &[], Confidence::Low);
+        assert_eq!(kept.len(), 1, "{dropped:?}");
+        assert_eq!(
+            kept[0].finding.file.as_deref(),
+            Some("meta/recipes-foo/foo/foo_1.0.bb")
+        );
     }
 
     #[test]
