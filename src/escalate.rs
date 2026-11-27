@@ -262,7 +262,7 @@ pub fn escalate(
     layer3: &Review,
     tools: &Tools,
 ) -> Result<Review, CallError> {
-    let mut msgs = messages(ctx, layer1, guides_dir);
+    let mut msgs = messages(ctx, layer1, guides_dir, true);
     let leads: Vec<String> = layer3
         .findings
         .iter()

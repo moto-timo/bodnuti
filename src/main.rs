@@ -835,7 +835,7 @@ fn check(args: CheckArgs) -> Result<Report> {
                 .filter(|f| f.patch == Some(ctx.index))
                 .cloned()
                 .collect();
-            let request = review::messages(ctx, &layer1, request_guides.as_deref());
+            let request = review::messages(ctx, &layer1, request_guides.as_deref(), false);
             std::fs::write(
                 dir.join(format!("{}.json", ctx.index)),
                 serde_json::to_vec(&request)?,

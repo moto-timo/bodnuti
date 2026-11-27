@@ -105,7 +105,7 @@ fn check(
     tools: Option<&Tools>,
     f: &ModelFinding,
 ) -> Result<(Verdict, u64, u64), String> {
-    let mut msgs = messages(ctx, layer1, guides_dir);
+    let mut msgs = messages(ctx, layer1, guides_dir, true);
     let finding = format!(
         "{}:{} [{}] {}",
         f.finding.file.as_deref().unwrap_or("?"),

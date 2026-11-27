@@ -771,26 +771,37 @@ fn attr(s: &str) -> String {
 }
 
 /// The request for one patch: fixed system prompt and guides first, then
-/// the context as untrusted data, then layer 1's findings.
-pub fn messages(ctx: &PatchContext, layer1: &[Finding], guides_dir: Option<&Path>) -> Value {
+/// the context as untrusted data, then layer 1's findings. The review
+/// rules go only to the check pass and escalation (`with_rules`): in layer
+/// 3 they drew gemma4 26B into checking patch headers field by field, and
+/// it stopped reading the code (the python3-pillow tests of 26 November,
+/// whose missing imports it finds without them).
+pub fn messages(
+    ctx: &PatchContext,
+    layer1: &[Finding],
+    guides_dir: Option<&Path>,
+    with_rules: bool,
+) -> Value {
     let paths: Vec<&str> = ctx.lines.keys().map(String::as_str).collect();
     let system = format!(
         "{SYSTEM_CORE}{}\n\nThe guides below mention a git_grep tool; you do not have it, \
          its results are already in the request.\n\n{}{}",
         schema(),
         guides(guides_dir, &paths),
-        guides_dir.map_or(String::new(), |d| {
-            let r = rules(d, &ctx.diff);
-            if r.is_empty() {
-                r
-            } else {
-                format!(
-                    "\n\n# Review rules from maintainers' past reviews\n\n\
+        guides_dir
+            .filter(|_| with_rules)
+            .map_or(String::new(), |d| {
+                let r = rules(d, &ctx.diff);
+                if r.is_empty() {
+                    r
+                } else {
+                    format!(
+                        "\n\n# Review rules from maintainers' past reviews\n\n\
                      Report a rule's problem only when its trigger is in the patch and none \
                      of its \"do not report when\" cases applies.\n\n{r}"
-                )
-            }
-        })
+                    )
+                }
+            })
     );
     let mut blocks = vec![format!(
         "<untrusted kind=\"patch\">\n{}</untrusted>",
@@ -1064,7 +1075,7 @@ pub fn review(
     layer1: &[Finding],
     guides_dir: Option<&Path>,
 ) -> Result<Review, CallError> {
-    let messages = messages(ctx, layer1, guides_dir);
+    let messages = messages(ctx, layer1, guides_dir, false);
     let size = messages.to_string().len();
     // About four bytes a token, and room for the answer.
     if size / 4 + 8192 > client.context_tokens as usize {
@@ -1497,6 +1508,19 @@ mod tests {
         assert_eq!(kind(0), "json_schema");
         assert_eq!(kind(1), "json_object");
         assert_eq!(kind(2), "json_object");
+    }
+
+    #[test]
+    fn rules_go_to_the_check_pass_not_to_layer_3() {
+        let guides = tempfile::tempdir().unwrap();
+        let system = |with_rules| {
+            messages(&ctx(), &[], Some(guides.path()), with_rules)[0]["content"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert!(!system(false).contains("# Review rules"));
+        assert!(system(true).contains("# Review rules"));
     }
 
     #[test]
