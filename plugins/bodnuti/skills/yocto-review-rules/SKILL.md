@@ -37,7 +37,10 @@ How to use them:
 
 - Report a rule's problem only when its trigger is in the change and none
   of its "do not report when" cases applies. Check the layer first: a
-  value may be set in an `.inc`, a class or a `.bbappend`.
+  value may be set in an `.inc`, a class or a `.bbappend`. When you
+  search the tree with the shell, run one lookup per command, or end a
+  chain of lookups with `; true`: a file or glob that does not exist
+  otherwise marks the whole command failed, though its results came.
 - They are not style rules. Do not raise taste, wording or formatting
   because a rule is near it.
 - They are not the whole list. Still review the change itself: a broken
