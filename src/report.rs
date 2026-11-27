@@ -170,7 +170,12 @@ impl Report {
                 out.push_str(&self.text_block(f, "FIXED", false));
             }
         }
-        if let Some(model) = self.review.first().map(|r| &r.model) {
+        if !self.review.is_empty() {
+            // Escalated patches name the larger model.
+            let mut models: Vec<&str> = self.review.iter().map(|r| r.model.as_str()).collect();
+            models.sort_unstable();
+            models.dedup();
+            let model = models.join(", ");
             let _ = writeln!(out, "\nmodel review ({model}; unverified, not counted)");
             for r in &self.review {
                 let subject = self
