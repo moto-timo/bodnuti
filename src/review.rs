@@ -268,6 +268,10 @@ pub struct ModelFinding {
     pub finding: Finding,
     pub category: String,
     pub confidence: String,
+    /// The lines the model quoted as evidence, checked against the request;
+    /// how answers of several samples are matched (review()).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub evidence: String,
 }
 
 /// A plain-language note on a layer 1 finding, located by its check, file
@@ -418,6 +422,8 @@ pub struct Client {
     pub(crate) context_tokens: u32,
     /// How many times to ask (ReviewConfig::samples).
     pub(crate) samples: u32,
+    /// Seconds to wait after each HTTP 429 before asking again.
+    rate_waits: Vec<u64>,
     temperature: Option<f32>,
     agent: ureq::Agent,
     format: Cell<Format>,
@@ -487,6 +493,7 @@ impl Client {
             no_reasoning: Cell::new(false),
             samples: 1,
             temperature: None,
+            rate_waits: vec![5, 20, 60],
             retry_effort: "none".into(),
         }
     }
@@ -547,6 +554,9 @@ impl Client {
         name: &str,
         answer: &Value,
     ) -> Result<Reply, CallError> {
+        // A short burst of 429s (samples, the check pass) is waited out
+        // before the step gives up for this run.
+        let mut waits = self.rate_waits.iter();
         loop {
             let body = self.body(messages, tools, name, answer).to_string();
             let mut request = self
@@ -569,7 +579,13 @@ impl Client {
                 200 => {
                     return reply(&text).map_err(CallError::Failed);
                 }
-                429 => return Err(CallError::RateLimited),
+                429 => match waits.next() {
+                    Some(&secs) => {
+                        eprintln!("review: HTTP 429; waiting {secs} s");
+                        std::thread::sleep(Duration::from_secs(secs));
+                    }
+                    None => return Err(CallError::RateLimited),
+                },
                 // Only a request that carried a response_format can fail on
                 // it; one that offers tools carries none.
                 400 if tools.is_none() && self.format.get() != Format::None => {
@@ -1119,6 +1135,7 @@ fn validate(
             },
             category: f.category,
             confidence: f.confidence.as_str().into(),
+            evidence: f.evidence.clone(),
         });
     }
     let explanations = answer
@@ -1248,10 +1265,11 @@ pub fn review(
                     for f in r.findings {
                         let repeat = m.findings.iter().any(|k| {
                             k.finding.file == f.finding.file
-                                && match (k.finding.line, f.finding.line) {
-                                    (Some(a), Some(b)) => a.abs_diff(b) <= RESTATE_LINES,
-                                    _ => k.finding.message == f.finding.message,
-                                }
+                                && (same_evidence(&k.evidence, &f.evidence)
+                                    || match (k.finding.line, f.finding.line) {
+                                        (Some(a), Some(b)) => a.abs_diff(b) <= RESTATE_LINES,
+                                        _ => k.finding.message == f.finding.message,
+                                    })
                         });
                         if repeat {
                             m.dropped.push(format!(
@@ -1272,6 +1290,15 @@ pub fn review(
         });
     }
     Ok(merged.expect("samples is at least 1"))
+}
+
+/// Whether two findings rest on the same quoted line: samples describe
+/// one defect in other words and at other lines, but quote its line.
+fn same_evidence(a: &str, b: &str) -> bool {
+    let lines =
+        |e: &str| -> Vec<String> { e.lines().map(norm).filter(|l| l.len() >= 16).collect() };
+    let b = lines(b);
+    lines(a).iter().any(|l| b.contains(l))
 }
 
 fn review_once(
@@ -1617,13 +1644,15 @@ mod tests {
     }
 
     fn client(url: &str) -> Client {
-        Client::with(
+        let mut c = Client::with(
             url,
             Some("secret-token".into()),
             "m",
             None,
             Duration::from_secs(10),
-        )
+        );
+        c.rate_waits = vec![];
+        c
     }
 
     fn ctx() -> PatchContext {
@@ -1807,6 +1836,7 @@ mod tests {
                 finding: f,
                 category: "other".into(),
                 confidence: "high".into(),
+                evidence: String::new(),
             });
         }
         let r = crate::verify::run(&client(&url), &ctx(), &[], None, None, r).unwrap();
@@ -2101,6 +2131,34 @@ mod tests {
     }
 
     #[test]
+    fn a_short_burst_of_429s_is_waited_out() {
+        let (url, seen) = stub(vec![(429, "{}".into()), ok(&answer(vec![]))]);
+        let mut c = client(&url);
+        c.rate_waits = vec![0];
+        assert_eq!(
+            review(&c, &ctx(), &[], None).unwrap().outcome,
+            Outcome::Reviewed
+        );
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn samples_that_quote_the_same_line_are_one_finding() {
+        assert!(same_evidence(
+            "+    b = io.BytesIO(data.replace(x))",
+            "++    b = io.BytesIO(data.replace(x))\n+import pytest"
+        ));
+        assert!(
+            !same_evidence("+import pytest", "+import pytest"),
+            "too short to tell"
+        );
+        assert!(!same_evidence(
+            "+    b = io.BytesIO(data)",
+            "+    font.glyph[0] = Image.new(x)"
+        ));
+    }
+
+    #[test]
     fn the_retry_effort_is_configurable() {
         let cut = r#"{"choices":[{"message":{"content":""},"finish_reason":"length"}],"usage":{}}"#;
         let (url, seen) = stub(vec![(200, cut.into()), ok(&answer(vec![]))]);
@@ -2275,6 +2333,7 @@ mod tests {
             finding: f,
             category: "other".into(),
             confidence: "low".into(),
+            evidence: String::new(),
         };
         let back: ModelFinding = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(back.category, "other");

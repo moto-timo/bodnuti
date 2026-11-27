@@ -1423,6 +1423,7 @@ mod tests {
                 finding: f,
                 category: "dependency".into(),
                 confidence: "high".into(),
+                evidence: String::new(),
             }],
             explanations: vec![],
             dropped: vec![],
