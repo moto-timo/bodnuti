@@ -67,6 +67,13 @@ pub struct ReviewConfig {
     /// wants `low`.
     #[serde(default)]
     pub retry_effort: Option<String>,
+    /// How many times layer 3 asks, and the check pass asks about each
+    /// finding. Local servers do not answer the same request the same way
+    /// twice, even at temperature 0: layer 3's findings are merged, and the
+    /// check pass shows a finding only when most of its answers confirm
+    /// it. Unset: once.
+    #[serde(default = "default_samples")]
+    pub samples: u32,
     /// Model findings rated below this are dropped (§5.3). The default,
     /// medium: with the evidence rule, high cost defects (docs/STATUS.md).
     #[serde(default = "default_min_confidence")]
@@ -102,10 +109,15 @@ impl ReviewConfig {
             thinking: None,
             reasoning_effort: None,
             retry_effort: None,
+            samples: default_samples(),
             min_confidence: default_min_confidence(),
             max_tokens: default_max_tokens(),
         }
     }
+}
+
+fn default_samples() -> u32 {
+    1
 }
 
 fn default_context_tokens() -> u32 {
@@ -396,8 +408,10 @@ pub struct Client {
     reasoning_effort: Option<String>,
     max_tokens: u32,
     pub(crate) min_confidence: Confidence,
-    /// The server's context; a larger request is logged as at risk.
-    context_tokens: u32,
+    /// The server's context; a request is cut to fit it (fit()).
+    pub(crate) context_tokens: u32,
+    /// How many times to ask (ReviewConfig::samples).
+    pub(crate) samples: u32,
     agent: ureq::Agent,
     format: Cell<Format>,
     /// Set for a retry after the reasoning used up max_tokens: ask for
@@ -435,6 +449,7 @@ impl Client {
         client.min_confidence = config.min_confidence;
         client.max_tokens = config.max_tokens;
         client.context_tokens = config.context_tokens;
+        client.samples = config.samples.max(1);
         Ok(client)
     }
 
@@ -462,6 +477,7 @@ impl Client {
             agent,
             format: Cell::new(Format::JsonSchema),
             no_reasoning: Cell::new(false),
+            samples: 1,
             retry_effort: "none".into(),
         }
     }
@@ -1202,7 +1218,52 @@ pub(crate) fn fit(
     Some(ctx)
 }
 
+/// Layer 3's review of one patch: asked `samples` times, the findings of
+/// every answer merged, a repeat of a kept finding left out.
 pub fn review(
+    client: &Client,
+    ctx: &PatchContext,
+    layer1: &[Finding],
+    guides_dir: Option<&Path>,
+) -> Result<Review, CallError> {
+    let mut merged: Option<Review> = None;
+    for _ in 0..client.samples {
+        let r = review_once(client, ctx, layer1, guides_dir)?;
+        merged = Some(match merged {
+            None => r,
+            Some(m) if m.outcome != Outcome::Reviewed => r,
+            Some(mut m) => {
+                if r.outcome == Outcome::Reviewed {
+                    for f in r.findings {
+                        let repeat = m.findings.iter().any(|k| {
+                            k.finding.file == f.finding.file
+                                && match (k.finding.line, f.finding.line) {
+                                    (Some(a), Some(b)) => a.abs_diff(b) <= RESTATE_LINES,
+                                    _ => k.finding.message == f.finding.message,
+                                }
+                        });
+                        if repeat {
+                            m.dropped.push(format!(
+                                "found again in another sample: {}:{}",
+                                f.finding.file.as_deref().unwrap_or("?"),
+                                f.finding.line.unwrap_or(0)
+                            ));
+                        } else {
+                            m.findings.push(f);
+                        }
+                    }
+                    m.dropped.extend(r.dropped);
+                }
+                m.prompt_tokens += r.prompt_tokens;
+                m.completion_tokens += r.completion_tokens;
+                m
+            }
+        });
+    }
+    Ok(merged.expect("samples is at least 1"))
+}
+
+fn review_once(
     client: &Client,
     ctx: &PatchContext,
     layer1: &[Finding],
@@ -1988,6 +2049,44 @@ mod tests {
         // No room even for the patch: not reviewed rather than cut.
         c.context_tokens = 1_500 + HEADROOM_TOKENS as u32;
         assert!(fit(&c, &big, &[], None, false).is_none());
+    }
+
+    #[test]
+    fn samples_merge_findings_and_the_check_pass_votes() {
+        let foo = "meta/recipes-foo/foo/foo_1.0.bb";
+        let (url, _) = stub(vec![
+            ok(&answer(vec![finding(foo, Some(1))])),
+            ok(&answer(vec![])),
+            ok(&answer(vec![finding(foo, Some(2)), finding(foo, Some(10))])),
+        ]);
+        let mut c = client(&url);
+        c.samples = 3;
+        let r = review(&c, &ctx(), &[], None).unwrap();
+        let lines: Vec<_> = r.findings.iter().map(|f| f.finding.line).collect();
+        assert_eq!(lines, [Some(1), Some(10)], "line 2 repeats line 1");
+        assert!(r.dropped.iter().any(|d| d.starts_with("found again")));
+
+        let verdict = |v: &str| {
+            ok(&json!({"verdict": v, "quote": "+DEPENDS += \"x\"", "reason": "r"}).to_string())
+        };
+        let (url, _) = stub(vec![
+            verdict("confirmed"),
+            verdict("refuted"),
+            verdict("confirmed"),
+            verdict("refuted"),
+            verdict("confirmed"),
+            verdict("refuted"),
+        ]);
+        let mut c = client(&url);
+        c.samples = 3;
+        let r = crate::verify::run(&c, &ctx(), &[], None, None, r).unwrap();
+        assert_eq!(
+            r.findings.len(),
+            1,
+            "2 of 3 confirmed line 1, 1 of 3 line 10"
+        );
+        assert_eq!(r.findings[0].finding.line, Some(1));
+        assert!(r.dropped.iter().any(|d| d.ends_with("(1 of 3 confirmed)")));
     }
 
     #[test]

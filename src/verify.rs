@@ -72,28 +72,44 @@ pub fn run(
             f.finding.file.as_deref().unwrap_or("?"),
             f.finding.line.unwrap_or(0)
         );
-        match check(client, ctx, layer1, guides_dir, tools, &f) {
-            Ok((v, prompt, completion)) => {
-                review.prompt_tokens += prompt;
-                review.completion_tokens += completion;
-                if v.verdict == "confirmed" {
-                    review.findings.push(f);
-                } else {
-                    let why = if v.reason.is_empty() {
-                        v.quote
-                    } else {
-                        v.reason
-                    };
-                    review.dropped.push(format!(
-                        "refuted by the check pass: {at}: {}",
-                        cut(&why, 300)
-                    ));
+        // Asked `samples` times: shown when most answers confirm it. A
+        // failed answer counts as a refutation, refuted being the default.
+        let (mut yes, mut why) = (0, String::new());
+        for _ in 0..client.samples {
+            match check(client, ctx, layer1, guides_dir, tools, &f) {
+                Ok((v, prompt, completion)) => {
+                    review.prompt_tokens += prompt;
+                    review.completion_tokens += completion;
+                    if v.verdict == "confirmed" {
+                        yes += 1;
+                    } else if why.is_empty() {
+                        why = format!(
+                            "refuted by the check pass: {at}: {}",
+                            cut(
+                                if v.reason.is_empty() {
+                                    &v.quote
+                                } else {
+                                    &v.reason
+                                },
+                                300
+                            )
+                        );
+                    }
                 }
+                Err(CallError::Failed(e)) if why.is_empty() => {
+                    why = format!("not confirmed, the check pass failed: {at}: {e}");
+                }
+                Err(CallError::Failed(_)) => {}
+                Err(e) => return Err(e),
             }
-            Err(CallError::Failed(e)) => review
-                .dropped
-                .push(format!("not confirmed, the check pass failed: {at}: {e}")),
-            Err(e) => return Err(e),
+        }
+        if yes * 2 > client.samples {
+            review.findings.push(f);
+        } else {
+            if client.samples > 1 {
+                why = format!("{why} ({yes} of {} confirmed)", client.samples);
+            }
+            review.dropped.push(why);
         }
     }
     Ok(review)
