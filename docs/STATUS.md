@@ -670,8 +670,10 @@ lists, boot behaviour), and a few judge verdicts are generous. bodnuti
 now sends prompt v2, checks the quotes, and defaults to
 `min_confidence = "medium"`.
 
-Ahead: fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`,
-draft) and scoring every review live against what the lists decide
+Fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`) was
+tried once and stopped: the adapter learned to report nothing. The
+history goes into the prompt instead, as review rules chosen per patch.
+Ahead: scoring every review live against what the lists decide
 (`designs/PHASE3.md` §11, design).
 
 ## What it costs

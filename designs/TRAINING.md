@@ -1,6 +1,8 @@
 # Design draft: fine-tuning layer 3 on the lists' review history
 
-Status: draft. Decided on 26 November 2026 (maintainer): train without
+Status: stopped on 27 November 2026 (maintainer): all in on context
+instead (`PHASE3.md` §4 item 6, the review rules, the check pass); see
+§8 for why. Decided on 26 November 2026 (maintainer): train without
 asking the OE and Yocto maintainers first; the adapter and the dataset
 stay private for now; train locally, on a workstation with an AMD
 Radeon RX 7600 XT (16 GB, gfx1102, ROCm, PyTorch 2.9 for ROCm 6.4), so
@@ -118,3 +120,30 @@ is the baseline a trained adapter has to beat.
    training wait until the prompt work has plateaued?
 3. **Base model:** which family, given licence and where it can be served.
 4. **Scope:** only openembedded-core first, or all four lists?
+
+## 8. Result: stopped
+
+One QLoRA run of gemma4 12B (rank 16, all attention and MLP
+projections), on an AWS g6.2xlarge (L4, 24 GB) because the 7600 XT has
+no memory-efficient attention for Gemma's 262k vocabulary: 925
+examples, one epoch, six hours, about $6. Eval loss fell from 0.368 to
+0.356 and stalled; train loss reached 0.16.
+
+On the 23 series of 26 November, with the request format it was
+trained on (docs, no guides, no reasoning), the adapter reported
+nothing at all: no false finding, and none of the 8 real defects. The
+same 12B untrained found 2 real defects with 8 known false findings;
+gemma4 26B-A4B with reasoning found more.
+
+The cause is the data: 1,168 of the 1,725 examples have the empty
+answer, mostly clean commits, so always answering "no findings" was
+the cheapest way to a low loss. The training log also warned that
+Gemma's empty thinking block was cut from the prompt, so the model
+trained on a context that differs from the one it reviews in.
+
+A rerun with about one clean example in five and a fixed chat template
+might do better, but it would still compete with an untrained 26B that
+is already ahead, and an adapter helps only bodnuti. Rules condensed
+from the same history (`plugins/bodnuti/skills/yocto-review-rules/`)
+help every model and every tool that reads Markdown, so the effort
+goes there.
