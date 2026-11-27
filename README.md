@@ -132,6 +132,57 @@ A finding never changes the exit status or the result. Training a model
 instead was tried and stopped
 ([`designs/TRAINING.md`](designs/TRAINING.md) §8).
 
+#### Hosting the model yourself
+
+Any OpenAI-compatible server works; these steps use
+[ollama](https://ollama.com) on one GPU.
+
+1. **The model must fit in GPU memory, context included.** A model that
+   spills layers to the CPU runs five to ten times slower. After the first
+   request, `ollama ps` must say `100% GPU`.
+2. **Pick a quantization that leaves room for the context.** On a 16 GB
+   card, gemma4 26B-A4B at 4 bits (`UD-IQ4_XS`, 13.6 GB) with a 24k context
+   fits; the default 4-bit builds of 26B to 27B models (17 to 18 GB) do
+   not. Leave out the vision projector if the build has one separate.
+3. **Make a model with the context set,** for example:
+
+   ```
+   ollama pull hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ4_XS
+   cat > Modelfile <<'EOF'
+   FROM hf.co/unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ4_XS
+   PARAMETER num_ctx 24576
+   PARAMETER temperature 1
+   PARAMETER top_k 64
+   PARAMETER top_p 0.95
+   EOF
+   ollama create bodnuti-gemma4-26b -f Modelfile
+   ```
+
+4. **Point bodnuti at it:**
+
+   ```toml
+   [review]
+   endpoint = "http://localhost:11434/v1"
+   model = "bodnuti-gemma4-26b"
+   guides = "~/sashiko/projects/yoctoproject/prompts"
+   docs = "~/docs-index.json"
+   verify = true
+   reasoning_effort = "medium"
+   max_tokens = 12000
+   ```
+
+   `max_tokens` bounds the reasoning: local models of this size sometimes
+   reason in a loop, and bodnuti then asks once more without reasoning.
+5. **Build the docs index** from yocto-docs, bitbake and openembedded-core
+   checkouts:
+   `python3 bench/phase3/docs_index.py --yocto-docs … --bitbake … --oe-core … --out ~/docs-index.json`.
+
+What to expect, measured on the patches of 26 November 2026: a 16 GB GPU
+answers a patch in seconds to a few minutes, with no tokens bought, but
+local models of this size find fewer defects and are less steady from run
+to run than a hosted open-weight model such as GLM-5.3, which costs about
+$0.03 a patch with the check pass and the docs.
+
 `bodnuti poll` and `bodnuti publish` are the watcher's commands; see
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
