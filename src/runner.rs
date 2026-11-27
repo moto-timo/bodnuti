@@ -244,6 +244,17 @@ impl Runner<'_> {
         let mut report = self.check(&dir, &repo_name, &root, check_base, &staging)?;
         // The review context goes to the queue, not into the report.
         let context = std::mem::take(&mut report.context);
+        // A re-check replaces the applied commits, and crate::outcomes looks
+        // a patch's commit up in the current report: the old ones' refs
+        // would never be released.
+        let before: Vec<String> = std::fs::read(dir.join("report.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|r| r["applied"].as_array().cloned())
+            .into_iter()
+            .flatten()
+            .filter_map(|a| a["commit"].as_str().map(String::from))
+            .collect();
         std::fs::write(dir.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
         let store = crate::review::Store::new(&self.config.state);
         let clone = self.config.cache.join(&repo_name);
@@ -251,11 +262,23 @@ impl Runner<'_> {
             // Layer 4's tools and live verification read the applied
             // commits later (designs/PHASE3.md §6, §11); a ref keeps them
             // from git gc until crate::outcomes has decided the patch.
-            for a in &report.applied {
+            // Only patches that go to the queue: crate::outcomes releases a
+            // ref once their review is decided, and no other.
+            for a in report
+                .applied
+                .iter()
+                .filter(|a| context.iter().any(|c| c.index == a.index))
+            {
                 if let Err(err) = crate::escalate::keep(&clone, &a.commit) {
                     eprintln!("bodnuti: {root}: keeping patch {}: {err:#}", a.index);
                 }
             }
+        }
+        for old in before
+            .iter()
+            .filter(|c| !report.applied.iter().any(|a| &a.commit == *c))
+        {
+            crate::escalate::release(&clone, old);
         }
         for ctx in context {
             let queued = crate::review::Queued {
