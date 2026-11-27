@@ -685,13 +685,13 @@ history goes into the request instead, as the review rules.
 
 Measured on 27 November 2026, after fixing what made local models look
 worse (temperature 0, requests that filled the context, one answer per
-patch, a generic chat template): 13 patches of 26 November with 8 known
+patch, a generic chat template): 13 patches of 26 November with 6 known
 defects, three samples, every finding read by hand. Claude Code with the
-plugin's rules found 5 with no false finding shown; GLM-5.3 on
-FriendliAI 5, with 1 false, about $0.22 a patch (about $0.03 with one
-sample); gpt-oss-20b on a 16 GB GPU 4, with 4 false, about 6 minutes a
-patch; Qwen3.6-35B-A3B at 3 bits, the size that fits that GPU, 1, and
-could not take the largest patch; the LoRA 12B none.
+plugin's rules found 4 with 1 false finding shown; GLM-5.3 on FriendliAI
+4, with 2 false, about $0.22 a patch (about $0.03 with one sample); gpt-
+oss-20b on a 16 GB GPU 4, with 4 false, about 6 minutes a patch;
+Qwen3.6-35B-A3B at 3 bits, the size that fits that GPU, 1, and could not
+take the largest patch; the LoRA 12B none.
 
 ## What it costs
 

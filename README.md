@@ -193,8 +193,8 @@ Any OpenAI-compatible server works; these steps use
 
 What to expect, measured on 13 patches of 26 November 2026 with three
 samples: gpt-oss-20b on a 16 GB GPU takes about 6 minutes a patch and
-found 4 of 8 known defects, with 4 false findings; GLM-5.3, hosted, about
-a minute and $0.22 a patch, found 5, with 1 false finding.
+found 4 of 6 known defects, with 4 false findings; GLM-5.3, hosted, about
+a minute and $0.22 a patch, found 4, with 2 false findings.
 
 `bodnuti poll` and `bodnuti publish` are the watcher's commands; see
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
