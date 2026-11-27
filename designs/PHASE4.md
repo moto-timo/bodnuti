@@ -77,7 +77,17 @@ sashiko also has a stage that reads the review comments on v1 of a series
 and checks whether v2 addresses them. bodnuti already pairs a v2 with its
 v1 for live verification (`PHASE3.md` §11). Left for after §1 and §2.
 
-## 4. Measurement
+## 4. Repeats across samples
+
+With three samples, gpt-oss-20b showed five findings for the two
+python3-pillow import bugs: some samples give no line and quote other
+lines than the kept finding, so neither the 3-line rule nor a shared
+quoted line matches them. Phase 3's table counts defects, not findings,
+so it is unaffected. Phase 4 should merge such findings, for example by
+the line the check pass quotes when it confirms them, and measure the
+change with the rest.
+
+## 5. Measurement
 
 The same protocol as the clean retest (`RETEST-SETUP.md` in the
 presentation repository): one bodnuti version for every setup, three
@@ -87,7 +97,7 @@ two passes, for gpt-oss-20b on the 16 GB GPU and for GLM-5.3. A pass is
 kept if it finds defects the code review misses without adding false
 findings the check pass lets through.
 
-## 5. Questions
+## 6. Questions
 
 1. Are two passes the right cut, or should commit hygiene (message
    against diff) be a third?
