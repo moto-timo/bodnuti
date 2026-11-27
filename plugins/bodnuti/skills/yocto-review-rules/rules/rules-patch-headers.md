@@ -152,7 +152,8 @@ only on patch files the series adds or whose header it changes.
     `From:` author changed from the original author to the submitter;
   - a `From:` or `Signed-off-by:` with a placeholder identity
     (`@example.com`, "kas User", "OE Builder", "root@localhost");
-  - the only `Signed-off-by:` belongs to the upstream author, and none
+  - in a patch file the series adds (not one it only refreshes), the
+    only `Signed-off-by:` belongs to the upstream author, and none
     belongs to the person adding the patch to the layer.
 - **Problem:** `Signed-off-by:` certifies the Developer Certificate of
   Origin personally. Nobody may add one in someone else's name, remove
@@ -161,7 +162,9 @@ only on patch files the series adds or whose header it changes.
   own `Signed-off-by:` below them.
 - **Do not report when:** the extra sign-offs are copied verbatim from the
   upstream commit being backported (`git format-patch` output); the
-  submitter is the original author.
+  submitter is the original author; a carried patch is only refreshed
+  (context, offsets or paths updated in an upgrade): that needs no new
+  `Signed-off-by:`.
 - **Evidence:**
   - "Please do not, ever, add sign-off-by that has someone else's name." — readline: backport a patch (2025-08)
   - "Please do not change the author of the patch to yourself." — kea: fix multilib conflict (2025-10)
