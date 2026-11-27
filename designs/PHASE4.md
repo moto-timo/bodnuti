@@ -94,3 +94,11 @@ findings the check pass lets through.
 2. Should the three checks of §2 go to patchtest upstream as well?
 3. Does a hosted model still need three samples, or is one enough once
    the passes are in? Measure before choosing the watcher's setting.
+4. Can a pass run on a smaller model than layer 3? A pass asks a narrower
+   question over a shorter request (the patch and its rules, no classes
+   or docs), so it may be enough, and it would make a laptop's integrated
+   GPU keep up: gpt-oss-20b ran about seven times slower there than on
+   the 16 GB card. Speed follows the parameters active per token, so
+   gpt-oss-20b (3.6B active) is already among the fast ones. This needs
+   a model per pass in `[review]`; measure it against one model for
+   everything.
