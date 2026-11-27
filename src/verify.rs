@@ -135,14 +135,17 @@ fn check(
          Answer with JSON only: {{\"verdict\": \"confirmed\" or \"refuted\", \
          \"quote\": \"...\", \"reason\": \"one sentence\"}}."
     );
-    // What the model was shown: the request and the tools' output.
+    // What the quote may come from: the patch and its context (the first
+    // user message) and the tools' output. Not the system prompt, and not
+    // this note, which carries the finding's own words.
     let seen = |msgs: &Value, quote: &str| -> bool {
         let texts: Vec<&str> = msgs
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|m| m["role"] != "assistant")
-            .filter_map(|m| m["content"].as_str())
+            .enumerate()
+            .filter(|(i, m)| *i == 1 || m["role"] == "tool")
+            .filter_map(|(_, m)| m["content"].as_str())
             .collect();
         lines_in(quote, texts.into_iter())
     };

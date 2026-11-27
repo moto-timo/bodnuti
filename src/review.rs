@@ -537,7 +537,9 @@ impl Client {
                     return reply(&text).map_err(CallError::Failed);
                 }
                 429 => return Err(CallError::RateLimited),
-                400 if self.format.get() != Format::None => {
+                // Only a request that carried a response_format can fail on
+                // it; one that offers tools carries none.
+                400 if tools.is_none() && self.format.get() != Format::None => {
                     let next = match self.format.get() {
                         Format::JsonSchema => Format::JsonObject,
                         _ => Format::None,
@@ -1641,13 +1643,16 @@ mod tests {
         let verdict = |v: &str, quote: &str| {
             ok(&json!({"verdict": v, "quote": quote, "reason": "because"}).to_string())
         };
+        // The fourth quotes the finding itself, which the note carries.
+        let own = layer1().remove(0).message;
         let (url, seen) = stub(vec![
             verdict("confirmed", "+DEPENDS += \"x\""),
             verdict("confirmed", "a line nobody sent"),
             verdict("refuted", "inherit pkgconfig"),
+            verdict("confirmed", &own),
         ]);
         let mut r = Review::not_reviewed(2, "m", "");
-        for line in [1, 5, 9] {
+        for line in [1, 5, 9, 13] {
             let mut f = layer1().remove(0);
             f.line = Some(line);
             r.findings.push(ModelFinding {
@@ -1659,7 +1664,7 @@ mod tests {
         let r = crate::verify::run(&client(&url), &ctx(), &[], None, None, r);
         assert_eq!(r.findings.len(), 1);
         assert_eq!(r.findings[0].finding.line, Some(1));
-        assert_eq!(r.dropped.len(), 2);
+        assert_eq!(r.dropped.len(), 3);
         assert!(
             r.dropped
                 .iter()
@@ -1859,6 +1864,19 @@ mod tests {
             kept[0].finding.file.as_deref(),
             Some("meta/recipes-foo/foo/foo_1.0.bb")
         );
+    }
+
+    #[test]
+    fn a_400_with_tools_keeps_the_structured_output() {
+        let (url, seen) = stub(vec![(400, "{}".into())]);
+        let c = client(&url);
+        let tools = json!([]);
+        assert!(
+            c.chat_as(&json!([]), Some(&tools), "verdict", &json!({}))
+                .is_err()
+        );
+        assert_eq!(seen.lock().unwrap().len(), 1, "not retried");
+        assert_eq!(c.format.get(), Format::JsonSchema);
     }
 
     #[test]
