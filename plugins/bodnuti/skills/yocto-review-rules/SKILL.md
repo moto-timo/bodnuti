@@ -1,6 +1,6 @@
 ---
 name: yocto-review-rules
-description: Rules that OpenEmbedded and Yocto Project maintainers apply when reviewing recipes, classes, patch files and oe-core Python, condensed from ten years of inline review on the openembedded-core and openembedded-devel lists. Use when reviewing a Yocto/OpenEmbedded patch, or before writing or changing a recipe (.bb, .bbappend, .inc), class, carried .patch file, oe-selftest or run-ptest script, so the change does not get sent back.
+description: Read this before reviewing, judging or commenting on any Yocto Project, OpenEmbedded or BitBake patch (a mail or diff touching .bb, .bbappend, .inc, .bbclass, .conf, a carried .patch file, meta/lib/oe or oeqa; CVE backports, version upgrades, SRC_URI, LICENSE, PACKAGECONFIG, Upstream-Status headers), and before writing such a change. Holds the rules OE-Core and meta-openembedded maintainers enforce, condensed from ten years of list review, and the BitBake behaviour that looks like a bug but is not, so a review reports real problems and no false ones. Even when the patch looks clean, check it against these rules before saying so.
 allowed-tools: Read
 ---
 
@@ -40,6 +40,9 @@ How to use them:
   value may be set in an `.inc`, a class or a `.bbappend`.
 - They are not style rules. Do not raise taste, wording or formatting
   because a rule is near it.
+- They are not the whole list. Still review the change itself: a broken
+  hunk, a wrong path, code that cannot work is a finding even when no
+  rule names it, if you can show it from the patch.
 - Some rules say "as of <year>": check the branch. Stable branches keep
   older policy.
 
