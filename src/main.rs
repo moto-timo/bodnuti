@@ -692,6 +692,13 @@ fn sibling(program: &str) -> String {
 }
 
 fn check(args: CheckArgs) -> Result<Report> {
+    // --review-requests writes the request as review sends it: with the
+    // guides and rules the review config names.
+    let request_guides = args
+        .review_requests
+        .as_ref()
+        .and_then(|_| review_config(&args).ok())
+        .and_then(|c| c.guides);
     // Before any work, so a missing setting fails at once.
     let review_config = args.review.then(|| review_config(&args)).transpose()?;
     let doc_index = args
@@ -828,7 +835,7 @@ fn check(args: CheckArgs) -> Result<Report> {
                 .filter(|f| f.patch == Some(ctx.index))
                 .cloned()
                 .collect();
-            let request = review::messages(ctx, &layer1, None);
+            let request = review::messages(ctx, &layer1, request_guides.as_deref());
             std::fs::write(
                 dir.join(format!("{}.json", ctx.index)),
                 serde_json::to_vec(&request)?,
