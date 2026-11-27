@@ -983,6 +983,7 @@ fn review_config(args: &CheckArgs) -> Result<review::ReviewConfig> {
     if config.model.is_empty() {
         anyhow::bail!("--review needs a model: --review-model or model in [review]");
     }
+    config.guides = config.guides.map(|g| watch::expand(&g));
     Ok(config)
 }
 

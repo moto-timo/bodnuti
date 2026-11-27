@@ -721,7 +721,7 @@ const RULES: &[(&str, &str)] = &[
 /// file), and every other token is text one of the changed lines must
 /// contain (any of them; none means always). A file without the line is
 /// never sent. Files go in name order until RULES_CAP.
-fn rules(dir: &Path, diff: &str) -> String {
+fn rules(dir: Option<&Path>, diff: &str) -> String {
     let files: Vec<&str> = diff
         .lines()
         .filter_map(|l| l.strip_prefix("+++ b/").or(l.strip_prefix("--- a/")))
@@ -735,8 +735,9 @@ fn rules(dir: &Path, diff: &str) -> String {
                 && !l.starts_with("---")
         })
         .collect();
-    let mut files_of: Vec<(String, String)> = match std::fs::read_dir(dir.join("rules")) {
-        Ok(entries) => entries
+    let mut files_of: Vec<(String, String)> = match dir.map(|d| std::fs::read_dir(d.join("rules")))
+    {
+        Some(Ok(entries)) => entries
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|e| e == "md"))
@@ -745,7 +746,7 @@ fn rules(dir: &Path, diff: &str) -> String {
                 Some((p.file_name()?.to_string_lossy().into_owned(), text))
             })
             .collect(),
-        Err(_) => RULES
+        _ => RULES
             .iter()
             .map(|(n, t)| (n.to_string(), t.to_string()))
             .collect(),
@@ -812,20 +813,15 @@ pub fn messages(
          its results are already in the request.\n\n{}{}",
         schema(),
         guides(guides_dir, &paths),
-        guides_dir
-            .filter(|_| with_rules)
-            .map_or(String::new(), |d| {
-                let r = rules(d, &ctx.diff);
-                if r.is_empty() {
-                    r
-                } else {
-                    format!(
-                        "\n\n# Review rules from maintainers' past reviews\n\n\
-                     Report a rule's problem only when its trigger is in the patch and none \
-                     of its \"do not report when\" cases applies.\n\n{r}"
-                    )
-                }
-            })
+        // The built-in rules without guides: every install has them.
+        match with_rules.then(|| rules(guides_dir, &ctx.diff)) {
+            Some(r) if !r.is_empty() => format!(
+                "\n\n# Review rules from maintainers' past reviews\n\n\
+                 Report a rule's problem only when its trigger is in the patch and none \
+                 of its \"do not report when\" cases applies.\n\n{r}"
+            ),
+            _ => String::new(),
+        }
     );
     let mut blocks = vec![format!(
         "<untrusted kind=\"patch\">\n{}</untrusted>",
@@ -1326,7 +1322,8 @@ fn drain(
     now: u64,
     deadline: Instant,
 ) -> Result<()> {
-    let guides_dir = config.guides.as_deref();
+    let guides = config.guides.as_deref().map(crate::watch::expand);
+    let guides_dir = guides.as_deref();
     let mut reviewed = 0;
     let mut down = 0;
     let queued = store.queued();
@@ -1596,6 +1593,12 @@ mod tests {
         };
         assert!(!system(false).contains("# Review rules"));
         assert!(system(true).contains("# Review rules"));
+        // The built-in rules go to the check pass without guides as well.
+        let without = messages(&ctx(), &[], None, true)[0]["content"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(without.contains("# Review rules"));
     }
 
     #[test]
@@ -1607,7 +1610,7 @@ mod tests {
         );
         let dir = tempfile::tempdir().unwrap();
         let diff = "+++ b/meta/recipes-foo/foo/foo_1.0.bb\n+PACKAGECONFIG ??= \"x\"\n";
-        let r = super::rules(dir.path(), diff);
+        let r = super::rules(Some(dir.path()), diff);
         assert!(r.contains("## Rules: rules-packageconfig.md"));
         assert!(!r.contains("rules-patch-headers.md"));
         assert!(r.len() <= super::RULES_CAP);
@@ -1628,11 +1631,11 @@ mod tests {
         write("d-unselected.md", "no select line\n");
         let diff = "--- a/meta/recipes-foo/foo/foo_1.0.bb\n+++ b/meta/recipes-foo/foo/foo_1.0.bb\n\
                     @@ -1 +1 @@\n LICENSE = \"MIT\"\n+PACKAGECONFIG ??= \"x\"\n";
-        let r = super::rules(dir.path(), diff);
+        let r = super::rules(Some(dir.path()), diff);
         assert!(r.contains("PC rule") && !r.contains("<!-- select"));
         assert!(!r.contains("header rule") && !r.contains("qa rule") && !r.contains("no select"));
         let r = super::rules(
-            dir.path(),
+            Some(dir.path()),
             "+++ b/meta/lib/oeqa/selftest/cases/x.py\n+x = 1\n",
         );
         assert_eq!(r, "## Rules: c-oeqa.md\n\nqa rule\n\n\n");
