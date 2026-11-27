@@ -562,9 +562,10 @@ Phase 3 ([`designs/PHASE3.md`](../designs/PHASE3.md)) adds one model call
 per patch on open-weight models. Layers 2 (context gathering in the check
 container) and 3 (the call, its validation and the report section) are
 built, along with `bodnuti check --review`. Layer 4 (escalation to a
-larger model with read-only git tools) and live verification against what
-the lists decide (`PHASE3.md` §11) are built as drafts, not yet measured. Model findings are shown apart, marked unverified, and
-never count in the result.
+larger model with read-only git tools), live verification against what
+the lists decide (`PHASE3.md` §11) and the check pass (§13.1) are built as
+drafts. Model findings are shown apart, marked unverified, and never count
+in the result.
 
 Measured on 25 November 2026 with `bench/phase3/score.py` on FriendliAI's
 serverless API: the six benchmark defects the deterministic checks miss,
@@ -667,14 +668,31 @@ With v2's evidence rule a high-only filter costs defects, so v2 wants
 `min_confidence = "medium"`. Defects found after merging are much harder
 than the six: many need knowledge the diff does not carry (firmware file
 lists, boot behaviour), and a few judge verdicts are generous. bodnuti
-now sends prompt v2, checks the quotes, and defaults to
-`min_confidence = "medium"`.
+checks the quotes and defaults to `min_confidence = "medium"`.
+
+Since then the request grew past score.py's v2 (`PROMPT` in
+src/review.rs): v2.1 adds the series context, v2.2 the docs index (each
+variable's glossary entry and bitbake.conf value) and sashiko's
+false-positive guide, v2.3 the review rules, and v2.4 moves the rules to
+the check pass. With the rules in layer 3, gemma4 26B checked patch
+headers field by field and missed the python3-pillow test bugs it finds
+without them; the rules now judge findings instead of steering the
+search.
 
 Fine-tuning on the lists' v1/v2 history (`designs/TRAINING.md`) was
 tried once and stopped: the adapter learned to report nothing. The
-history goes into the prompt instead, as review rules chosen per patch.
-Ahead: scoring every review live against what the lists decide
-(`designs/PHASE3.md` §11, design).
+history goes into the request instead, as the review rules.
+
+Measured on 27 November 2026, v2.4 with docs and the check pass on the
+40 patches of 26 November read by hand: GLM-5.3 on FriendliAI answered
+every patch in seconds, about $0.03 a patch with the docs and the check
+pass, about $150 a month for every patch on the lists. Local models on a
+16 GB GPU: the default 17-18 GB builds of 26-27B models spill to the CPU;
+the smaller builds that fit (gemma4 26B at 4 bits, Qwen3.6 at 3 bits)
+missed the pillow bugs; gpt-oss-20b, 4-bit by design, fits and found
+them. The full comparison is in progress. Claude with the plugin's rules
+scores 0.90 against 0.60 without on ten of the same patches, the bar for
+a local model.
 
 ## What it costs
 
@@ -719,10 +737,11 @@ window held about eight sashiko reviews.
 - Refresh `django/<application>/requirements.txt` from the applications'
   master branches when their pins change, so Django's checks run against
   current dependencies.
-- Phase 3: bring the false findings under the bar (0.25 per clean patch)
-  by tuning the system prompt and guide selection on the benchmark, or by
-  keeping only high-confidence findings; then confirm on a held-out set,
-  and pick the model for the watcher.
+- Phase 3: finish the comparison on the 40 patches of 26 November and a
+  fresh set (`PHASE3.md` §13.2): GLM-5.3 hosted against gpt-oss-20b and
+  Qwen3.6-35B-A3B on one 16 GB GPU, with docs and the check pass; then
+  pick the model for the watcher, and have a maintainer read the review
+  rules.
 - Measure layer 4 (GLM-5.3-Flash with GLM-5.3 escalation, built as a
   draft) on the held-out sets before turning on `escalation_model`.
 - Turn on `[review]` in the watcher, so live verification (§11) starts
