@@ -55,7 +55,9 @@ fn squash(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `review` with only the findings the check pass confirmed.
+/// `review` with only the findings the check pass confirmed, or the
+/// endpoint's error when it did not answer (rate limited, unavailable):
+/// unjudged findings are neither shown nor dropped.
 pub fn run(
     client: &Client,
     ctx: &PatchContext,
@@ -63,7 +65,7 @@ pub fn run(
     guides_dir: Option<&Path>,
     tools: Option<&Tools>,
     mut review: Review,
-) -> Review {
+) -> Result<Review, CallError> {
     for f in std::mem::take(&mut review.findings) {
         let at = format!(
             "{}:{}",
@@ -88,12 +90,13 @@ pub fn run(
                     ));
                 }
             }
-            Err(e) => review
+            Err(CallError::Failed(e)) => review
                 .dropped
                 .push(format!("not confirmed, the check pass failed: {at}: {e}")),
+            Err(e) => return Err(e),
         }
     }
-    review
+    Ok(review)
 }
 
 /// The model's verdict on one finding, and the tokens it took.
@@ -104,7 +107,7 @@ fn check(
     guides_dir: Option<&Path>,
     tools: Option<&Tools>,
     f: &ModelFinding,
-) -> Result<(Verdict, u64, u64), String> {
+) -> Result<(Verdict, u64, u64), CallError> {
     let mut msgs = messages(ctx, layer1, guides_dir, true);
     let finding = format!(
         "{}:{} [{}] {}",
@@ -157,11 +160,7 @@ fn check(
     let (mut prompt, mut completion) = (0, 0);
     for turn in 0..=TURNS {
         let offer = tools.filter(|_| turn < TURNS).map(|_| &schema);
-        let reply = match client.chat_as(&msgs, offer, "verdict", &answer) {
-            Ok(r) => r,
-            Err(CallError::RateLimited) => return Err("rate limited".into()),
-            Err(CallError::Unavailable(e) | CallError::Failed(e)) => return Err(e),
-        };
+        let reply = client.chat_as(&msgs, offer, "verdict", &answer)?;
         prompt += reply.prompt_tokens;
         completion += reply.completion_tokens;
         if let (Some(tools), false) = (tools, reply.tool_calls.is_empty() || offer.is_none()) {
@@ -180,7 +179,8 @@ fn check(
             }
             continue;
         }
-        let mut v = parse(&reply.content).ok_or("the verdict did not match the schema")?;
+        let mut v = parse(&reply.content)
+            .ok_or_else(|| CallError::Failed("the verdict did not match the schema".into()))?;
         // A confirmation must quote what it rests on, from the request or a tool.
         if v.verdict == "confirmed" && (squash(&v.quote).len() < 4 || !seen(&msgs, &v.quote)) {
             v.verdict = "refuted".into();
@@ -188,7 +188,7 @@ fn check(
         }
         return Ok((v, prompt, completion));
     }
-    Err("no verdict within the tool turns".into())
+    Err(CallError::Failed("no verdict within the tool turns".into()))
 }
 
 #[cfg(test)]

@@ -921,6 +921,17 @@ fn check(args: CheckArgs) -> Result<Report> {
             review.push(if config.verify {
                 let tools = escalate::is_sha(&ctx.commit).then_some(&tools);
                 verify::run(&client, ctx, &layer1, config.guides.as_deref(), tools, r)
+                    .unwrap_or_else(|e| {
+                        let why = match e {
+                            review::CallError::RateLimited => "rate limited".to_string(),
+                            review::CallError::Unavailable(e) | review::CallError::Failed(e) => e,
+                        };
+                        review::Review::not_reviewed(
+                            ctx.index,
+                            &client.model,
+                            &format!("the check pass got no answer: {why}"),
+                        )
+                    })
             } else {
                 r
             });

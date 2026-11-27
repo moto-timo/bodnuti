@@ -1359,33 +1359,34 @@ fn drain(
                 },
             )
         } else {
-            let answer = review(client, &q.context, &q.layer1, guides_dir);
+            // A check pass the endpoint cannot answer leaves the patch
+            // queued, like layer 3: its findings were not judged.
+            let answer = review(client, &q.context, &q.layer1, guides_dir).and_then(|r| {
+                let r = match crate::escalate::wants(&q.context, &r) {
+                    Some(why) => {
+                        crate::escalate::run(escalation, &q, r, &why, guides_dir, deadline)
+                    }
+                    None => r,
+                };
+                if !config.verify {
+                    return Ok(r);
+                }
+                let tools = q.repo.as_deref().map(|repo| crate::escalate::Tools {
+                    repo,
+                    commit: &q.context.commit,
+                });
+                let tools = tools
+                    .as_ref()
+                    .filter(|_| crate::escalate::is_sha(&q.context.commit));
+                crate::verify::run(client, &q.context, &q.layer1, guides_dir, tools, r)
+            });
             down = if matches!(answer, Err(CallError::Unavailable(_))) {
                 down + 1
             } else {
                 0
             };
             match answer {
-                Ok(r) => {
-                    let r = match crate::escalate::wants(&q.context, &r) {
-                        Some(why) => {
-                            crate::escalate::run(escalation, &q, r, &why, guides_dir, deadline)
-                        }
-                        None => r,
-                    };
-                    if config.verify {
-                        let tools = q.repo.as_deref().map(|repo| crate::escalate::Tools {
-                            repo,
-                            commit: &q.context.commit,
-                        });
-                        let tools = tools
-                            .as_ref()
-                            .filter(|_| crate::escalate::is_sha(&q.context.commit));
-                        crate::verify::run(client, &q.context, &q.layer1, guides_dir, tools, r)
-                    } else {
-                        r
-                    }
-                }
+                Ok(r) => r,
                 Err(CallError::RateLimited) => {
                     println!("review: rate limited; the rest waits for the next run");
                     break;
@@ -1669,7 +1670,7 @@ mod tests {
                 confidence: "high".into(),
             });
         }
-        let r = crate::verify::run(&client(&url), &ctx(), &[], None, None, r);
+        let r = crate::verify::run(&client(&url), &ctx(), &[], None, None, r).unwrap();
         assert_eq!(r.findings.len(), 1);
         assert_eq!(r.findings[0].finding.line, Some(1));
         assert_eq!(r.dropped.len(), 3);
@@ -2013,6 +2014,32 @@ mod tests {
             "the third patch is not asked"
         );
         assert_eq!(store.queued().len(), 3, "all stay queued for the next run");
+    }
+
+    #[test]
+    fn a_rate_limited_check_pass_leaves_the_patch_queued() {
+        let state = tempfile::tempdir().unwrap();
+        let store = Store::new(state.path());
+        let now = 10 * MAX_AGE_SECS;
+        store
+            .enqueue(&Queued {
+                list: "oe-core".into(),
+                root: "a@x".into(),
+                patch_id: Some("aa".into()),
+                queued: now - 60,
+                layer1: vec![],
+                context: ctx(),
+                repo: None,
+            })
+            .unwrap();
+        let found = answer(vec![finding("meta/recipes-foo/foo/foo_1.0.bb", Some(1))]);
+        let (url, _) = stub(vec![ok(&found), (429, "{}".into())]);
+        let mut config = ReviewConfig::local(&url);
+        config.verify = true;
+        let far = Instant::now() + Duration::from_secs(60);
+        drain(&client(&url), None, &store, &config, None, now, far).unwrap();
+        assert_eq!(store.queued().len(), 1, "unjudged: stays queued");
+        assert!(store.results("oe-core", "a@x").is_empty());
     }
 
     #[test]
