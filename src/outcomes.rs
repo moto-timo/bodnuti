@@ -272,11 +272,17 @@ pub fn run(config: &Config, now: u64) -> Result<()> {
                         }
                     }
                     if ranges.len() < files.len() {
-                        continue; // a commit is gone: cannot decide
-                    }
+                        // A commit is gone or in another clone: no interdiff
+                        // now, and none later, so wait out the cutoff and
+                        // let it stay undecided, as with no later version.
+                        if crate::lore::parse_time(&record.tracked.last_seen)
+                            .is_none_or(|t| now.saturating_sub(t) < UNDECIDED_SECS)
+                        {
+                            continue;
+                        }
                     // ponytail: v1 and v2 may sit on different bases, so the
                     // interdiff can carry base changes; trend measure only.
-                    if ranges.values().all(Vec::is_empty) {
+                    } else if ranges.values().all(Vec::is_empty) {
                         d.kind = Kind::Resent;
                     } else {
                         d.kind = Kind::Revised;
