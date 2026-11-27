@@ -262,9 +262,16 @@ pub fn escalate(
     layer3: &Review,
     tools: &Tools,
 ) -> Result<Review, CallError> {
-    let ctx = &crate::review::fit(client, ctx, layer1, guides_dir, true)
-        .ok_or_else(|| CallError::Failed("the patch does not fit the context".into()))?;
-    let mut msgs = messages(ctx, layer1, guides_dir, true);
+    let (ctx, with_rules) = match crate::review::fit(client, ctx, layer1, guides_dir, true) {
+        Some(c) => (c, true),
+        None => (
+            crate::review::fit(client, ctx, layer1, guides_dir, false)
+                .ok_or_else(|| CallError::Failed("the patch does not fit the context".into()))?,
+            false,
+        ),
+    };
+    let ctx = &ctx;
+    let mut msgs = messages(ctx, layer1, guides_dir, with_rules);
     let leads: Vec<String> = layer3
         .findings
         .iter()

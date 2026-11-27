@@ -2159,6 +2159,31 @@ mod tests {
     }
 
     #[test]
+    fn a_check_pass_too_big_with_the_rules_runs_without_them() {
+        let (url, seen) = stub(vec![ok(
+            &json!({"verdict": "confirmed", "quote": "+DEPENDS += \"x\"", "reason": "r"})
+                .to_string(),
+        )]);
+        let mut c = client(&url);
+        let without = messages(&ctx(), &[], None, false).to_string().len();
+        let with = messages(&ctx(), &[], None, true).to_string().len();
+        assert!(with > without + 1000, "the built-in rules add text");
+        // Room for the request without the rules, not with them.
+        c.max_tokens = 100;
+        c.context_tokens = ((without + 500) * 2 / 5 + 100 + HEADROOM_TOKENS) as u32;
+        let mut r = Review::not_reviewed(2, "m", "");
+        r.findings.push(ModelFinding {
+            finding: layer1().remove(0),
+            category: "other".into(),
+            confidence: "high".into(),
+            evidence: String::new(),
+        });
+        let r = crate::verify::run(&c, &ctx(), &[], None, None, r).unwrap();
+        assert_eq!(r.findings.len(), 1, "{:?}", r.dropped);
+        assert!(!seen.lock().unwrap()[0].contains("# Review rules"));
+    }
+
+    #[test]
     fn the_retry_effort_is_configurable() {
         let cut = r#"{"choices":[{"message":{"content":""},"finish_reason":"length"}],"usage":{}}"#;
         let (url, seen) = stub(vec![(200, cut.into()), ok(&answer(vec![]))]);

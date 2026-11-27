@@ -124,9 +124,18 @@ fn check(
     tools: Option<&Tools>,
     f: &ModelFinding,
 ) -> Result<(Verdict, u64, u64), CallError> {
-    let ctx = &fit(client, ctx, layer1, guides_dir, true)
-        .ok_or_else(|| CallError::Failed("the patch does not fit the context".into()))?;
-    let mut msgs = messages(ctx, layer1, guides_dir, true);
+    // The rules make the system prompt up to 24 KiB longer: a large patch
+    // that fits without them is still checked, without them.
+    let (ctx, with_rules) = match fit(client, ctx, layer1, guides_dir, true) {
+        Some(c) => (c, true),
+        None => (
+            fit(client, ctx, layer1, guides_dir, false)
+                .ok_or_else(|| CallError::Failed("the patch does not fit the context".into()))?,
+            false,
+        ),
+    };
+    let ctx = &ctx;
+    let mut msgs = messages(ctx, layer1, guides_dir, with_rules);
     let finding = format!(
         "{}:{} [{}] {}",
         f.finding.file.as_deref().unwrap_or("?"),
