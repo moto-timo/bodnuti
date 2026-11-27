@@ -29,7 +29,8 @@ pub struct ReviewConfig {
     #[serde(default)]
     pub api_key_file: Option<PathBuf>,
     pub model: String,
-    /// Layer 4 (§6); not built yet, so it only names the model.
+    /// Layer 4 (§6): the larger model risky patches go to, with read-only
+    /// git tools. Unset: no escalation.
     #[serde(default)]
     pub escalation_model: Option<String>,
     #[serde(default = "default_context_tokens")]
@@ -39,7 +40,8 @@ pub struct ReviewConfig {
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
     /// sashiko's `projects/yoctoproject/prompts`, for the review guides
-    /// (§5.1). Unset: the fixed rules only.
+    /// (§5.1); a `rules/` directory in it replaces the built-in review
+    /// rules. Unset: no guides, and the built-in rules.
     #[serde(default)]
     pub guides: Option<PathBuf>,
     /// The documentation index of bench/phase3/docs_index.py: the entries
@@ -66,7 +68,7 @@ pub struct ReviewConfig {
     #[serde(default)]
     pub retry_effort: Option<String>,
     /// Model findings rated below this are dropped (§5.3). The default,
-    /// high, is what kept false findings under the §8 bar.
+    /// medium: with the evidence rule, high cost defects (docs/STATUS.md).
     #[serde(default = "default_min_confidence")]
     pub min_confidence: Confidence,
     /// Room for the answer, reasoning included: a local model that
@@ -138,8 +140,11 @@ const CATEGORIES: [&str; 11] = [
     "other",
 ];
 
-/// The prompt version, the same as bench/phase3/score.py's.
-pub const PROMPT: &str = "v2.3";
+/// The prompt version layer 3 sends, by which live scores are grouped
+/// (§11): v2 is bench/phase3/score.py's v2; v2.1 adds the series context,
+/// v2.2 the docs and the false-positive guide, v2.3 the review rules, and
+/// v2.4 moves the rules to the check pass.
+pub const PROMPT: &str = "v2.4";
 
 const SYSTEM_CORE: &str = "\
 You review one patch to an OpenEmbedded / Yocto Project layer.

@@ -436,9 +436,10 @@ struct CheckArgs {
     /// measure a model on chosen patches of a long series.
     #[arg(long, value_delimiter = ',')]
     review_patches: Vec<u32>,
-    /// Write each patch's layer 3 request (designs/PHASE3.md §5.1), without
-    /// guides, to DIR/<patch>.json instead of sending it: training data
-    /// (designs/TRAINING.md).
+    /// Write each patch's layer 3 request (designs/PHASE3.md §5.1) to
+    /// DIR/<patch>.json, as review sends it: with the guides and docs of
+    /// --review-config, without the review rules, which go to the check
+    /// pass. With --review it is also sent.
     #[arg(long, value_name = "DIR")]
     review_requests: Option<PathBuf>,
     /// Also review each patch with a model (designs/PHASE3.md §7), with the
@@ -693,18 +694,19 @@ fn sibling(program: &str) -> String {
 
 fn check(args: CheckArgs) -> Result<Report> {
     // --review-requests writes the request as review sends it: with the
-    // guides and rules the review config names.
-    let request_guides = args
+    // guides and docs the review config names, without the review rules.
+    let request_config = args
         .review_requests
         .as_ref()
-        .and_then(|_| review_config(&args).ok())
-        .and_then(|c| c.guides);
+        .and_then(|_| review_config(&args).ok());
+    let request_guides = request_config.as_ref().and_then(|c| c.guides.clone());
     // Before any work, so a missing setting fails at once.
     let review_config = args.review.then(|| review_config(&args)).transpose()?;
     let doc_index = args
         .review_docs
         .clone()
         .or_else(|| review_config.as_ref().and_then(|c| c.docs.clone()))
+        .or_else(|| request_config.as_ref().and_then(|c| c.docs.clone()))
         .map(|p| context::Docs::load(&watch::expand(&p)))
         .transpose()?;
     let python = args.python.unwrap_or_else(|| sibling("python3"));
