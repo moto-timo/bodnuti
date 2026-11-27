@@ -608,7 +608,7 @@ fn grep(tree: &Path, rev: &str, name: &str, touched: &[String]) -> Vec<String> {
     let Ok(out) = git_out(
         tree,
         &[
-            "grep", "-n", "-w", "-C", "3", "-e", name, rev, "--", EXCLUDE,
+            "grep", "-z", "-n", "-w", "-C", "3", "-e", name, rev, "--", EXCLUDE,
         ],
     ) else {
         return Vec::new();
@@ -616,8 +616,10 @@ fn grep(tree: &Path, rev: &str, name: &str, touched: &[String]) -> Vec<String> {
     let prefix = format!("{rev}:");
     out.split("\n--\n")
         .map(|g| {
+            // -z ends the path and the line number with NUL, so a path with
+            // "-<digits>-" in it (CVE-2024-6197.patch) still splits right.
             g.lines()
-                .map(|l| l.strip_prefix(&prefix).unwrap_or(l))
+                .map(|l| l.strip_prefix(&prefix).unwrap_or(l).replacen('\0', ":", 2))
                 .collect::<Vec<_>>()
                 .join("\n")
         })
@@ -627,15 +629,16 @@ fn grep(tree: &Path, rev: &str, name: &str, touched: &[String]) -> Vec<String> {
 }
 
 /// The path of a `git grep -n` line: what comes before `:12:` or `-12-`.
+/// The path of a grep hit, `path:line:text` as grep() writes it.
 fn hit_path(line: &str) -> Option<&str> {
     let b = line.as_bytes();
     (0..b.len()).find_map(|i| {
-        if !matches!(b[i], b':' | b'-') {
+        if b[i] != b':' {
             return None;
         }
         let digits = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
         let j = i + 1 + digits;
-        (digits > 0 && j < b.len() && matches!(b[j], b':' | b'-')).then(|| &line[..i])
+        (digits > 0 && j < b.len() && b[j] == b':').then(|| &line[..i])
     })
 }
 
@@ -867,9 +870,13 @@ mod tests {
             ["oe_runmake"]
         );
         assert_eq!(
-            hit_path("meta/a-b/c-1.0.bb-12-  FOO"),
+            hit_path("meta/a-b/c-1.0.bb:12:  FOO"),
             Some("meta/a-b/c-1.0.bb")
         );
         assert_eq!(hit_path("meta/x.bb:3:FOO"), Some("meta/x.bb"));
+        assert_eq!(
+            hit_path("meta/recipes-support/curl/curl/CVE-2024-6197.patch:12:+FOO"),
+            Some("meta/recipes-support/curl/curl/CVE-2024-6197.patch")
+        );
     }
 }
