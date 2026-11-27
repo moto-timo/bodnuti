@@ -71,6 +71,8 @@ endpoint = "https://api.friendli.ai/serverless/v1"
 api_key_file = "~/.config/bodnuti/review.key"   # mode 600
 model = "zai-org/GLM-5.3-Flash"
 guides = "~/sashiko/projects/yoctoproject/prompts"   # optional
+docs = "~/docs-index.json"   # optional, from bench/phase3/docs_index.py
+verify = true                # the check pass
 ```
 
 or a model of your own, which sends no key:
@@ -82,6 +84,53 @@ bodnuti check --review --review-endpoint http://localhost:11434/v1 \
 
 A series not yet sent is private: `--review` sends it, with its context,
 to the endpoint, so choose one whose data terms you accept.
+
+#### How model review works
+
+Model review (phases 3 and 4 of the design) adds layers after the checks.
+Each layer runs only where the one before leaves a question, and each one
+can only remove findings, never add to the result:
+
+```mermaid
+flowchart TD
+    mail["Series from the list<br/>(untrusted)"] --> l1
+    l1["Layer 1: deterministic checks<br/>patchtest, oelint-adv, shellcheck, ..."] --> l2
+    l2["Layer 2: context, in the no-network container<br/>files touched, require/inherit, git grep"] --> docs
+    docs["Docs for what the patch changes<br/>glossary, classes, task flags, bitbake.conf values"] --> l3
+    l3["Layer 3: one model call per patch<br/>guides, JSON schema, quoted evidence"] --> val
+    val{"Validation<br/>file and line in the request?<br/>evidence quoted word for word?<br/>confidence, not a layer-1 repeat?"} -->|kept| check
+    val -->|dropped| log[("dropped, with the reason")]
+    check{"Check pass<br/>review rules, false-positive guide,<br/>read-only git grep/show/log"} -->|confirmed with a quote| report
+    check -->|refuted| log
+    l3 -.->|risky patch or low confidence| l4["Layer 4: escalation (draft)<br/>larger model with read-only git tools"]
+    l4 -.-> check
+    report["Report: model findings apart,<br/>marked unverified, never in the result"] --> score
+    score["Scoring against what the lists decided<br/>later revisions, Fixes: commits"]
+    rules[("Review rules<br/>plugins/bodnuti/skills/yocto-review-rules")] --> check
+    rules --> plugin["Claude Code skill<br/>same Markdown files"]
+```
+
+- **Layer 2** gathers context with no network and under a size cap: the
+  files a patch touches, what they `require` and `inherit`, where the names
+  it changes are used, and with `docs` the documentation and the
+  `bitbake.conf` value of each variable, class and task flag it changes.
+- **Layer 3** reviews the patch with sashiko's Yocto guides, not the review
+  rules: with the rules in the request, local models checked patch headers
+  field by field and stopped reading the code.
+- **The check pass** (`verify = true`) asks the model once more about each
+  finding, with the review rules, the false-positive guide and read-only
+  git tools on the tree after the patch. A finding is shown only when the
+  model confirms it with a line it quotes from the request or a tool.
+- **Layer 4** (`escalation_model`) sends risky patches to a larger model
+  with the same tools. It is a draft and not yet measured.
+- **The review rules** are Markdown files condensed from maintainers'
+  inline review on the lists. The same files are the Claude Code skill
+  `yocto-review-rules`, so any assistant reviewing or writing a recipe can
+  read them.
+
+A finding never changes the exit status or the result. Training a model
+instead was tried and stopped
+([`designs/TRAINING.md`](designs/TRAINING.md) §8).
 
 `bodnuti poll` and `bodnuti publish` are the watcher's commands; see
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
