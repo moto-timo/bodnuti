@@ -1,4 +1,4 @@
-<!-- select: .bb .bbappend .inc FLAGS EXTRA_OE sed -->
+<!-- select: .bb .bbappend .inc FLAGS EXTRA_OE 's/ "s/ -->
 # Rules: Build Fixes and Workarounds
 
 Applies to: `.bb`, `.bbappend`, `.inc` hunks that add compiler flags

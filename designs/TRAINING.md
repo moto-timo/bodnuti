@@ -126,7 +126,8 @@ is the baseline a trained adapter has to beat.
 One QLoRA run of gemma4 12B (rank 16, all attention and MLP
 projections), on an AWS g6.2xlarge (L4, 24 GB) because the 7600 XT has
 no memory-efficient attention for Gemma's 262k vocabulary: 925
-examples, one epoch, six hours, about $6. Eval loss fell from 0.368 to
+examples (of 1,725: 754 left out as longer than the 8k-token cut, 46
+held out for the eval loss), one epoch, six hours, about $6. Eval loss fell from 0.368 to
 0.356 and stalled; train loss reached 0.16.
 
 On the 23 series of 26 November, with the request format it was

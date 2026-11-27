@@ -57,6 +57,17 @@ Run from the plugin directory. They run no container.
 python3 -m unittest discover -s skills/bodnuti/tests
 ```
 
+`evals/` holds real patches from 26 November 2026, each with what a
+review must find, or must not claim (`trap-*`), for `claude plugin eval`,
+which runs each case with and without the plugin and grades the answers
+with a model; it uses your Claude account:
+
+```
+claude plugin eval . --model sonnet --judge-model sonnet --runs 3 --no-publish
+```
+
+Mail addresses and names in the cases are placeholders.
+
 ## License
 
 MIT OR Apache-2.0, the same as bodnuti. See `LICENSE-MIT` and

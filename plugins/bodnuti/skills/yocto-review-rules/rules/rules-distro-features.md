@@ -1,4 +1,4 @@
-<!-- select: .bb .bbappend .inc .bbclass DISTRO_FEATURES systemd -->
+<!-- select: .bb .bbappend .inc .bbclass DISTRO_FEATURES systemd polkit x11 -->
 # Rules: DISTRO_FEATURES and systemd
 
 Applies to: `.bb`, `.bbappend`, `.inc` hunks that add `systemd`, `polkit`,

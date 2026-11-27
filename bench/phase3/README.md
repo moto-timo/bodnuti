@@ -1,10 +1,23 @@
 # Phase 3 measurement
 
 `score.py` measures a layer 3 configuration as `designs/PHASE3.md` §8
-describes, before layers 3 and 4 are built into bodnuti. It builds the
-layer 2 context for each benchmark commit the way §4 describes, makes one
-request per patch (§5) to an OpenAI-compatible endpoint, validates the
-answer (§5.3), and writes a summary.
+describes; it was written before layers 3 and 4 were built into bodnuti,
+and knows prompts v1 to v3, not what bodnuti now sends (v2.4, `PROMPT`
+in src/review.rs). It builds the layer 2 context for each benchmark
+commit the way §4 describes, makes one request per patch (§5) to an
+OpenAI-compatible endpoint, validates the answer (§5.3), and writes a
+summary.
+
+The other scripts:
+
+- `docs_index.py` builds the docs index bodnuti's `docs` setting reads,
+  from yocto-docs, bitbake and, with `--oe-core`, openembedded-core's
+  bitbake.conf.
+- `train_data.py` and `train_lora.py` build a fine-tuning set from the
+  lists' review history and train a LoRA on it
+  (`designs/TRAINING.md`; stopped, §8).
+- `mine.py`, `history.py` and `lessons.py` built the held-out set, the
+  replay of the lists' reviews and the v3 rules (below).
 
 It is a measurement tool, not bodnuti's implementation: it reads git
 objects directly, with no sandbox, so run it only on a trusted

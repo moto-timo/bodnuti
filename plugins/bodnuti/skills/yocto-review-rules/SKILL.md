@@ -29,7 +29,7 @@ Read only the files for what the change touches, not all of them:
 | compiler flags, `EXTRA_OE*`, `sed` on build files | `rules/rules-build-fixes.md` |
 | a `.bbclass` | `rules/rules-classes.md` |
 | a carried `.patch` or `.diff` file | `rules/rules-patch-headers.md` |
-| Python in `meta/lib`, `scripts/`, or in classes | `rules/rules-oe-python.md` |
+| Python files in `meta/lib`, `scripts/` (class code: `rules-classes.md`) | `rules/rules-oe-python.md` |
 | oe-selftest and other `oeqa` tests | `rules/rules-oeqa.md` |
 | `run-ptest`, init scripts, unit files for the target | `rules/rules-target-scripts.md` |
 
