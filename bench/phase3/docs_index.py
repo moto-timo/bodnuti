@@ -3,7 +3,8 @@
 
 Reads a yocto-docs and a bitbake checkout and writes one JSON file:
 the glossary entry of each variable, the section of each class, and the
-description of each BitBake variable flag, as plain text with the RST
+description of each BitBake variable flag, and with --oe-core the value
+meta/conf/bitbake.conf gives each variable for every recipe, as plain text with the RST
 roles stripped, each capped at CAP characters. Layer 2 can then add the
 entries for the variables, classes and flags a patch touches, so a
 finding can quote the documentation instead of the model's memory.
@@ -23,6 +24,7 @@ CAP = 1500
 TERM = re.compile(r"^   :term:`([^`]+)`\s*$")
 CLASS = re.compile(r"^\.\. _ref-classes-([\w.+-]+):\s*$")
 FLAG = re.compile(r"^-\s+``\[(\w+)\]``:\s*(.*)$")
+ASSIGN = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*(?::[\w${}-]+)*)\s*(\?\?=|\?=|:=|=)\s*"(.*)"\s*$')
 
 
 def plain(text: str) -> str:
@@ -81,6 +83,16 @@ def flags(path: Path) -> dict[str, str]:
     return out
 
 
+def defaults(path: Path) -> dict[str, str]:
+    """Each variable's one-line assignments in bitbake.conf, overrides included."""
+    out: dict[str, list[str]] = {}
+    for line in path.read_text().splitlines():
+        m = ASSIGN.match(line)
+        if m:
+            out.setdefault(m.group(1).split(":")[0], []).append(f'{m.group(1)} {m.group(2)} "{m.group(3)}"')
+    return {k: "; ".join(v) for k, v in out.items()}
+
+
 def head(repo: Path) -> str:
     return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
@@ -90,6 +102,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--yocto-docs", type=Path, required=True)
     ap.add_argument("--bitbake", type=Path, required=True)
+    ap.add_argument("--oe-core", type=Path, help="openembedded-core checkout, for bitbake.conf")
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
     ref = args.yocto_docs / "documentation/ref-manual"
@@ -98,8 +111,15 @@ def main() -> None:
     for name, text in glossary(ref / "variables.rst").items():
         # many Yocto entries start "See the BitBake manual": keep both
         variables[name] = (variables[name] + " | Yocto: " + text)[:CAP] if name in variables else text
+    source = {"yocto-docs": head(args.yocto_docs), "bitbake": head(args.bitbake)}
+    if args.oe_core:
+        # Set for every recipe, so never "undefined" in a recipe that does not set it.
+        for name, text in defaults(args.oe_core / "meta/conf/bitbake.conf").items():
+            note = "Set for every recipe in meta/conf/bitbake.conf: " + text
+            variables[name] = (note + " | " + variables[name])[:CAP] if name in variables else note[:CAP]
+        source["openembedded-core"] = head(args.oe_core)
     index = {
-        "source": {"yocto-docs": head(args.yocto_docs), "bitbake": head(args.bitbake)},
+        "source": source,
         "variables": variables,
         "classes": classes(ref / "classes.rst"),
         "flags": flags(bb / "bitbake-user-manual-metadata.rst"),
@@ -117,6 +137,8 @@ def demo() -> None:
     assert glossary(d / "v.rst") == {"SRC_URI": "The list of source files, see PREMIRRORS and file://.", "S": "The source dir."}
     assert classes(d / "c.rst") == {"cargo": "Builds Rust with rust.", "ptest": "Runs tests."}
     assert flags(d / "f.rst") == {"postfuncs": "List of functions to call after the task.", "umask": "The umask."}
+    (d / "b.conf").write_text('USRBINPATH = "${bindir}"\nUSRBINPATH:class-native = "/usr/bin"\nexport PATH\n')
+    assert defaults(d / "b.conf") == {"USRBINPATH": 'USRBINPATH = "${bindir}"; USRBINPATH:class-native = "/usr/bin"'}
 
 
 if __name__ == "__main__":
