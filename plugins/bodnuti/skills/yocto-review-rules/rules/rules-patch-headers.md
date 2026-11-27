@@ -139,7 +139,10 @@ only on patch files the series adds or whose header it changes.
   `[lastrelease: <when>]`, keeping any reference to where the patch came
   from.
 - **Do not report when:** upstream is slow but active; the patch is a real
-  backport of an upstream commit.
+  backport of an upstream commit; the status already is
+  `Inactive-Upstream`, with a free-text reason or none: master carries 36
+  such patch files without the `[lastcommit:]`/`[lastrelease:]` form, so
+  a missing date is not a finding.
 - **Evidence:**
   - "There is a separate status for this situation: Inactive-Upstream. Please use it." — expect: Replace tclsh with tclsh8 (2024-12)
   - "I think for the status "Backport", or maybe "Inactive-Upstream" would be better (while still keeping the reference)" — zip: fix a buffer overflow (2025-05)

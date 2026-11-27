@@ -1,7 +1,7 @@
 ---
 max_turns: 10
 allowed_tools: [Read, Glob, Grep, Skill]
-tags: [real]
+tags: [trap]
 ---
 
 This patch was posted to an OpenEmbedded mailing list on 26 November 2026. Review it as a maintainer would. List only real problems, each with the file, the line and what to change. If there are none, say so. You have the mail only, not the layer. Mail addresses and names in it are replaced by placeholders; do not report them.
