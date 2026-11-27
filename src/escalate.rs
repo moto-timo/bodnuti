@@ -90,7 +90,7 @@ pub fn run(
             r
         }
         Err(CallError::RateLimited) => not("rate limited".into()),
-        Err(CallError::Failed(e)) => not(e),
+        Err(CallError::Unavailable(e) | CallError::Failed(e)) => not(e),
     }
 }
 

@@ -156,7 +156,7 @@ fn check(
         let reply = match client.chat_as(&msgs, offer, "verdict", &answer) {
             Ok(r) => r,
             Err(CallError::RateLimited) => return Err("rate limited".into()),
-            Err(CallError::Failed(e)) => return Err(e),
+            Err(CallError::Unavailable(e) | CallError::Failed(e)) => return Err(e),
         };
         prompt += reply.prompt_tokens;
         completion += reply.completion_tokens;

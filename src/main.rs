@@ -852,16 +852,33 @@ fn check(args: CheckArgs) -> Result<Report> {
             None => None,
         };
         let tree = workspace.path();
+        let (mut down, mut why_down) = (0, String::new());
         for ctx in context
             .iter()
             .filter(|c| args.review_patches.is_empty() || args.review_patches.contains(&c.index))
         {
+            if down >= review::DOWN_AFTER {
+                review.push(review::Review::not_reviewed(
+                    ctx.index,
+                    &client.model,
+                    &format!("not asked: no answer twice in a row ({why_down})"),
+                ));
+                continue;
+            }
             let layer1: Vec<Finding> = findings
                 .iter()
                 .filter(|f| f.patch == Some(ctx.index))
                 .cloned()
                 .collect();
-            let r = match review::review(&client, ctx, &layer1, config.guides.as_deref()) {
+            let answer = review::review(&client, ctx, &layer1, config.guides.as_deref());
+            down = match &answer {
+                Err(review::CallError::Unavailable(e)) => {
+                    why_down = e.clone();
+                    down + 1
+                }
+                _ => 0,
+            };
+            let r = match answer {
                 Ok(r) => match escalate::wants(ctx, &r) {
                     Some(why) => escalate::run(
                         escalation.as_ref(),
@@ -884,7 +901,7 @@ fn check(args: CheckArgs) -> Result<Report> {
                 Err(review::CallError::RateLimited) => {
                     review::Review::not_reviewed(ctx.index, &client.model, "rate limited")
                 }
-                Err(review::CallError::Failed(e)) => {
+                Err(review::CallError::Unavailable(e) | review::CallError::Failed(e)) => {
                     review::Review::not_reviewed(ctx.index, &client.model, &e)
                 }
             };

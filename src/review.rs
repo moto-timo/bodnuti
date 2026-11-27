@@ -356,8 +356,16 @@ enum Format {
 pub enum CallError {
     /// HTTP 429: the patch stays queued and the step ends (§7).
     RateLimited,
+    /// No answer from the endpoint: no connection, a timeout or HTTP 5xx.
+    /// After [`DOWN_AFTER`] patches in a row, callers stop asking: an
+    /// endpoint that hangs would otherwise cost the full timeout on every
+    /// patch.
+    Unavailable(String),
     Failed(String),
 }
+
+/// Patches in a row without an answer before review stops for this run.
+pub const DOWN_AFTER: usize = 2;
 
 pub(crate) struct Reply {
     pub(crate) content: String,
@@ -498,12 +506,12 @@ impl Client {
             }
             let mut response = request
                 .send(&body)
-                .map_err(|e| CallError::Failed(format!("{e}")))?;
+                .map_err(|e| CallError::Unavailable(format!("{e}")))?;
             let status = response.status().as_u16();
             let text = response
                 .body_mut()
                 .read_to_string()
-                .map_err(|e| CallError::Failed(format!("reading the answer: {e}")))?;
+                .map_err(|e| CallError::Unavailable(format!("reading the answer: {e}")))?;
             match status {
                 200 => {
                     return reply(&text).map_err(CallError::Failed);
@@ -517,6 +525,7 @@ impl Client {
                     eprintln!("review: HTTP 400; trying response_format {next:?}");
                     self.format.set(next);
                 }
+                500..=599 => return Err(CallError::Unavailable(format!("HTTP {status}"))),
                 _ => return Err(CallError::Failed(format!("HTTP {status}"))),
             }
         }
@@ -1063,12 +1072,17 @@ pub fn review(
         );
     }
     let mut last = String::new();
-    for _ in 0..2 {
+    for attempt in 0..2 {
         let start = Instant::now();
         let reply = match client.chat(&messages) {
             Ok(r) => r,
             Err(CallError::RateLimited) => return Err(CallError::RateLimited),
-            Err(CallError::Failed(e)) => {
+            // A quick 5xx is retried once; a timeout already waited
+            // timeout_seconds and is not.
+            Err(CallError::Unavailable(e)) if attempt == 1 || !e.starts_with("HTTP 5") => {
+                return Err(CallError::Unavailable(e));
+            }
+            Err(CallError::Unavailable(e) | CallError::Failed(e)) => {
                 last = e;
                 continue;
             }
@@ -1224,6 +1238,7 @@ fn drain(
 ) -> Result<()> {
     let guides_dir = config.guides.as_deref();
     let mut reviewed = 0;
+    let mut down = 0;
     let queued = store.queued();
     for path in &queued {
         if Instant::now() >= deadline {
@@ -1252,7 +1267,13 @@ fn drain(
                 },
             )
         } else {
-            match review(client, &q.context, &q.layer1, guides_dir) {
+            let answer = review(client, &q.context, &q.layer1, guides_dir);
+            down = if matches!(answer, Err(CallError::Unavailable(_))) {
+                down + 1
+            } else {
+                0
+            };
+            match answer {
                 Ok(r) => {
                     let r = match crate::escalate::wants(&q.context, &r) {
                         Some(why) => {
@@ -1276,6 +1297,17 @@ fn drain(
                 Err(CallError::RateLimited) => {
                     println!("review: rate limited; the rest waits for the next run");
                     break;
+                }
+                // The patch stays queued for the next run.
+                Err(CallError::Unavailable(e)) if down >= DOWN_AFTER => {
+                    println!(
+                        "review: no answer twice in a row ({e}); the rest waits for the next run"
+                    );
+                    break;
+                }
+                Err(CallError::Unavailable(e)) => {
+                    eprintln!("review: patch {}: no answer: {e}", q.context.index);
+                    continue;
                 }
                 Err(CallError::Failed(e)) => Review::without_answer(
                     q.context.index,
@@ -1766,6 +1798,39 @@ mod tests {
             store.results("oe-core", "resend@x")[&1].outcome,
             Outcome::Reviewed
         );
+    }
+
+    #[test]
+    fn a_dead_endpoint_stops_the_queue_after_two_patches() {
+        let state = tempfile::tempdir().unwrap();
+        let store = Store::new(state.path());
+        let now = 10 * MAX_AGE_SECS;
+        for (root, id) in [("a@x", "aa"), ("b@x", "bb"), ("c@x", "cc")] {
+            let mut context = ctx();
+            context.index = 1;
+            store
+                .enqueue(&Queued {
+                    list: "oe-core".into(),
+                    root: root.into(),
+                    patch_id: Some(id.into()),
+                    queued: now - 60,
+                    layer1: vec![],
+                    context,
+                    repo: None,
+                })
+                .unwrap();
+        }
+        // Each patch: a 5xx, its one retry, then no more.
+        let (url, seen) = stub(vec![(500, "{}".into()); 6]);
+        let far = Instant::now() + Duration::from_secs(60);
+        let config = ReviewConfig::local(&url);
+        drain(&client(&url), None, &store, &config, None, now, far).unwrap();
+        assert_eq!(
+            seen.lock().unwrap().len(),
+            4,
+            "the third patch is not asked"
+        );
+        assert_eq!(store.queued().len(), 3, "all stay queued for the next run");
     }
 
     #[test]
