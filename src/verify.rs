@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::context::PatchContext;
 use crate::escalate::{Tools, cut, untrusted};
 use crate::finding::Finding;
-use crate::review::{CallError, Client, ModelFinding, Review, messages};
+use crate::review::{CallError, Client, ModelFinding, Review, lines_in, messages};
 
 /// Tool turns before the model must give its verdict.
 const TURNS: usize = 3;
@@ -135,15 +135,16 @@ fn check(
          Answer with JSON only: {{\"verdict\": \"confirmed\" or \"refuted\", \
          \"quote\": \"...\", \"reason\": \"one sentence\"}}."
     );
-    let seen = |msgs: &Value| -> String {
-        msgs.as_array()
+    // What the model was shown: the request and the tools' output.
+    let seen = |msgs: &Value, quote: &str| -> bool {
+        let texts: Vec<&str> = msgs
+            .as_array()
             .into_iter()
             .flatten()
             .filter(|m| m["role"] != "assistant")
             .filter_map(|m| m["content"].as_str())
-            .map(squash)
-            .collect::<Vec<_>>()
-            .join("\n")
+            .collect();
+        lines_in(quote, texts.into_iter())
     };
     if let Some(list) = msgs.as_array_mut() {
         list.push(json!({"role": "user", "content": note}));
@@ -178,8 +179,7 @@ fn check(
         }
         let mut v = parse(&reply.content).ok_or("the verdict did not match the schema")?;
         // A confirmation must quote what it rests on, from the request or a tool.
-        let quote = squash(&v.quote);
-        if v.verdict == "confirmed" && (quote.len() < 4 || !seen(&msgs).contains(&quote)) {
+        if v.verdict == "confirmed" && (squash(&v.quote).len() < 4 || !seen(&msgs, &v.quote)) {
             v.verdict = "refuted".into();
             v.reason = format!("confirmed without a quote from the request: {}", v.reason);
         }
@@ -198,6 +198,16 @@ mod tests {
         assert_eq!(v.verdict, "refuted");
         assert_eq!(v.reason, "set in foo.inc");
         assert!(parse("no json").is_none());
+    }
+
+    #[test]
+    fn a_quote_may_span_lines_of_a_carried_patch() {
+        // The series adds a .patch file: its lines carry two markers.
+        let request =
+            "+ from PIL import FontFile\n++    font.glyph[0] = Image.new(\"L\", (0, 0))\n";
+        let quote = "from PIL import FontFile\n+    font.glyph[0] = Image.new(\"L\", (0, 0))";
+        assert!(lines_in(quote, [request].into_iter()));
+        assert!(!lines_in("import io", [request].into_iter()));
     }
 
     #[test]

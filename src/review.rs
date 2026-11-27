@@ -916,29 +916,33 @@ fn cut(s: &str) -> String {
     s.chars().take(MESSAGE_CAP).collect()
 }
 
-/// A line as compared for evidence: without a diff marker or spacing.
+/// A line as compared for evidence: without diff markers or spacing. A
+/// carried patch's lines have two markers in the series (`++`, `+-`).
 fn norm(line: &str) -> String {
-    let line = line.trim();
-    let line = line.strip_prefix(['+', '-']).unwrap_or(line);
+    let mut line = line.trim();
+    for _ in 0..2 {
+        line = line.strip_prefix(['+', '-']).unwrap_or(line).trim_start();
+    }
     line.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether every line of `quote` is a line, or part of one, in `texts`,
+/// compared without diff markers or spacing.
+pub(crate) fn lines_in<'a>(quote: &str, texts: impl Iterator<Item = &'a str>) -> bool {
+    let want: Vec<String> = quote.lines().map(norm).filter(|l| !l.is_empty()).collect();
+    if want.is_empty() {
+        return false;
+    }
+    let have: String = texts.flat_map(str::lines).map(|l| norm(l) + "\n").collect();
+    want.iter().all(|w| have.contains(w.as_str()))
 }
 
 /// Whether every non-empty line of the evidence is in the request.
 fn quoted(evidence: &str, ctx: &PatchContext) -> bool {
-    let want: Vec<String> = evidence
-        .lines()
-        .map(norm)
-        .filter(|l| !l.is_empty())
-        .collect();
-    if want.is_empty() {
-        return false;
-    }
-    let have: String = std::iter::once(ctx.diff.as_str())
-        .chain(ctx.items.iter().map(|i| i.text.as_str()))
-        .flat_map(str::lines)
-        .map(|l| norm(l) + "\n")
-        .collect();
-    want.iter().all(|w| have.contains(w.as_str()))
+    lines_in(
+        evidence,
+        std::iter::once(ctx.diff.as_str()).chain(ctx.items.iter().map(|i| i.text.as_str())),
+    )
 }
 
 /// §5.3: keeps the findings that cite a file and line the request had and
